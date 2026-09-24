@@ -1,0 +1,31 @@
+rules_version = '2';
+
+// Solo existe la carpeta logos/ (logo del local, lectura pública para el splash).
+// Todo lo demás queda denegado.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function perfil() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function esAdmin() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && perfil().get('role', '') == 'admin'
+        && perfil().get('estadoAprobacion', '') == 'aprobado';
+    }
+
+    function imagenValida() {
+      return request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(png|jpe?g|webp|gif|heic|heif)');
+    }
+
+    match /logos/{ruta=**} {
+      allow read: if true;
+      allow create, update: if esAdmin() && imagenValida();
+      allow delete: if esAdmin();
+    }
+  }
+}

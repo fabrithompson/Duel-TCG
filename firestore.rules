@@ -1,0 +1,545 @@
+rules_version = '2';
+
+// Duel: no hay backend propio, así que toda la seguridad vive acá.
+// Todo lo que no tenga un match explícito queda denegado (incluidas las
+// colecciones heredadas como tcg_juegos). La matriz de permisos está en README.md.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Identidad ----------
+
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    function rutaPerfil() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function perfil() {
+      return get(rutaPerfil()).data;
+    }
+
+    function aprobado() {
+      return autenticado()
+        && exists(rutaPerfil())
+        && perfil().get('estadoAprobacion', '') == 'aprobado';
+    }
+
+    function rol(r) {
+      return aprobado() && perfil().get('role', '') == r;
+    }
+
+    function esAdmin() {
+      return rol('admin');
+    }
+
+    function staff() {
+      return aprobado() && perfil().get('role', '') in ['admin', 'mozo', 'juez'];
+    }
+
+    // ---------- Utilidades de validación ----------
+
+    function cambios() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function texto(v, min, max) {
+      return v is string && v.trim().size() >= min && v.size() <= max;
+    }
+
+    function numeroEntre(v, min, max) {
+      return v is number && v >= min && v <= max;
+    }
+
+    function enteroEntre(v, min, max) {
+      return v is int && v >= min && v <= max;
+    }
+
+    function fechaValida(v) {
+      return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    function horaValida(v) {
+      return v is string && v.matches('^[0-9]{2}:[0-9]{2}$');
+    }
+
+    function idValido(v) {
+      return v is string && v.size() > 0 && v.size() <= 128;
+    }
+
+    // En las ediciones se valida solo lo que cambia: los docs viejos con valores fuera de contrato siguen siendo editables.
+    function opcional(d, ks, k) {
+      return !(k in ks) || !(k in d);
+    }
+
+    function rubros() {
+      return ['Café', 'Pastelería', 'TCG', 'Mesa'];
+    }
+
+    function unidades() {
+      return ['u', 'kg', 'L', 'pack'];
+    }
+
+    function roles() {
+      return ['admin', 'mozo', 'juez', 'jugador'];
+    }
+
+    function estadosAprobacion() {
+      return ['pendiente', 'aprobado', 'rechazado'];
+    }
+
+    function mediosPago() {
+      return ['efectivo', 'debito', 'credito', 'transferencia', 'qr', 'credito_torneo'];
+    }
+
+    function resultados() {
+      return ['2-0', '2-1', '1-2', '0-2'];
+    }
+
+    // Topes de cordura: frenan errores de tipeo y valores absurdos, no reglas de negocio.
+    function maxPrecio() {
+      return 100000000;
+    }
+
+    function maxCredito() {
+      return 100000000;
+    }
+
+    function maxSubidaCredito() {
+      return 10000000;
+    }
+
+    function maxItemsPedido() {
+      return 200;
+    }
+
+    // ---------- Config del local ----------
+
+    function camposConfigPublica() {
+      return ['nombreLocal', 'logoUrl', 'marca', 'oscuroPorDefecto', 'turnos', 'alertaStock',
+              'torneo', 'temporada', 'reporteJugador', 'creditoPremio', 'descontarStock'];
+    }
+
+    function defaultsTorneoValidos(t) {
+      return t is map
+        && t.keys().hasOnly(['rondas', 'minutos', 'extra', 'inscripcion', 'cupo'])
+        && (!('rondas' in t) || numeroEntre(t.rondas, 1, 12))
+        && (!('minutos' in t) || numeroEntre(t.minutos, 10, 120))
+        && (!('extra' in t) || numeroEntre(t.extra, 0, 15))
+        && (!('inscripcion' in t) || numeroEntre(t.inscripcion, 0, 1000000))
+        && (!('cupo' in t) || numeroEntre(t.cupo, 2, 256));
+    }
+
+    function temporadaValida(t) {
+      return t is map
+        && t.keys().hasOnly(['nombre', 'inicio'])
+        && (!('nombre' in t) || texto(t.nombre, 1, 60))
+        && (!('inicio' in t) || t.inicio == null || fechaValida(t.inicio));
+    }
+
+    function configPublicaValida(d, ks) {
+      return ks.hasOnly(camposConfigPublica())
+        && (opcional(d, ks, 'nombreLocal') || texto(d.nombreLocal, 1, 60))
+        && (opcional(d, ks, 'logoUrl') || d.logoUrl == null
+            || (d.logoUrl is string && d.logoUrl.size() <= 2048 && d.logoUrl.matches('^https://.+')))
+        && (opcional(d, ks, 'marca') || d.marca == null
+            || (d.marca is string && d.marca.matches('^#[0-9A-Fa-f]{6}$')))
+        && (opcional(d, ks, 'oscuroPorDefecto') || d.oscuroPorDefecto is bool)
+        && (opcional(d, ks, 'turnos') || (d.turnos is list && d.turnos.size() <= 8))
+        && (opcional(d, ks, 'alertaStock') || numeroEntre(d.alertaStock, 0, 1000))
+        && (opcional(d, ks, 'torneo') || defaultsTorneoValidos(d.torneo))
+        && (opcional(d, ks, 'temporada') || temporadaValida(d.temporada))
+        && (opcional(d, ks, 'reporteJugador') || d.reporteJugador is bool)
+        && (opcional(d, ks, 'creditoPremio') || d.creditoPremio is bool)
+        && (opcional(d, ks, 'descontarStock') || d.descontarStock is bool);
+    }
+
+    function configPrivadaValida(d) {
+      return d.keys().hasOnly(['codigoInvitacion'])
+        && (!('codigoInvitacion' in d) || d.codigoInvitacion == null
+            || (d.codigoInvitacion is string && d.codigoInvitacion.matches('^[A-Z0-9]{6,32}$')));
+    }
+
+    match /config/publico {
+      allow read: if true;
+      allow create: if esAdmin() && configPublicaValida(request.resource.data, request.resource.data.keys());
+      allow update: if esAdmin() && configPublicaValida(request.resource.data, cambios());
+      allow delete: if esAdmin();
+    }
+
+    match /config/privado {
+      allow read: if esAdmin();
+      allow create, update: if esAdmin() && configPrivadaValida(request.resource.data);
+      allow delete: if esAdmin();
+    }
+
+    // ---------- Usuarios ----------
+
+    function codigoInvitacionCorrecto(codigo) {
+      let ruta = /databases/$(database)/documents/config/privado;
+      return codigo is string
+        && exists(ruta)
+        && get(ruta).data.get('codigoInvitacion', null) is string
+        && codigo == get(ruta).data.codigoInvitacion;
+    }
+
+    function altaUsuarioValida(userId) {
+      let d = request.resource.data;
+      return autenticado()
+        && request.auth.uid == userId
+        && d.keys().hasOnly(['uid', 'nombre', 'email', 'role', 'estadoAprobacion', 'codigoInvitacion', 'creadoEn'])
+        && d.keys().hasAll(['uid', 'nombre', 'email', 'role', 'estadoAprobacion', 'creadoEn'])
+        && d.uid == userId
+        && texto(d.nombre, 2, 60)
+        && d.email is string
+        && d.email.lower() == request.auth.token.email.lower()
+        && d.creadoEn == request.time
+        && (
+          (d.role == 'jugador' && d.estadoAprobacion == 'aprobado' && !('codigoInvitacion' in d))
+          || (d.role in ['mozo', 'juez'] && d.estadoAprobacion == 'pendiente'
+              && codigoInvitacionCorrecto(d.codigoInvitacion))
+        );
+    }
+
+    function edicionPropia(userId) {
+      return autenticado()
+        && request.auth.uid == userId
+        && cambios().hasOnly(['nombre'])
+        && texto(request.resource.data.nombre, 2, 60);
+    }
+
+    // El admin no puede tocarse el propio rol ni la aprobación: así no se deja sin acceso por error.
+    function edicionAdmin(userId) {
+      let d = request.resource.data;
+      let ks = cambios();
+      return esAdmin()
+        && ks.hasOnly(['role', 'estadoAprobacion', 'nombre'])
+        && (!ks.hasAny(['role', 'estadoAprobacion']) || request.auth.uid != userId)
+        && (!('role' in ks) || d.role in roles())
+        && (!('estadoAprobacion' in ks) || d.estadoAprobacion in estadosAprobacion())
+        && (!('nombre' in ks) || texto(d.nombre, 2, 60));
+    }
+
+    function creditoAnterior() {
+      return resource.data.get('creditoCafeteria', 0);
+    }
+
+    function soloCambiaCreditoDeJugador() {
+      return resource.data.get('role', '') == 'jugador'
+        && cambios().hasOnly(['creditoCafeteria'])
+        && request.resource.data.creditoCafeteria is number;
+    }
+
+    // Premios: el juez o el admin acreditan, nunca descuentan.
+    function subeCredito() {
+      let nuevo = request.resource.data.creditoCafeteria;
+      return (rol('juez') || esAdmin())
+        && soloCambiaCreditoDeJugador()
+        && nuevo > creditoAnterior()
+        && nuevo - creditoAnterior() <= maxSubidaCredito()
+        && nuevo <= maxCredito();
+    }
+
+    // Cobro: el mozo o el admin descuentan, nunca acreditan ni dejan saldo negativo.
+    function bajaCredito() {
+      let nuevo = request.resource.data.creditoCafeteria;
+      return (rol('mozo') || esAdmin())
+        && soloCambiaCreditoDeJugador()
+        && nuevo < creditoAnterior()
+        && nuevo >= 0;
+    }
+
+    match /users/{userId} {
+      allow get: if (autenticado() && request.auth.uid == userId)
+        || esAdmin()
+        || (staff() && resource.data.role == 'jugador');
+      allow list: if esAdmin() || (staff() && resource.data.role == 'jugador');
+      allow create: if altaUsuarioValida(userId);
+      allow update: if edicionPropia(userId) || edicionAdmin(userId) || subeCredito() || bajaCredito();
+      allow delete: if esAdmin();
+    }
+
+    // ---------- Salón ----------
+
+    function salaValida(d, ks) {
+      return ks.hasOnly(['nombre', 'orden', 'creadoEn'])
+        && (!('nombre' in ks) || texto(d.nombre, 1, 40))
+        && (!('orden' in ks) || numeroEntre(d.orden, 0, 999))
+        && (opcional(d, ks, 'creadoEn') || d.creadoEn is timestamp);
+    }
+
+    match /salas/{salaId} {
+      allow read: if staff();
+      allow create: if esAdmin()
+        && request.resource.data.keys().hasAll(['nombre', 'orden'])
+        && salaValida(request.resource.data, request.resource.data.keys());
+      allow update: if esAdmin() && salaValida(request.resource.data, cambios());
+      allow delete: if esAdmin();
+    }
+
+    function estadoMesaValido(d, ks) {
+      return !('estado' in ks) || d.estado in ['libre', 'consumo'];
+    }
+
+    function pedidoValido(d, ks) {
+      return !('pedido' in ks) || (d.pedido is list && d.pedido.size() <= maxItemsPedido());
+    }
+
+    function mesaValida(d, ks) {
+      return ks.hasOnly(['numero', 'x', 'y', 'salaId', 'tipo', 'estado', 'pedido', 'creadoEn'])
+        && (!('numero' in ks) || numeroEntre(d.numero, 1, 9999))
+        && (!('x' in ks) || numeroEntre(d.x, -10000, 10000))
+        && (!('y' in ks) || numeroEntre(d.y, -10000, 10000))
+        && (!('salaId' in ks) || idValido(d.salaId))
+        && (!('tipo' in ks) || d.tipo in ['cafe', 'duelo'])
+        && estadoMesaValido(d, ks)
+        && pedidoValido(d, ks)
+        && (opcional(d, ks, 'creadoEn') || d.creadoEn is timestamp);
+    }
+
+    match /mesas/{mesaId} {
+      allow read: if staff();
+      allow create: if esAdmin()
+        && request.resource.data.keys().hasAll(['numero', 'x', 'y', 'salaId', 'tipo', 'estado', 'pedido'])
+        && mesaValida(request.resource.data, request.resource.data.keys());
+      allow update: if (esAdmin() && mesaValida(request.resource.data, cambios()))
+        || (rol('mozo')
+            && cambios().hasOnly(['pedido', 'estado'])
+            && estadoMesaValido(request.resource.data, cambios())
+            && pedidoValido(request.resource.data, cambios()));
+      allow delete: if esAdmin();
+    }
+
+    // ---------- Catálogo y stock ----------
+
+    function stockValido(v) {
+      return numeroEntre(v, -1000000, 1000000000);
+    }
+
+    function productoValido(d, ks) {
+      return ks.hasOnly(['nombre', 'precio', 'rubro', 'controlStock', 'stock', 'unidad', 'alerta',
+                         'activo', 'categoria', 'creadoEn'])
+        && (!('nombre' in ks) || texto(d.nombre, 1, 80))
+        && (!('precio' in ks) || numeroEntre(d.precio, 0, maxPrecio()))
+        && (!('rubro' in ks) || d.rubro in rubros())
+        && (!('controlStock' in ks) || d.controlStock is bool)
+        && (opcional(d, ks, 'stock') || stockValido(d.stock))
+        && (opcional(d, ks, 'unidad') || d.unidad in unidades())
+        && (opcional(d, ks, 'alerta') || d.alerta == null || numeroEntre(d.alerta, 0, 1000))
+        && (opcional(d, ks, 'activo') || d.activo is bool)
+        && (opcional(d, ks, 'categoria') || d.categoria is string)
+        && (opcional(d, ks, 'creadoEn') || d.creadoEn is timestamp);
+    }
+
+    function productoTcgValido(d, ks) {
+      return ks.hasOnly(['nombre', 'valor', 'stock', 'unidad', 'alerta', 'activo', 'creadoEn'])
+        && (!('nombre' in ks) || texto(d.nombre, 1, 80))
+        && (!('valor' in ks) || numeroEntre(d.valor, 0, maxPrecio()))
+        && (!('stock' in ks) || stockValido(d.stock))
+        && (opcional(d, ks, 'unidad') || d.unidad in unidades())
+        && (opcional(d, ks, 'alerta') || d.alerta == null || numeroEntre(d.alerta, 0, 1000))
+        && (opcional(d, ks, 'activo') || d.activo is bool)
+        && (opcional(d, ks, 'creadoEn') || d.creadoEn is timestamp);
+    }
+
+    // Mozo y juez solo descuentan stock (cobro, premios). Puede quedar negativo por sobreventa.
+    function soloBajaStock() {
+      return (rol('mozo') || rol('juez'))
+        && cambios().hasOnly(['stock'])
+        && stockValido(request.resource.data.stock)
+        && request.resource.data.stock < resource.data.get('stock', 0);
+    }
+
+    match /productos/{productoId} {
+      allow read: if staff();
+      allow create: if esAdmin()
+        && request.resource.data.keys().hasAll(['nombre', 'precio', 'rubro', 'controlStock'])
+        && productoValido(request.resource.data, request.resource.data.keys());
+      allow update: if (esAdmin() && productoValido(request.resource.data, cambios())) || soloBajaStock();
+      allow delete: if esAdmin();
+    }
+
+    match /tcg_productos/{productoId} {
+      allow read: if staff();
+      allow create: if esAdmin()
+        && request.resource.data.keys().hasAll(['nombre', 'valor', 'stock'])
+        && productoTcgValido(request.resource.data, request.resource.data.keys());
+      allow update: if (esAdmin() && productoTcgValido(request.resource.data, cambios())) || soloBajaStock();
+      allow delete: if esAdmin();
+    }
+
+    // ---------- Ventas (inmutables) ----------
+
+    function camposVenta() {
+      return ['mesaId', 'mesaNum', 'items', 'subtotal', 'creditoAplicado', 'creditoUid', 'total',
+              'medioPago', 'fecha', 'hora', 'creadoPor', 'creadoEn'];
+    }
+
+    function ventaValida() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(camposVenta())
+        && d.keys().hasAll(camposVenta())
+        && idValido(d.mesaId)
+        && numeroEntre(d.mesaNum, 0, 9999)
+        && d.items is list && d.items.size() >= 1 && d.items.size() <= maxItemsPedido()
+        && numeroEntre(d.subtotal, 0, maxPrecio())
+        && numeroEntre(d.creditoAplicado, 0, d.subtotal)
+        && (d.creditoUid == null || idValido(d.creditoUid))
+        && (d.creditoAplicado == 0 || d.creditoUid != null)
+        && d.total == d.subtotal - d.creditoAplicado
+        && d.medioPago in mediosPago()
+        && fechaValida(d.fecha)
+        && horaValida(d.hora)
+        && d.creadoPor == request.auth.uid
+        && d.creadoEn == request.time;
+    }
+
+    match /ventas/{ventaId} {
+      allow read: if rol('admin') || rol('mozo');
+      allow create: if (rol('admin') || rol('mozo')) && ventaValida();
+      allow update, delete: if false;
+    }
+
+    // ---------- Ingresos de mercadería (inmutables, solo admin) ----------
+
+    function camposIngreso() {
+      return ['productoId', 'coleccion', 'nombre', 'rubro', 'cantidad', 'unidad', 'costoUnitario',
+              'fecha', 'creadoPor', 'creadoEn'];
+    }
+
+    function ingresoValido() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(camposIngreso())
+        && d.keys().hasAll(camposIngreso())
+        && idValido(d.productoId)
+        && d.coleccion in ['productos', 'tcg_productos']
+        && texto(d.nombre, 1, 80)
+        && d.rubro in rubros()
+        && d.cantidad is number && d.cantidad > 0 && d.cantidad <= 1000000
+        && d.unidad in unidades()
+        && numeroEntre(d.costoUnitario, 0, maxPrecio())
+        && fechaValida(d.fecha)
+        && d.creadoPor == request.auth.uid
+        && d.creadoEn == request.time;
+    }
+
+    match /ingresos/{ingresoId} {
+      allow read: if esAdmin();
+      allow create: if esAdmin() && ingresoValido();
+      allow update, delete: if false;
+    }
+
+    // ---------- Torneos ----------
+
+    function juegos() {
+      return ['Pokémon TCG', 'Magic', 'Yu-Gi-Oh', 'One Piece', 'Otro'];
+    }
+
+    function formatos() {
+      return ['suizo', 'eliminacion', 'suizo_top_cut', 'casual'];
+    }
+
+    function camposObligatoriosTorneo() {
+      return ['nombre', 'juego', 'formatoId', 'formato', 'totalRondas', 'topCut', 'minutosPorRonda',
+              'minutosExtra', 'inscripcion', 'cupo', 'jugadores', 'jugadoresUids', 'estado',
+              'rondaActual', 'rondas', 'premios', 'rondaFinEn', 'rondaRestanteMs', 'rondaPausada',
+              'fecha', 'creadoPor', 'creadoEn'];
+    }
+
+    function camposTorneo() {
+      return camposObligatoriosTorneo().concat(['posiciones', 'finalizadoEn']);
+    }
+
+    function torneoValido(d, ks) {
+      return ks.hasOnly(camposTorneo())
+        && (!('nombre' in ks) || texto(d.nombre, 1, 80))
+        && (!('juego' in ks) || d.juego in juegos())
+        && (!('formatoId' in ks) || d.formatoId in formatos())
+        && (!('formato' in ks) || texto(d.formato, 1, 60))
+        && (!('totalRondas' in ks) || enteroEntre(d.totalRondas, 1, 20))
+        && (opcional(d, ks, 'topCut') || enteroEntre(d.topCut, 0, 256))
+        && (!('minutosPorRonda' in ks) || numeroEntre(d.minutosPorRonda, 10, 120))
+        && (!('minutosExtra' in ks) || numeroEntre(d.minutosExtra, 0, 15))
+        && (!('inscripcion' in ks) || numeroEntre(d.inscripcion, 0, 1000000))
+        && (!('cupo' in ks) || enteroEntre(d.cupo, 2, 256))
+        && (!ks.hasAny(['jugadores', 'jugadoresUids'])
+            || (d.jugadores is list && d.jugadoresUids is list
+                && d.jugadores.size() <= 256
+                && d.jugadoresUids.size() == d.jugadores.size()))
+        && (!('estado' in ks) || d.estado in ['en_curso', 'finalizado'])
+        && (!('rondaActual' in ks) || enteroEntre(d.rondaActual, 1, 30))
+        && (!('rondas' in ks) || (d.rondas is list && d.rondas.size() <= 30))
+        && (!('premios' in ks) || (d.premios is list && d.premios.size() <= 64))
+        && (!('rondaFinEn' in ks) || d.rondaFinEn == null || d.rondaFinEn is number)
+        && (!('rondaRestanteMs' in ks) || d.rondaRestanteMs == null || numeroEntre(d.rondaRestanteMs, 0, 86400000))
+        && (!('rondaPausada' in ks) || d.rondaPausada is bool)
+        && (!('fecha' in ks) || fechaValida(d.fecha))
+        && (opcional(d, ks, 'posiciones') || (d.posiciones is list && d.posiciones.size() <= 256))
+        && (opcional(d, ks, 'finalizadoEn') || d.finalizadoEn == null || d.finalizadoEn is timestamp);
+    }
+
+    function altaTorneoValida() {
+      let d = request.resource.data;
+      return d.keys().hasAll(camposObligatoriosTorneo())
+        && torneoValido(d, d.keys())
+        && d.estado == 'en_curso'
+        && d.rondaActual == 1
+        && d.rondas.size() >= 1
+        && d.creadoPor == request.auth.uid
+        && d.creadoEn == request.time;
+    }
+
+    // Un torneo cerrado es historial: el juez solo puede seguir marcando premios entregados.
+    function edicionTorneoValida() {
+      let ks = cambios();
+      return torneoValido(request.resource.data, ks)
+        && !ks.hasAny(['creadoPor', 'creadoEn'])
+        && (resource.data.get('estado', 'en_curso') != 'finalizado' || esAdmin() || ks.hasOnly(['premios']));
+    }
+
+    match /torneos/{torneoId} {
+      allow read: if aprobado();
+      allow create: if (rol('admin') || rol('juez')) && altaTorneoValida();
+      allow update: if (rol('admin') || rol('juez')) && edicionTorneoValida();
+      allow delete: if esAdmin();
+
+      function torneoActual() {
+        return get(/databases/$(database)/documents/torneos/$(torneoId)).data;
+      }
+
+      function reporteHabilitado() {
+        let ruta = /databases/$(database)/documents/config/publico;
+        return !exists(ruta) || get(ruta).data.get('reporteJugador', true) != false;
+      }
+
+      function reporteValido(reporteId) {
+        let d = request.resource.data;
+        let t = torneoActual();
+        return aprobado()
+          && d.keys().hasOnly(['ronda', 'mesa', 'uid', 'resultado', 'creadoEn'])
+          && d.keys().hasAll(['ronda', 'mesa', 'uid', 'resultado', 'creadoEn'])
+          && d.uid == request.auth.uid
+          && enteroEntre(d.ronda, 1, 30)
+          && enteroEntre(d.mesa, 1, 999)
+          && reporteId == string(d.ronda) + '_' + string(d.mesa) + '_' + request.auth.uid
+          && d.resultado in resultados()
+          && t.get('jugadoresUids', []) is list
+          && request.auth.uid in t.get('jugadoresUids', [])
+          && t.get('estado', '') == 'en_curso'
+          && d.ronda == t.get('rondaActual', 0)
+          && reporteHabilitado();
+      }
+
+      match /reportes/{reporteId} {
+        allow read: if aprobado();
+        allow create: if reporteValido(reporteId) && request.resource.data.creadoEn == request.time;
+        allow update: if reporteValido(reporteId)
+          && (request.resource.data.creadoEn == request.time
+              || request.resource.data.creadoEn == resource.data.creadoEn);
+        allow delete: if rol('admin') || rol('juez');
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "torneos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "jugadoresUids", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "creadoEn", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "torneos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "estado", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

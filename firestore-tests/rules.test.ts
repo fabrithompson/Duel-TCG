@@ -1,0 +1,937 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import {
+  assertFails,
+  assertSucceeds,
+  initializeTestEnvironment,
+  type RulesTestContext,
+  type RulesTestEnvironment,
+} from '@firebase/rules-unit-testing';
+import {
+  collection,
+  deleteDoc,
+  deleteField,
+  doc,
+  getDoc,
+  getDocs,
+  increment,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  setLogLevel,
+  Timestamp,
+  updateDoc,
+  where,
+  writeBatch,
+  type Firestore,
+} from 'firebase/firestore';
+import { getMetadata, ref, uploadBytes, type FirebaseStorage } from 'firebase/storage';
+
+const PROJECT_ID = 'demo-duel';
+const CODIGO = 'ABCD2345';
+const HOY = '2026-09-24';
+
+const U = {
+  admin: 'admin1',
+  adminPendiente: 'adminPendiente',
+  mozo: 'mozo1',
+  juez: 'juez1',
+  j1: 'jugador1',
+  j2: 'jugador2',
+  j3: 'jugador3',
+  mozoPendiente: 'mozoPendiente',
+  juezRechazado: 'juezRechazado',
+  nuevo: 'nuevo1',
+} as const;
+
+let testEnv: RulesTestEnvironment;
+
+function leer(archivo: string): string {
+  return readFileSync(resolve(__dirname, '..', archivo), 'utf8');
+}
+
+function email(uid: string): string {
+  return `${uid}@duel.test`;
+}
+
+function ctx(uid: string): RulesTestContext {
+  return testEnv.authenticatedContext(uid, { email: email(uid) });
+}
+
+function como(uid: string): Firestore {
+  return ctx(uid).firestore() as unknown as Firestore;
+}
+
+function anonimo(): Firestore {
+  return testEnv.unauthenticatedContext().firestore() as unknown as Firestore;
+}
+
+function almacenamiento(c: RulesTestContext): FirebaseStorage {
+  return c.storage() as unknown as FirebaseStorage;
+}
+
+async function sinReglas(fn: (db: Firestore) => Promise<void>): Promise<void> {
+  await testEnv.withSecurityRulesDisabled(async (c) => {
+    await fn(c.firestore() as unknown as Firestore);
+  });
+}
+
+function perfil(uid: string, role: string, estadoAprobacion: string, extra: Record<string, unknown> = {}) {
+  return { uid, nombre: `Usuario ${uid}`, email: email(uid), role, estadoAprobacion, creadoEn: Timestamp.now(), ...extra };
+}
+
+function jugador(uid: string) {
+  return { uid, nombre: `Usuario ${uid}`, pagado: true };
+}
+
+function torneoBase(creadoPor: string) {
+  return {
+    nombre: 'Liga semanal',
+    juego: 'Pokémon TCG',
+    formatoId: 'suizo',
+    formato: 'Suizo',
+    totalRondas: 3,
+    topCut: 0,
+    minutosPorRonda: 50,
+    minutosExtra: 3,
+    inscripcion: 6000,
+    cupo: 16,
+    jugadores: [jugador(U.j1), jugador(U.j2)],
+    jugadoresUids: [U.j1, U.j2],
+    estado: 'en_curso',
+    rondaActual: 1,
+    rondas: [
+      {
+        numero: 1,
+        fase: 'suizo',
+        partidas: [
+          { mesa: 1, jugador1: jugador(U.j1), jugador2: jugador(U.j2), resultado: null, mesaSalonId: 'm2', mesaSalonNumero: 2 },
+        ],
+      },
+    ],
+    premios: [
+      { puesto: 1, jugadorUid: null, productoId: 't1', productoOrigen: 'tcg', cantidadProducto: 4, creditoCafeteria: 3000, entregado: false },
+    ],
+    rondaFinEn: Date.now() + 50 * 60000,
+    rondaRestanteMs: null,
+    rondaPausada: false,
+    fecha: HOY,
+    creadoPor,
+    creadoEn: serverTimestamp(),
+  };
+}
+
+function ventaBase(creadoPor: string) {
+  return {
+    mesaId: 'm1',
+    mesaNum: 1,
+    items: [{ itemId: 'p1', nombre: 'Espresso', precio: 2200, cantidad: 2, rubro: 'Café', origen: 'productos' }],
+    subtotal: 4400,
+    creditoAplicado: 0,
+    creditoUid: null,
+    total: 4400,
+    medioPago: 'efectivo',
+    fecha: HOY,
+    hora: '21:30',
+    creadoPor,
+    creadoEn: serverTimestamp(),
+  };
+}
+
+function ingresoBase(creadoPor: string) {
+  return {
+    productoId: 'p1',
+    coleccion: 'productos',
+    nombre: 'Espresso',
+    rubro: 'Café',
+    cantidad: 10,
+    unidad: 'u',
+    costoUnitario: 900,
+    fecha: HOY,
+    creadoPor,
+    creadoEn: serverTimestamp(),
+  };
+}
+
+function reporteBase(uid: string, ronda = 1, mesa = 1) {
+  return { ronda, mesa, uid, resultado: '2-1', creadoEn: serverTimestamp() };
+}
+
+function altaUsuario(uid: string, role: string, estadoAprobacion: string, extra: Record<string, unknown> = {}) {
+  return { uid, nombre: 'Ana Pérez', email: email(uid), role, estadoAprobacion, creadoEn: serverTimestamp(), ...extra };
+}
+
+async function sembrar(): Promise<void> {
+  await sinReglas(async (db) => {
+    const b = writeBatch(db);
+    const ahora = Timestamp.now();
+    b.set(doc(db, 'users', U.admin), perfil(U.admin, 'admin', 'aprobado'));
+    b.set(doc(db, 'users', U.adminPendiente), perfil(U.adminPendiente, 'admin', 'pendiente'));
+    b.set(doc(db, 'users', U.mozo), perfil(U.mozo, 'mozo', 'aprobado'));
+    b.set(doc(db, 'users', U.juez), perfil(U.juez, 'juez', 'aprobado'));
+    b.set(doc(db, 'users', U.j1), perfil(U.j1, 'jugador', 'aprobado', { creditoCafeteria: 5000 }));
+    b.set(doc(db, 'users', U.j2), perfil(U.j2, 'jugador', 'aprobado'));
+    b.set(doc(db, 'users', U.j3), perfil(U.j3, 'jugador', 'aprobado'));
+    b.set(doc(db, 'users', U.mozoPendiente), perfil(U.mozoPendiente, 'mozo', 'pendiente', { codigoInvitacion: CODIGO }));
+    b.set(doc(db, 'users', U.juezRechazado), perfil(U.juezRechazado, 'juez', 'rechazado', { codigoInvitacion: CODIGO }));
+    b.set(doc(db, 'config', 'publico'), {
+      nombreLocal: 'Duel Test',
+      logoUrl: null,
+      marca: null,
+      oscuroPorDefecto: false,
+      turnos: [{ nombre: 'Mañana', apertura: '08:00', cierre: '15:00' }],
+      alertaStock: 5,
+      torneo: { rondas: 5, minutos: 50, extra: 3, inscripcion: 6000, cupo: 16 },
+      temporada: { nombre: 'Temporada 1', inicio: null },
+      reporteJugador: true,
+      creditoPremio: true,
+      descontarStock: true,
+    });
+    b.set(doc(db, 'config', 'privado'), { codigoInvitacion: CODIGO });
+    b.set(doc(db, 'salas', 's1'), { nombre: 'Planta baja', orden: 0, creadoEn: ahora });
+    b.set(doc(db, 'mesas', 'm1'), { numero: 1, x: 18, y: 16, salaId: 's1', tipo: 'cafe', estado: 'libre', pedido: [], creadoEn: ahora });
+    b.set(doc(db, 'mesas', 'm2'), { numero: 2, x: 118, y: 16, salaId: 's1', tipo: 'duelo', estado: 'libre', pedido: [], creadoEn: ahora });
+    b.set(doc(db, 'mesas', 'vieja'), { numero: 9, x: 0, y: 0, salaId: 's1', estado: 'ocupada', pedido: [], capacidad: 4 });
+    b.set(doc(db, 'productos', 'p1'), {
+      nombre: 'Espresso', precio: 2200, rubro: 'Café', controlStock: true, stock: 10, unidad: 'u', activo: true, creadoEn: ahora,
+    });
+    b.set(doc(db, 'productos', 'serv'), { nombre: 'Alquiler mesa 1h', precio: 3000, rubro: 'Mesa', controlStock: false, creadoEn: ahora });
+    b.set(doc(db, 'productos', 'viejo'), { nombre: 'Medialuna', precio: 1400, categoria: 'Comidas', imagen: 'x' });
+    b.set(doc(db, 'tcg_productos', 't1'), { nombre: 'Sobre Surging Sparks', valor: 7500, stock: 5, unidad: 'u', creadoEn: ahora });
+    b.set(doc(db, 'ventas', 'v1'), { ...ventaBase(U.mozo), creadoEn: ahora });
+    b.set(doc(db, 'ingresos', 'i1'), { ...ingresoBase(U.admin), creadoEn: ahora });
+    b.set(doc(db, 'torneos', 't1'), { ...torneoBase(U.juez), creadoEn: ahora });
+    b.set(doc(db, 'torneos', 'tf'), {
+      ...torneoBase(U.juez),
+      fecha: '2026-09-17',
+      estado: 'finalizado',
+      rondaActual: 3,
+      rondaFinEn: null,
+      posiciones: [{ uid: U.j1, nombre: 'Usuario jugador1', puesto: 1, puntos: 9, victorias: 3, derrotas: 0 }],
+      finalizadoEn: ahora,
+      creadoEn: Timestamp.fromMillis(ahora.toMillis() - 7 * 86400000),
+    });
+    b.set(doc(db, 'torneos', 't1', 'reportes', `1_1_${U.j1}`), { ...reporteBase(U.j1), creadoEn: ahora });
+    b.set(doc(db, 'tcg_juegos', 'x'), { nombre: 'Pokémon' });
+    await b.commit();
+  });
+}
+
+beforeAll(async () => {
+  setLogLevel('silent');
+  testEnv = await initializeTestEnvironment({
+    projectId: PROJECT_ID,
+    firestore: { rules: leer('firestore.rules') },
+    storage: { rules: leer('storage.rules') },
+  });
+});
+
+afterAll(async () => {
+  await testEnv.cleanup();
+});
+
+beforeEach(async () => {
+  await testEnv.clearFirestore();
+  await sembrar();
+});
+
+describe('config', () => {
+  test('cualquiera (incluso sin sesión) lee config/publico', async () => {
+    await assertSucceeds(getDoc(doc(anonimo(), 'config', 'publico')));
+  });
+
+  test('solo el admin aprobado escribe config/publico', async () => {
+    await assertSucceeds(setDoc(doc(como(U.admin), 'config', 'publico'), { alertaStock: 8 }, { merge: true }));
+    for (const uid of [U.mozo, U.juez, U.j1, U.adminPendiente, U.mozoPendiente]) {
+      await assertFails(setDoc(doc(como(uid), 'config', 'publico'), { alertaStock: 8 }, { merge: true }));
+    }
+    await assertFails(setDoc(doc(anonimo(), 'config', 'publico'), { nombreLocal: 'Hackeado' }, { merge: true }));
+  });
+
+  test('config/publico valida campos, tipos y rangos', async () => {
+    const db = como(U.admin);
+    await assertSucceeds(setDoc(doc(db, 'config', 'publico'), { torneo: { rondas: 6 }, marca: '#3F6B57' }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'config', 'publico'), { alertaStock: -1 }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'config', 'publico'), { alertaStock: 5000 }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'config', 'publico'), { marca: 'rojo' }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'config', 'publico'), { codigoInvitacion: 'FILTRADO' }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'config', 'publico'), { torneo: { rondas: 99 } }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'config', 'publico'), { logoUrl: 'http://inseguro.test/logo.png' }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'config', 'publico'), { reporteJugador: 'no' }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'config', 'publico'), { nombreLocal: '' }, { merge: true }));
+  });
+
+  test('el admin puede crear config/publico desde cero', async () => {
+    await sinReglas((db) => deleteDoc(doc(db, 'config', 'publico')));
+    await assertSucceeds(setDoc(doc(como(U.admin), 'config', 'publico'), { nombreLocal: 'Mi café' }, { merge: true }));
+  });
+
+  test('el código de invitación solo lo lee y escribe el admin', async () => {
+    await assertSucceeds(getDoc(doc(como(U.admin), 'config', 'privado')));
+    for (const uid of [U.mozo, U.juez, U.j1, U.mozoPendiente, U.adminPendiente]) {
+      await assertFails(getDoc(doc(como(uid), 'config', 'privado')));
+      await assertFails(setDoc(doc(como(uid), 'config', 'privado'), { codigoInvitacion: 'MIO12345' }));
+    }
+    await assertFails(getDoc(doc(anonimo(), 'config', 'privado')));
+    await assertSucceeds(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'ZXCV7890' }));
+    await assertFails(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'abc' }));
+    await assertFails(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'ZXCV7890', extra: true }));
+  });
+
+  test('no se puede leer ni escribir otros documentos de config', async () => {
+    await assertFails(getDoc(doc(como(U.admin), 'config', 'local')));
+    await assertFails(setDoc(doc(como(U.admin), 'config', 'local'), { codigoInvitacion: 'X' }));
+  });
+});
+
+describe('users: alta', () => {
+  test('un jugador se registra aprobado', async () => {
+    await assertSucceeds(setDoc(doc(como(U.nuevo), 'users', U.nuevo), altaUsuario(U.nuevo, 'jugador', 'aprobado')));
+  });
+
+  test('el email se compara sin distinguir mayúsculas', async () => {
+    const doc0 = altaUsuario(U.nuevo, 'jugador', 'aprobado', { email: email(U.nuevo).toUpperCase() });
+    await assertSucceeds(setDoc(doc(como(U.nuevo), 'users', U.nuevo), doc0));
+  });
+
+  test('mozo y juez se registran pendientes con el código correcto', async () => {
+    await assertSucceeds(
+      setDoc(doc(como(U.nuevo), 'users', U.nuevo), altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: CODIGO }))
+    );
+    await assertSucceeds(
+      setDoc(doc(como('nuevo2'), 'users', 'nuevo2'), altaUsuario('nuevo2', 'juez', 'pendiente', { codigoInvitacion: CODIGO }))
+    );
+  });
+
+  test('código incorrecto, ausente o sin config/privado: rechazado', async () => {
+    const db = como(U.nuevo);
+    const ref0 = doc(db, 'users', U.nuevo);
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: 'ZZZZ9999' })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'mozo', 'pendiente')));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: null })));
+    await sinReglas((a) => setDoc(doc(a, 'config', 'privado'), { codigoInvitacion: null }));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: CODIGO })));
+    await sinReglas((a) => deleteDoc(doc(a, 'config', 'privado')));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'juez', 'pendiente', { codigoInvitacion: CODIGO })));
+  });
+
+  test('nadie se auto-aprueba como staff ni se crea admin', async () => {
+    const ref0 = doc(como(U.nuevo), 'users', U.nuevo);
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'mozo', 'aprobado', { codigoInvitacion: CODIGO })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'juez', 'aprobado', { codigoInvitacion: CODIGO })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'admin', 'aprobado')));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'admin', 'pendiente', { codigoInvitacion: CODIGO })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'pendiente')));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'superadmin', 'aprobado')));
+  });
+
+  test('el alta valida dueño, campos, email y timestamp del servidor', async () => {
+    const db = como(U.nuevo);
+    const ref0 = doc(db, 'users', U.nuevo);
+    await assertFails(setDoc(doc(db, 'users', 'otro'), altaUsuario('otro', 'jugador', 'aprobado')));
+    await assertFails(setDoc(ref0, { ...altaUsuario(U.nuevo, 'jugador', 'aprobado'), uid: 'otro' }));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { creditoCafeteria: 999999 })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { codigoInvitacion: CODIGO })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { email: 'otro@duel.test' })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { creadoEn: Timestamp.fromMillis(0) })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { nombre: 'A' })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { nombre: 'x'.repeat(61) })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { telefono: '1234' })));
+    await assertFails(setDoc(doc(anonimo(), 'users', U.nuevo), altaUsuario(U.nuevo, 'jugador', 'aprobado')));
+  });
+
+  test('un usuario existente no puede re-crearse con otro rol', async () => {
+    await assertFails(
+      setDoc(doc(como(U.j1), 'users', U.j1), altaUsuario(U.j1, 'mozo', 'pendiente', { codigoInvitacion: CODIGO }))
+    );
+  });
+});
+
+describe('users: lectura', () => {
+  test('cada uno lee su propio perfil, aunque esté pendiente', async () => {
+    for (const uid of [U.j1, U.mozoPendiente, U.juezRechazado, U.admin]) {
+      await assertSucceeds(getDoc(doc(como(uid), 'users', uid)));
+    }
+    await assertSucceeds(getDoc(doc(como(U.nuevo), 'users', U.nuevo)));
+  });
+
+  test('un jugador no lee a otros usuarios', async () => {
+    await assertFails(getDoc(doc(como(U.j1), 'users', U.j2)));
+    await assertFails(getDoc(doc(como(U.j1), 'users', U.admin)));
+    await assertFails(getDocs(query(collection(como(U.j1), 'users'), where('role', '==', 'jugador'))));
+  });
+
+  test('el staff lee y lista solo jugadores', async () => {
+    for (const uid of [U.mozo, U.juez]) {
+      const db = como(uid);
+      await assertSucceeds(getDoc(doc(db, 'users', U.j1)));
+      await assertFails(getDoc(doc(db, 'users', U.admin)));
+      await assertFails(getDoc(doc(db, 'users', U.mozoPendiente)));
+      await assertSucceeds(getDocs(query(collection(db, 'users'), where('role', '==', 'jugador'))));
+      await assertFails(getDocs(collection(db, 'users')));
+      await assertFails(getDocs(query(collection(db, 'users'), where('estadoAprobacion', '==', 'pendiente'))));
+      await assertFails(getDocs(query(collection(db, 'users'), where('role', 'in', ['admin', 'mozo', 'juez']))));
+    }
+  });
+
+  test('staff pendiente o rechazado no lista jugadores', async () => {
+    for (const uid of [U.mozoPendiente, U.juezRechazado, U.adminPendiente]) {
+      await assertFails(getDocs(query(collection(como(uid), 'users'), where('role', '==', 'jugador'))));
+      await assertFails(getDoc(doc(como(uid), 'users', U.j1)));
+    }
+  });
+
+  test('el admin lee y lista todo', async () => {
+    const db = como(U.admin);
+    await assertSucceeds(getDoc(doc(db, 'users', U.mozoPendiente)));
+    await assertSucceeds(getDocs(collection(db, 'users')));
+    await assertSucceeds(getDocs(query(collection(db, 'users'), where('estadoAprobacion', '==', 'pendiente'))));
+    await assertSucceeds(getDocs(query(collection(db, 'users'), where('role', 'in', ['admin', 'mozo', 'juez']))));
+  });
+
+  test('sin sesión no se lee nada de users', async () => {
+    await assertFails(getDoc(doc(anonimo(), 'users', U.j1)));
+    await assertFails(getDocs(query(collection(anonimo(), 'users'), where('role', '==', 'jugador'))));
+  });
+});
+
+describe('users: edición', () => {
+  test('el propio usuario solo cambia su nombre', async () => {
+    const db = como(U.j1);
+    await assertSucceeds(updateDoc(doc(db, 'users', U.j1), { nombre: 'Juan Carlos' }));
+    await assertFails(updateDoc(doc(db, 'users', U.j1), { nombre: 'J' }));
+    await assertFails(updateDoc(doc(db, 'users', U.j1), { role: 'admin' }));
+    await assertFails(updateDoc(doc(db, 'users', U.j1), { email: 'otro@duel.test' }));
+    await assertFails(updateDoc(doc(db, 'users', U.j1), { nombre: 'Juan', role: 'admin' }));
+    await assertFails(updateDoc(doc(db, 'users', U.j2), { nombre: 'Pisado' }));
+  });
+
+  test('nadie se auto-aprueba ni escala rol', async () => {
+    await assertFails(updateDoc(doc(como(U.mozoPendiente), 'users', U.mozoPendiente), { estadoAprobacion: 'aprobado' }));
+    await assertFails(updateDoc(doc(como(U.juezRechazado), 'users', U.juezRechazado), { estadoAprobacion: 'aprobado' }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'users', U.mozo), { role: 'admin' }));
+    await assertFails(updateDoc(doc(como(U.juez), 'users', U.mozoPendiente), { estadoAprobacion: 'aprobado' }));
+    await assertFails(updateDoc(doc(como(U.adminPendiente), 'users', U.adminPendiente), { estadoAprobacion: 'aprobado' }));
+    await assertFails(updateDoc(doc(como(U.adminPendiente), 'users', U.mozoPendiente), { estadoAprobacion: 'aprobado' }));
+  });
+
+  test('el admin aprueba, rechaza y cambia roles', async () => {
+    const db = como(U.admin);
+    await assertSucceeds(updateDoc(doc(db, 'users', U.mozoPendiente), { estadoAprobacion: 'aprobado' }));
+    await assertSucceeds(updateDoc(doc(db, 'users', U.juezRechazado), { estadoAprobacion: 'pendiente' }));
+    await assertSucceeds(updateDoc(doc(db, 'users', U.mozo), { role: 'juez' }));
+    await assertSucceeds(updateDoc(doc(db, 'users', U.j2), { nombre: 'Nombre corregido' }));
+    await assertFails(updateDoc(doc(db, 'users', U.mozo), { role: 'dueño' }));
+    await assertFails(updateDoc(doc(db, 'users', U.mozo), { estadoAprobacion: 'suspendido' }));
+    await assertFails(updateDoc(doc(db, 'users', U.mozo), { email: 'x@duel.test' }));
+    await assertFails(updateDoc(doc(db, 'users', U.mozo), { codigoInvitacion: 'OTRO1234' }));
+  });
+
+  test('el admin no puede tocarse su propio rol ni su aprobación', async () => {
+    const db = como(U.admin);
+    await assertFails(updateDoc(doc(db, 'users', U.admin), { role: 'jugador' }));
+    await assertFails(updateDoc(doc(db, 'users', U.admin), { estadoAprobacion: 'pendiente' }));
+    await assertSucceeds(updateDoc(doc(db, 'users', U.admin), { nombre: 'Dueña' }));
+  });
+
+  test('juez y admin acreditan premio a un jugador (solo subir)', async () => {
+    await assertSucceeds(updateDoc(doc(como(U.juez), 'users', U.j1), { creditoCafeteria: increment(3000) }));
+    await assertSucceeds(updateDoc(doc(como(U.juez), 'users', U.j2), { creditoCafeteria: increment(1500) }));
+    await assertSucceeds(updateDoc(doc(como(U.admin), 'users', U.j1), { creditoCafeteria: increment(100) }));
+    await assertFails(updateDoc(doc(como(U.juez), 'users', U.j1), { creditoCafeteria: increment(-100) }));
+    await assertFails(updateDoc(doc(como(U.juez), 'users', U.j1), { creditoCafeteria: increment(50000000) }));
+    await assertFails(updateDoc(doc(como(U.juez), 'users', U.mozo), { creditoCafeteria: increment(1000) }));
+    await assertFails(updateDoc(doc(como(U.juez), 'users', U.juez), { creditoCafeteria: increment(1000) }));
+    await assertFails(updateDoc(doc(como(U.juez), 'users', U.j1), { creditoCafeteria: increment(1000), nombre: 'X y Z' }));
+    await assertFails(updateDoc(doc(como(U.juez), 'users', U.j1), { creditoCafeteria: 'mucho' }));
+  });
+
+  test('mozo y admin descuentan crédito al cobrar (solo bajar, nunca < 0)', async () => {
+    await assertSucceeds(updateDoc(doc(como(U.mozo), 'users', U.j1), { creditoCafeteria: increment(-2000) }));
+    await assertSucceeds(updateDoc(doc(como(U.admin), 'users', U.j1), { creditoCafeteria: increment(-1000) }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'users', U.j1), { creditoCafeteria: increment(-2001) }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'users', U.j1), { creditoCafeteria: increment(500) }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'users', U.j2), { creditoCafeteria: increment(-1) }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'users', U.juez), { creditoCafeteria: 0 }));
+    await assertSucceeds(updateDoc(doc(como(U.mozo), 'users', U.j1), { creditoCafeteria: 0 }));
+  });
+
+  test('ni el jugador ni el staff pendiente tocan crédito', async () => {
+    await assertFails(updateDoc(doc(como(U.j1), 'users', U.j1), { creditoCafeteria: increment(1000) }));
+    await assertFails(updateDoc(doc(como(U.j1), 'users', U.j2), { creditoCafeteria: increment(1000) }));
+    await assertFails(updateDoc(doc(como(U.mozoPendiente), 'users', U.j1), { creditoCafeteria: increment(-1000) }));
+    await assertFails(updateDoc(doc(como(U.juezRechazado), 'users', U.j1), { creditoCafeteria: increment(1000) }));
+  });
+
+  test('solo el admin borra usuarios', async () => {
+    await assertFails(deleteDoc(doc(como(U.j1), 'users', U.j1)));
+    await assertFails(deleteDoc(doc(como(U.mozo), 'users', U.j1)));
+    await assertFails(deleteDoc(doc(como(U.juez), 'users', U.j1)));
+    await assertSucceeds(deleteDoc(doc(como(U.admin), 'users', U.juezRechazado)));
+  });
+});
+
+describe('salas y mesas', () => {
+  test('lee el staff aprobado; jugadores, pendientes y anónimos no', async () => {
+    for (const uid of [U.admin, U.mozo, U.juez]) {
+      await assertSucceeds(getDocs(collection(como(uid), 'salas')));
+      await assertSucceeds(getDocs(query(collection(como(uid), 'mesas'), where('salaId', '==', 's1'))));
+      await assertSucceeds(getDocs(query(collection(como(uid), 'mesas'), where('tipo', '==', 'duelo'))));
+    }
+    for (const db of [como(U.j1), como(U.mozoPendiente), anonimo()]) {
+      await assertFails(getDocs(collection(db, 'salas')));
+      await assertFails(getDoc(doc(db, 'mesas', 'm1')));
+    }
+  });
+
+  test('solo el admin crea, edita y borra salas', async () => {
+    const admin = como(U.admin);
+    await assertSucceeds(setDoc(doc(admin, 'salas', 's2'), { nombre: 'Terraza', orden: 1, creadoEn: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(admin, 'salas', 's1'), { nombre: 'Salón principal' }));
+    await assertFails(setDoc(doc(admin, 'salas', 's3'), { nombre: '', orden: 2 }));
+    await assertFails(setDoc(doc(admin, 'salas', 's3'), { nombre: 'Patio', orden: 2, color: 'rojo' }));
+    await assertFails(setDoc(doc(como(U.mozo), 'salas', 's3'), { nombre: 'Patio', orden: 2 }));
+    await assertFails(updateDoc(doc(como(U.juez), 'salas', 's1'), { nombre: 'Mía' }));
+    await assertFails(deleteDoc(doc(como(U.mozo), 'salas', 's1')));
+    await assertSucceeds(deleteDoc(doc(admin, 'salas', 's1')));
+  });
+
+  test('solo el admin crea mesas válidas', async () => {
+    const mesa = { numero: 3, x: 218, y: 16, salaId: 's1', tipo: 'cafe', estado: 'libre', pedido: [], creadoEn: serverTimestamp() };
+    await assertSucceeds(setDoc(doc(como(U.admin), 'mesas', 'm3'), mesa));
+    await assertFails(setDoc(doc(como(U.admin), 'mesas', 'm4'), { ...mesa, tipo: 'vip' }));
+    await assertFails(setDoc(doc(como(U.admin), 'mesas', 'm4'), { ...mesa, estado: 'duelo_en_curso' }));
+    await assertFails(setDoc(doc(como(U.admin), 'mesas', 'm4'), { ...mesa, numero: 0 }));
+    await assertFails(setDoc(doc(como(U.mozo), 'mesas', 'm4'), mesa));
+    await assertFails(setDoc(doc(como(U.juez), 'mesas', 'm4'), mesa));
+  });
+
+  test('el mozo solo cambia pedido y estado', async () => {
+    const db = como(U.mozo);
+    const item = { itemId: 'p1', nombre: 'Espresso', precio: 2200, cantidad: 1, rubro: 'Café', origen: 'productos' };
+    await assertSucceeds(updateDoc(doc(db, 'mesas', 'm1'), { pedido: [item], estado: 'consumo' }));
+    await assertSucceeds(updateDoc(doc(db, 'mesas', 'm1'), { pedido: [], estado: 'libre' }));
+    await assertSucceeds(updateDoc(doc(db, 'mesas', 'vieja'), { pedido: [item] }));
+    await assertFails(updateDoc(doc(db, 'mesas', 'm1'), { x: 40, y: 40 }));
+    await assertFails(updateDoc(doc(db, 'mesas', 'm1'), { numero: 99 }));
+    await assertFails(updateDoc(doc(db, 'mesas', 'm1'), { tipo: 'duelo' }));
+    await assertFails(updateDoc(doc(db, 'mesas', 'm1'), { estado: 'duelo_en_curso' }));
+    await assertFails(updateDoc(doc(db, 'mesas', 'm1'), { pedido: 'todo' }));
+    await assertFails(updateDoc(doc(db, 'mesas', 'm1'), { pedido: Array.from({ length: 201 }, () => item) }));
+    await assertFails(deleteDoc(doc(db, 'mesas', 'm1')));
+  });
+
+  test('el juez no toca mesas; el admin sí', async () => {
+    await assertFails(updateDoc(doc(como(U.juez), 'mesas', 'm2'), { estado: 'consumo' }));
+    await assertSucceeds(updateDoc(doc(como(U.admin), 'mesas', 'm1'), { x: 40, y: 60 }));
+    await assertSucceeds(updateDoc(doc(como(U.admin), 'mesas', 'm1'), { tipo: 'duelo', numero: 7 }));
+    await assertFails(updateDoc(doc(como(U.admin), 'mesas', 'm1'), { capacidad: 4 }));
+    await assertSucceeds(deleteDoc(doc(como(U.admin), 'mesas', 'm1')));
+  });
+});
+
+describe('productos y tcg_productos', () => {
+  test('lee el staff aprobado; jugadores y anónimos no', async () => {
+    for (const uid of [U.admin, U.mozo, U.juez]) {
+      await assertSucceeds(getDocs(collection(como(uid), 'productos')));
+      await assertSucceeds(getDocs(collection(como(uid), 'tcg_productos')));
+    }
+    for (const db of [como(U.j1), como(U.mozoPendiente), anonimo()]) {
+      await assertFails(getDocs(collection(db, 'productos')));
+      await assertFails(getDoc(doc(db, 'tcg_productos', 't1')));
+    }
+  });
+
+  test('solo el admin crea productos válidos', async () => {
+    const admin = como(U.admin);
+    const producto = { nombre: 'Flat white', precio: 3200, rubro: 'Café', controlStock: true, stock: 38, unidad: 'u', creadoEn: serverTimestamp() };
+    await assertSucceeds(setDoc(doc(admin, 'productos', 'p2'), producto));
+    await assertSucceeds(setDoc(doc(admin, 'productos', 'agua'), { nombre: 'Agua', precio: 1200, rubro: 'Mesa', controlStock: false }));
+    await assertFails(setDoc(doc(admin, 'productos', 'p3'), { ...producto, rubro: 'Bebidas' }));
+    await assertFails(setDoc(doc(admin, 'productos', 'p3'), { ...producto, precio: -10 }));
+    await assertFails(setDoc(doc(admin, 'productos', 'p3'), { ...producto, unidad: 'docena' }));
+    await assertFails(setDoc(doc(admin, 'productos', 'p3'), { ...producto, costo: 100 }));
+    await assertFails(setDoc(doc(como(U.mozo), 'productos', 'p3'), producto));
+    await assertSucceeds(setDoc(doc(admin, 'tcg_productos', 't2'), { nombre: 'Deckbox', valor: 9800, stock: 7, unidad: 'u' }));
+    await assertFails(setDoc(doc(admin, 'tcg_productos', 't3'), { nombre: 'Deckbox', valor: 9800 }));
+    await assertFails(setDoc(doc(como(U.juez), 'tcg_productos', 't3'), { nombre: 'Deckbox', valor: 9800, stock: 7 }));
+  });
+
+  test('mozo y juez solo bajan stock (puede quedar negativo)', async () => {
+    await assertSucceeds(updateDoc(doc(como(U.mozo), 'productos', 'p1'), { stock: increment(-2) }));
+    await assertSucceeds(updateDoc(doc(como(U.mozo), 'productos', 'p1'), { stock: increment(-20) }));
+    await assertSucceeds(updateDoc(doc(como(U.juez), 'tcg_productos', 't1'), { stock: increment(-4) }));
+    await assertSucceeds(updateDoc(doc(como(U.juez), 'productos', 'p1'), { stock: increment(-1) }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'productos', 'p1'), { stock: increment(5) }));
+    await assertFails(updateDoc(doc(como(U.juez), 'tcg_productos', 't1'), { stock: increment(10) }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'productos', 'p1'), { stock: increment(0) }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'productos', 'p1'), { precio: 1 }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'productos', 'p1'), { stock: increment(-1), precio: 1 }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'tcg_productos', 't1'), { valor: 1 }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'productos', 'p1'), { stock: 'nada' }));
+    await assertFails(deleteDoc(doc(como(U.mozo), 'productos', 'p1')));
+    await assertFails(deleteDoc(doc(como(U.juez), 'tcg_productos', 't1')));
+  });
+
+  test('jugadores y staff pendiente no tocan stock', async () => {
+    await assertFails(updateDoc(doc(como(U.j1), 'tcg_productos', 't1'), { stock: increment(-1) }));
+    await assertFails(updateDoc(doc(como(U.mozoPendiente), 'productos', 'p1'), { stock: increment(-1) }));
+  });
+
+  test('el admin edita todo, suma stock y migra docs viejos', async () => {
+    const admin = como(U.admin);
+    await assertSucceeds(updateDoc(doc(admin, 'productos', 'p1'), { precio: 2400, stock: increment(24), alerta: 8 }));
+    await assertSucceeds(updateDoc(doc(admin, 'productos', 'p1'), { activo: false }));
+    await assertSucceeds(updateDoc(doc(admin, 'productos', 'viejo'), { rubro: 'Pastelería', controlStock: true, categoria: deleteField() }));
+    await assertSucceeds(updateDoc(doc(admin, 'tcg_productos', 't1'), { stock: increment(12), valor: 8000 }));
+    await assertFails(updateDoc(doc(admin, 'productos', 'p1'), { rubro: 'Comidas' }));
+    await assertFails(updateDoc(doc(admin, 'productos', 'p1'), { nombre: deleteField() }));
+    await assertSucceeds(deleteDoc(doc(admin, 'productos', 'serv')));
+  });
+});
+
+describe('ventas', () => {
+  test('mozo y admin registran ventas válidas', async () => {
+    await assertSucceeds(setDoc(doc(como(U.mozo), 'ventas', 'n1'), ventaBase(U.mozo)));
+    await assertSucceeds(setDoc(doc(como(U.admin), 'ventas', 'n2'), ventaBase(U.admin)));
+    await assertSucceeds(
+      setDoc(doc(como(U.mozo), 'ventas', 'n3'), {
+        ...ventaBase(U.mozo),
+        creditoAplicado: 4400,
+        creditoUid: U.j1,
+        total: 0,
+        medioPago: 'credito_torneo',
+      })
+    );
+  });
+
+  test('juez, jugador, pendientes y anónimos no registran ventas', async () => {
+    for (const uid of [U.juez, U.j1, U.mozoPendiente, U.adminPendiente]) {
+      await assertFails(setDoc(doc(como(uid), 'ventas', 'x'), ventaBase(uid)));
+    }
+    await assertFails(setDoc(doc(anonimo(), 'ventas', 'x'), ventaBase('nadie')));
+  });
+
+  test('la venta respeta el contrato', async () => {
+    const db = como(U.mozo);
+    const base = ventaBase(U.mozo);
+    const r = doc(db, 'ventas', 'x');
+    await assertFails(setDoc(r, { ...base, creadoPor: U.admin }));
+    await assertFails(setDoc(r, { ...base, creadoEn: Timestamp.fromMillis(0) }));
+    await assertFails(setDoc(r, { ...base, total: 1 }));
+    await assertFails(setDoc(r, { ...base, creditoAplicado: 500, total: 4400 }));
+    await assertFails(setDoc(r, { ...base, creditoAplicado: 500, total: 3900 }));
+    await assertFails(setDoc(r, { ...base, creditoAplicado: 5000, creditoUid: U.j1, total: -600 }));
+    await assertFails(setDoc(r, { ...base, medioPago: 'bitcoin' }));
+    await assertFails(setDoc(r, { ...base, fecha: '24/09/2026' }));
+    await assertFails(setDoc(r, { ...base, hora: '9:30' }));
+    await assertFails(setDoc(r, { ...base, items: [] }));
+    await assertFails(setDoc(r, { ...base, items: Array.from({ length: 201 }, () => base.items[0]) }));
+    await assertFails(setDoc(r, { ...base, propina: 500 }));
+    const { hora: _hora, ...sinHora } = base;
+    await assertFails(setDoc(r, sinHora));
+  });
+
+  test('solo mozo y admin leen ventas', async () => {
+    await assertSucceeds(getDocs(query(collection(como(U.mozo), 'ventas'), where('fecha', '==', HOY))));
+    await assertSucceeds(
+      getDocs(query(collection(como(U.admin), 'ventas'), where('fecha', '>=', '2026-09-01'), where('fecha', '<=', HOY)))
+    );
+    await assertSucceeds(getDoc(doc(como(U.admin), 'ventas', 'v1')));
+    for (const db of [como(U.juez), como(U.j1), como(U.mozoPendiente), anonimo()]) {
+      await assertFails(getDoc(doc(db, 'ventas', 'v1')));
+      await assertFails(getDocs(query(collection(db, 'ventas'), where('fecha', '==', HOY))));
+    }
+  });
+
+  test('las ventas son inmutables, ni el admin las edita o borra', async () => {
+    for (const uid of [U.mozo, U.admin]) {
+      await assertFails(updateDoc(doc(como(uid), 'ventas', 'v1'), { total: 0 }));
+      await assertFails(deleteDoc(doc(como(uid), 'ventas', 'v1')));
+      await assertFails(setDoc(doc(como(uid), 'ventas', 'v1'), ventaBase(uid)));
+    }
+  });
+
+  test('cobro completo en un batch: venta + crédito + stock + mesa', async () => {
+    const db = como(U.mozo);
+    const b = writeBatch(db);
+    b.set(doc(collection(db, 'ventas')), { ...ventaBase(U.mozo), creditoAplicado: 1000, creditoUid: U.j1, total: 3400 });
+    b.update(doc(db, 'users', U.j1), { creditoCafeteria: increment(-1000) });
+    b.update(doc(db, 'productos', 'p1'), { stock: increment(-2) });
+    b.update(doc(db, 'tcg_productos', 't1'), { stock: increment(-1) });
+    b.update(doc(db, 'mesas', 'm1'), { pedido: [], estado: 'libre' });
+    await assertSucceeds(b.commit());
+  });
+
+  test('un cobro grande (muchos productos) no pasa el límite de lecturas de las reglas', async () => {
+    await sinReglas(async (a) => {
+      const b = writeBatch(a);
+      for (let i = 0; i < 15; i++) {
+        b.set(doc(a, 'productos', `g${i}`), { nombre: `Producto ${i}`, precio: 100, rubro: 'Pastelería', controlStock: true, stock: 50 });
+      }
+      await b.commit();
+    });
+    const db = como(U.mozo);
+    const b = writeBatch(db);
+    b.set(doc(collection(db, 'ventas')), ventaBase(U.mozo));
+    for (let i = 0; i < 15; i++) b.update(doc(db, 'productos', `g${i}`), { stock: increment(-1) });
+    b.update(doc(db, 'mesas', 'm1'), { pedido: [], estado: 'libre' });
+    await assertSucceeds(b.commit());
+  });
+});
+
+describe('ingresos', () => {
+  test('solo el admin registra ingresos válidos', async () => {
+    await assertSucceeds(setDoc(doc(como(U.admin), 'ingresos', 'n1'), ingresoBase(U.admin)));
+    await assertSucceeds(
+      setDoc(doc(como(U.admin), 'ingresos', 'n2'), { ...ingresoBase(U.admin), productoId: 't1', coleccion: 'tcg_productos', rubro: 'TCG' })
+    );
+    for (const uid of [U.mozo, U.juez, U.j1, U.adminPendiente]) {
+      await assertFails(setDoc(doc(como(uid), 'ingresos', 'x'), ingresoBase(uid)));
+    }
+  });
+
+  test('el ingreso respeta el contrato', async () => {
+    const r = doc(como(U.admin), 'ingresos', 'x');
+    const base = ingresoBase(U.admin);
+    await assertFails(setDoc(r, { ...base, creadoPor: U.mozo }));
+    await assertFails(setDoc(r, { ...base, cantidad: 0 }));
+    await assertFails(setDoc(r, { ...base, costoUnitario: -1 }));
+    await assertFails(setDoc(r, { ...base, coleccion: 'ventas' }));
+    await assertFails(setDoc(r, { ...base, fecha: '2026-9-24' }));
+    await assertFails(setDoc(r, { ...base, creadoEn: Timestamp.now() }));
+    const { productoId: _p, ...sinProducto } = base;
+    await assertFails(setDoc(r, sinProducto));
+  });
+
+  test('solo el admin lee ingresos y nadie los edita', async () => {
+    await assertSucceeds(getDocs(collection(como(U.admin), 'ingresos')));
+    await assertFails(getDocs(collection(como(U.mozo), 'ingresos')));
+    await assertFails(getDoc(doc(como(U.juez), 'ingresos', 'i1')));
+    await assertFails(updateDoc(doc(como(U.admin), 'ingresos', 'i1'), { cantidad: 1 }));
+    await assertFails(deleteDoc(doc(como(U.admin), 'ingresos', 'i1')));
+  });
+});
+
+describe('torneos', () => {
+  test('lo lee cualquier usuario aprobado (jugadores incluidos)', async () => {
+    for (const uid of [U.admin, U.mozo, U.juez, U.j1, U.j3]) {
+      await assertSucceeds(getDoc(doc(como(uid), 'torneos', 't1')));
+    }
+    for (const db of [como(U.mozoPendiente), como(U.juezRechazado), anonimo()]) {
+      await assertFails(getDoc(doc(db, 'torneos', 't1')));
+    }
+  });
+
+  test('las consultas de la app están permitidas', async () => {
+    const db = como(U.j1);
+    await assertSucceeds(getDocs(query(collection(db, 'torneos'), orderBy('creadoEn', 'desc'), limit(1))));
+    await assertSucceeds(
+      getDocs(query(collection(db, 'torneos'), where('jugadoresUids', 'array-contains', U.j1), orderBy('creadoEn', 'desc')))
+    );
+    await assertSucceeds(
+      getDocs(query(collection(db, 'torneos'), where('estado', '==', 'finalizado'), orderBy('fecha', 'asc')))
+    );
+    await assertFails(getDocs(query(collection(como(U.mozoPendiente), 'torneos'), orderBy('creadoEn', 'desc'), limit(1))));
+  });
+
+  test('juez y admin crean torneos válidos', async () => {
+    await assertSucceeds(setDoc(doc(como(U.juez), 'torneos', 'n1'), torneoBase(U.juez)));
+    await assertSucceeds(setDoc(doc(como(U.admin), 'torneos', 'n2'), torneoBase(U.admin)));
+    for (const uid of [U.mozo, U.j1, U.juezRechazado]) {
+      await assertFails(setDoc(doc(como(uid), 'torneos', 'x'), torneoBase(uid)));
+    }
+  });
+
+  test('el alta de torneo valida el contrato', async () => {
+    const r = doc(como(U.juez), 'torneos', 'x');
+    const base = torneoBase(U.juez);
+    await assertFails(setDoc(r, { ...base, estado: 'finalizado' }));
+    await assertFails(setDoc(r, { ...base, rondaActual: 2 }));
+    await assertFails(setDoc(r, { ...base, creadoPor: U.admin }));
+    await assertFails(setDoc(r, { ...base, creadoEn: Timestamp.fromMillis(0) }));
+    await assertFails(setDoc(r, { ...base, jugadoresUids: [U.j1] }));
+    await assertFails(setDoc(r, { ...base, formatoId: 'round_robin' }));
+    await assertFails(setDoc(r, { ...base, juego: 'Ajedrez' }));
+    await assertFails(setDoc(r, { ...base, minutosPorRonda: 500 }));
+    await assertFails(setDoc(r, { ...base, rondas: [] }));
+    await assertFails(setDoc(r, { ...base, fecha: 'hoy' }));
+    await assertFails(setDoc(r, { ...base, pozoSecreto: 1 }));
+    const { premios: _premios, ...sinPremios } = base;
+    await assertFails(setDoc(r, sinPremios));
+  });
+
+  test('el juez corre la ronda: timer, resultados, siguiente ronda', async () => {
+    const db = como(U.juez);
+    const t = doc(db, 'torneos', 't1');
+    await assertSucceeds(updateDoc(t, { rondaPausada: true, rondaRestanteMs: 600000, rondaFinEn: null }));
+    await assertSucceeds(updateDoc(t, { rondaPausada: false, rondaRestanteMs: null, rondaFinEn: Date.now() + 600000 }));
+    const base = torneoBase(U.juez);
+    const rondas = [{ ...base.rondas[0], partidas: [{ ...base.rondas[0].partidas[0], resultado: '2-1' }] }];
+    await assertSucceeds(updateDoc(t, { rondas }));
+    await assertSucceeds(updateDoc(t, { rondas: [...rondas, { numero: 2, fase: 'suizo', partidas: [] }], rondaActual: 2 }));
+    await assertSucceeds(
+      updateDoc(t, { jugadores: [...base.jugadores, jugador(U.j3)], jugadoresUids: [U.j1, U.j2, U.j3] })
+    );
+  });
+
+  test('la edición del torneo mantiene los invariantes', async () => {
+    const t = doc(como(U.juez), 'torneos', 't1');
+    await assertFails(updateDoc(t, { rondaActual: 0 }));
+    await assertFails(updateDoc(t, { rondaActual: 1.5 }));
+    await assertFails(updateDoc(t, { estado: 'cancelado' }));
+    await assertFails(updateDoc(t, { jugadoresUids: 'todos' }));
+    await assertFails(updateDoc(t, { jugadoresUids: [U.j1, U.j2, U.j3] }));
+    await assertFails(updateDoc(t, { creadoPor: U.admin }));
+    await assertFails(updateDoc(t, { creadoEn: serverTimestamp() }));
+    await assertFails(updateDoc(t, { ganador: U.j1 }));
+    await assertFails(updateDoc(t, { nombre: deleteField() }));
+  });
+
+  test('mozo, jugador y pendientes no editan torneos', async () => {
+    for (const uid of [U.mozo, U.j1, U.j2, U.juezRechazado]) {
+      await assertFails(updateDoc(doc(como(uid), 'torneos', 't1'), { rondaPausada: true }));
+    }
+  });
+
+  test('el juez cierra el torneo y después solo marca premios', async () => {
+    const db = como(U.juez);
+    const base = torneoBase(U.juez);
+    const premios = [{ ...base.premios[0], jugadorUid: U.j1 }];
+    await assertSucceeds(
+      updateDoc(doc(db, 'torneos', 't1'), {
+        estado: 'finalizado',
+        posiciones: [{ uid: U.j1, nombre: 'Usuario jugador1', puesto: 1, puntos: 3, victorias: 1, derrotas: 0 }],
+        finalizadoEn: serverTimestamp(),
+        premios,
+        rondaFinEn: null,
+      })
+    );
+    await assertSucceeds(updateDoc(doc(db, 'torneos', 't1'), { premios: [{ ...premios[0], entregado: true }] }));
+    await assertFails(updateDoc(doc(db, 'torneos', 't1'), { estado: 'en_curso' }));
+    await assertFails(updateDoc(doc(db, 'torneos', 'tf'), { posiciones: [] }));
+    await assertSucceeds(updateDoc(doc(como(U.admin), 'torneos', 'tf'), { posiciones: [] }));
+  });
+
+  test('entrega de premio en batch: stock TCG + crédito + premios', async () => {
+    const db = como(U.juez);
+    const base = torneoBase(U.juez);
+    const b = writeBatch(db);
+    b.update(doc(db, 'tcg_productos', 't1'), { stock: increment(-4) });
+    b.update(doc(db, 'users', U.j1), { creditoCafeteria: increment(3000) });
+    b.update(doc(db, 'torneos', 'tf'), { premios: [{ ...base.premios[0], jugadorUid: U.j1, entregado: true }] });
+    await assertSucceeds(b.commit());
+  });
+
+  test('solo el admin borra torneos', async () => {
+    await assertFails(deleteDoc(doc(como(U.juez), 'torneos', 't1')));
+    await assertFails(deleteDoc(doc(como(U.j1), 'torneos', 't1')));
+    await assertSucceeds(deleteDoc(doc(como(U.admin), 'torneos', 't1')));
+  });
+});
+
+describe('reportes de resultado', () => {
+  const reporte = (uid: string, ronda = 1, mesa = 1) => doc(como(uid), 'torneos', 't1', 'reportes', `${ronda}_${mesa}_${uid}`);
+
+  test('el jugador inscripto reporta y corrige su resultado', async () => {
+    await assertSucceeds(setDoc(reporte(U.j2), reporteBase(U.j2)));
+    await assertSucceeds(setDoc(reporte(U.j2), { ...reporteBase(U.j2), resultado: '2-0' }));
+    await assertSucceeds(updateDoc(reporte(U.j1), { resultado: '0-2' }));
+  });
+
+  test('nadie reporta por otro jugador', async () => {
+    const db = como(U.j1);
+    await assertFails(setDoc(doc(db, 'torneos', 't1', 'reportes', `1_1_${U.j2}`), reporteBase(U.j2)));
+    await assertFails(setDoc(doc(db, 'torneos', 't1', 'reportes', `1_1_${U.j2}`), reporteBase(U.j1)));
+    await assertFails(setDoc(doc(db, 'torneos', 't1', 'reportes', `1_1_${U.j1}`), reporteBase(U.j2)));
+    await assertFails(setDoc(doc(db, 'torneos', 't1', 'reportes', 'cualquiera'), reporteBase(U.j1)));
+    await assertFails(setDoc(doc(db, 'torneos', 't1', 'reportes', `1_2_${U.j1}`), reporteBase(U.j1)));
+  });
+
+  test('solo inscriptos, en la ronda actual y con el torneo en curso', async () => {
+    await assertFails(setDoc(reporte(U.j3), reporteBase(U.j3)));
+    await assertFails(setDoc(reporte(U.juez), reporteBase(U.juez)));
+    await assertFails(setDoc(reporte(U.j1, 2, 1), reporteBase(U.j1, 2, 1)));
+    await assertFails(setDoc(doc(como(U.j1), 'torneos', 'tf', 'reportes', `3_1_${U.j1}`), reporteBase(U.j1, 3, 1)));
+    await assertFails(setDoc(doc(como(U.j1), 'torneos', 'noexiste', 'reportes', `1_1_${U.j1}`), reporteBase(U.j1)));
+    await assertFails(setDoc(doc(anonimo(), 'torneos', 't1', 'reportes', `1_1_${U.j1}`), reporteBase(U.j1)));
+  });
+
+  test('valida el contenido del reporte', async () => {
+    await assertFails(setDoc(reporte(U.j2), { ...reporteBase(U.j2), resultado: '1-1' }));
+    await assertFails(setDoc(reporte(U.j2), { ...reporteBase(U.j2), creadoEn: Timestamp.fromMillis(0) }));
+    await assertFails(setDoc(reporte(U.j2), { ...reporteBase(U.j2), comentario: 'gané' }));
+    await assertFails(setDoc(doc(como(U.j2), 'torneos', 't1', 'reportes', `1.5_1_${U.j2}`), reporteBase(U.j2, 1.5, 1)));
+  });
+
+  test('respeta el ajuste reporteJugador', async () => {
+    await sinReglas((a) => setDoc(doc(a, 'config', 'publico'), { reporteJugador: false }, { merge: true }));
+    await assertFails(setDoc(reporte(U.j2), reporteBase(U.j2)));
+    await sinReglas((a) => deleteDoc(doc(a, 'config', 'publico')));
+    await assertSucceeds(setDoc(reporte(U.j2), reporteBase(U.j2)));
+  });
+
+  test('lectura: aprobados sí, pendientes y anónimos no', async () => {
+    for (const uid of [U.j1, U.j3, U.juez, U.mozo]) {
+      await assertSucceeds(getDocs(query(collection(como(uid), 'torneos', 't1', 'reportes'), where('ronda', '==', 1))));
+    }
+    await assertFails(getDocs(collection(como(U.mozoPendiente), 'torneos', 't1', 'reportes')));
+    await assertFails(getDocs(collection(anonimo(), 'torneos', 't1', 'reportes')));
+  });
+
+  test('borran juez y admin; el jugador no', async () => {
+    await assertFails(deleteDoc(reporte(U.j1)));
+    await assertFails(deleteDoc(doc(como(U.mozo), 'torneos', 't1', 'reportes', `1_1_${U.j1}`)));
+    await assertSucceeds(deleteDoc(doc(como(U.juez), 'torneos', 't1', 'reportes', `1_1_${U.j1}`)));
+  });
+});
+
+describe('colecciones heredadas y rutas desconocidas', () => {
+  test('todo lo que no está en la matriz queda denegado', async () => {
+    const admin = como(U.admin);
+    await assertFails(getDoc(doc(admin, 'tcg_juegos', 'x')));
+    await assertFails(setDoc(doc(admin, 'tcg_juegos', 'y'), { nombre: 'Magic' }));
+    await assertFails(getDocs(collection(admin, 'pedidos')));
+    await assertFails(setDoc(doc(admin, 'cualquier', 'cosa'), { a: 1 }));
+    await assertFails(setDoc(doc(admin, 'users', U.j1, 'privado', 'x'), { a: 1 }));
+  });
+});
+
+describe('storage: logos', () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+  beforeEach(async () => {
+    await testEnv.clearStorage();
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      await uploadBytes(ref(almacenamiento(c), 'logos/actual.png'), png, { contentType: 'image/png' });
+      await uploadBytes(ref(almacenamiento(c), 'privado/secreto.png'), png, { contentType: 'image/png' });
+    });
+  });
+
+  test('cualquiera lee los logos', async () => {
+    await assertSucceeds(getMetadata(ref(almacenamiento(testEnv.unauthenticatedContext()), 'logos/actual.png')));
+  });
+
+  test('solo el admin aprobado sube imágenes de menos de 2 MB', async () => {
+    await assertSucceeds(uploadBytes(ref(almacenamiento(ctx(U.admin)), 'logos/nuevo.png'), png, { contentType: 'image/png' }));
+    await assertSucceeds(uploadBytes(ref(almacenamiento(ctx(U.admin)), 'logos/nuevo.jpg'), png, { contentType: 'image/jpeg' }));
+    await assertFails(
+      uploadBytes(ref(almacenamiento(ctx(U.admin)), 'logos/grande.png'), new Uint8Array(2 * 1024 * 1024), { contentType: 'image/png' })
+    );
+    await assertFails(uploadBytes(ref(almacenamiento(ctx(U.admin)), 'logos/script.js'), png, { contentType: 'text/javascript' }));
+    await assertFails(uploadBytes(ref(almacenamiento(ctx(U.admin)), 'logos/vector.svg'), png, { contentType: 'image/svg+xml' }));
+    for (const uid of [U.mozo, U.juez, U.j1, U.adminPendiente]) {
+      await assertFails(uploadBytes(ref(almacenamiento(ctx(uid)), 'logos/nuevo.png'), png, { contentType: 'image/png' }));
+    }
+    await assertFails(
+      uploadBytes(ref(almacenamiento(testEnv.unauthenticatedContext()), 'logos/nuevo.png'), png, { contentType: 'image/png' })
+    );
+  });
+
+  test('fuera de logos/ no se lee ni se escribe', async () => {
+    await assertFails(getMetadata(ref(almacenamiento(ctx(U.admin)), 'privado/secreto.png')));
+    await assertFails(uploadBytes(ref(almacenamiento(ctx(U.admin)), 'productos/foto.png'), png, { contentType: 'image/png' }));
+  });
+});
