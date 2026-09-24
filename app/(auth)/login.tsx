@@ -1,216 +1,352 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-} from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../../config/firebase';
-import Colors from '../../constants/colors';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../../config/firebase';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useToast } from '../../contexts/ToastContext';
+import { Typography } from '../../constants/theme';
+import { ROLE_LABEL, Role, SelectableRole } from '../../constants/roles';
+import { normalizarPerfil } from '../../hooks/useUserProfile';
+import { codigoError, mensajeError } from '../../lib/errores';
+import { advertencia, exito, fallo, tocar } from '../../lib/haptics';
+import type { UserProfile } from '../../lib/users';
+import RoleSelector from '../../components/RoleSelector';
+import FormField from '../../components/FormField';
+import Button from '../../components/Button';
+import { ErrorBanner } from '../../components/ui';
+import { useReiniciarNavegacion } from '../../hooks/useReiniciarNavegacion';
+
+const CLAVE_ULTIMO_PERFIL = 'duel.ultimoPerfil';
+const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const AVISO_RESET = 'Si hay una cuenta con ese email, te llega un link para cambiar la contraseña.';
+
+interface Errores {
+  role?: string;
+  email?: string;
+  password?: string;
+}
+
+function esPerfilGuardado(valor: string | null): valor is Role {
+  return valor === 'mozo' || valor === 'juez' || valor === 'jugador' || valor === 'admin';
+}
+
+function problemaDeAcceso(perfil: UserProfile | null, pedido: Role): string | null {
+  if (!perfil) return 'No encontramos tu perfil. Si te registraste recién, volvé a crear la cuenta o hablá con el admin.';
+  if (perfil.estadoAprobacion === 'rechazado') return 'El admin no habilitó esta cuenta.';
+  if (perfil.estadoAprobacion !== 'aprobado') {
+    return `Tu cuenta de ${ROLE_LABEL[perfil.role]} todavía espera la aprobación del admin. Probá de nuevo cuando te avise que la habilitó.`;
+  }
+  if (perfil.role === pedido) return null;
+  if (perfil.role === 'admin') return 'Es una cuenta de administración: tocá "Entrar con cuenta de administración".';
+  if (pedido === 'admin') return `Esta cuenta no es de administración. Elegí el perfil ${ROLE_LABEL[perfil.role]} para entrar.`;
+  return `Esta cuenta es de ${ROLE_LABEL[perfil.role]}. Elegí ese perfil para entrar.`;
+}
 
 export default function LoginScreen() {
   const router = useRouter();
+  const reiniciar = useReiniciarNavegacion();
+  const { colors } = useTheme();
+  const { mostrar } = useToast();
+  const [adminMode, setAdminMode] = useState(false);
+  const [role, setRole] = useState<SelectableRole | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [errores, setErrores] = useState<Errores>({});
+  const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  const [enviandoReset, setEnviandoReset] = useState(false);
+  const enCurso = useRef(false);
+  const resetEnCurso = useRef(false);
+  const eligioPerfil = useRef(false);
+  const passwordRef = useRef<TextInput>(null);
 
-  const handleLogin = async () => {
-    if (!email.trim() || !password) {
-      Alert.alert('Campos vacíos', 'Por favor completá tu email y contraseña.');
+  useEffect(() => {
+    let activo = true;
+    AsyncStorage.getItem(CLAVE_ULTIMO_PERFIL)
+      .then((valor) => {
+        if (!activo || eligioPerfil.current || !esPerfilGuardado(valor)) return;
+        if (valor === 'admin') setAdminMode(true);
+        else setRole(valor);
+      })
+      .catch(() => undefined);
+    return () => {
+      activo = false;
+    };
+  }, []);
+
+  const limpiarError = (campo: keyof Errores) => {
+    setErrorGeneral(null);
+    setErrores((prev) => (prev[campo] ? { ...prev, [campo]: undefined } : prev));
+  };
+
+  const volver = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  };
+
+  const entrar = async () => {
+    if (enCurso.current) return;
+    const pedido: Role | null = adminMode ? 'admin' : role;
+    const mail = email.trim();
+    const nuevos: Errores = {};
+    if (!pedido) nuevos.role = 'Elegí tu perfil para seguir.';
+    if (!mail) nuevos.email = 'Escribí tu email.';
+    else if (!EMAIL_VALIDO.test(mail)) nuevos.email = 'Revisá el email: no parece válido.';
+    if (!password) nuevos.password = 'Escribí tu contraseña.';
+    setErrores(nuevos);
+    setErrorGeneral(null);
+    if (!pedido || Object.keys(nuevos).length > 0) {
+      advertencia();
       return;
     }
-    setLoading(true);
+
+    enCurso.current = true;
+    setEnviando(true);
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
-      router.replace('/(tabs)/mesas');
-    } catch (error: unknown) {
-      const firebaseError = error as { code?: string };
-      let msg = 'Hubo un error al iniciar sesión. Intentá de nuevo.';
-      if (firebaseError.code === 'auth/user-not-found') {
-        msg = 'No existe una cuenta con ese email.';
-      } else if (firebaseError.code === 'auth/wrong-password') {
-        msg = 'Contraseña incorrecta.';
-      } else if (firebaseError.code === 'auth/invalid-email') {
-        msg = 'El email no es válido.';
-      } else if (firebaseError.code === 'auth/invalid-credential') {
-        msg = 'Email o contraseña incorrectos.';
-      } else if (firebaseError.code === 'auth/too-many-requests') {
-        msg = 'Demasiados intentos fallidos. Esperá unos minutos e intentá de nuevo.';
-      } else if (firebaseError.code === 'auth/network-request-failed') {
-        msg = 'Error de conexión. Verificá tu internet.';
+      const cred = await signInWithEmailAndPassword(auth, mail, password);
+      let perfil: UserProfile | null;
+      try {
+        const snap = await getDoc(doc(db, 'users', cred.user.uid));
+        perfil = normalizarPerfil(cred.user.uid, snap.exists() ? snap.data() : undefined);
+      } catch (e) {
+        await signOut(auth).catch(() => undefined);
+        setErrorGeneral(mensajeError(e, 'No pudimos leer tu perfil. Probá de nuevo.'));
+        fallo();
+        return;
       }
-      Alert.alert('Error al iniciar sesión', msg);
+      const problema = problemaDeAcceso(perfil, pedido);
+      if (problema) {
+        await signOut(auth).catch(() => undefined);
+        setErrorGeneral(problema);
+        fallo();
+        return;
+      }
+      AsyncStorage.setItem(CLAVE_ULTIMO_PERFIL, pedido).catch(() => undefined);
+      exito();
+      reiniciar('(tabs)');
+    } catch (e) {
+      if (codigoError(e) === 'auth/invalid-email') setErrores({ email: mensajeError(e) });
+      else setErrorGeneral(mensajeError(e, 'No pudimos iniciar sesión. Probá de nuevo.'));
+      fallo();
     } finally {
-      setLoading(false);
+      enCurso.current = false;
+      setEnviando(false);
     }
   };
 
+  const recuperar = async () => {
+    if (resetEnCurso.current) return;
+    const mail = email.trim();
+    if (!EMAIL_VALIDO.test(mail)) {
+      setErrores((prev) => ({ ...prev, email: 'Escribí tu email acá y te mandamos un link para cambiar la contraseña.' }));
+      advertencia();
+      return;
+    }
+    resetEnCurso.current = true;
+    setEnviandoReset(true);
+    try {
+      await sendPasswordResetEmail(auth, mail);
+      mostrar(AVISO_RESET, 'ok');
+    } catch (e) {
+      const codigo = codigoError(e);
+      // Mismo aviso que el éxito: no revelamos si el email tiene cuenta.
+      if (codigo === 'auth/user-not-found') mostrar(AVISO_RESET, 'ok');
+      else if (codigo === 'auth/invalid-email') setErrores((prev) => ({ ...prev, email: mensajeError(e) }));
+      else mostrar(mensajeError(e, 'No pudimos mandar el link. Probá de nuevo.'), 'error');
+    } finally {
+      resetEnCurso.current = false;
+      setEnviandoReset(false);
+    }
+  };
+
+  const cambiarModo = (admin: boolean) => {
+    tocar();
+    eligioPerfil.current = true;
+    setAdminMode(admin);
+    setErrores({});
+    setErrorGeneral(null);
+  };
+
+  const botonLabel = adminMode ? 'Entrar como Admin' : role ? `Entrar como ${ROLE_LABEL[role]}` : 'Entrar';
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+    <SafeAreaView style={[styles.flex, { backgroundColor: colors.bg }]} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <TouchableOpacity
+            onPress={volver}
+            style={styles.back}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Volver"
+          >
+            <Text style={[styles.backText, { color: colors.dim }]}>← Volver</Text>
+          </TouchableOpacity>
 
-        {/* Logo */}
-        <View style={styles.header}>
-          <View style={styles.logoCircle}>
-            <Text style={styles.logoText}>D</Text>
-          </View>
-          <Text style={styles.appName}>Duel</Text>
-          <Text style={styles.subtitle}>Café & TCG</Text>
-        </View>
+          <Text style={[styles.title, { color: colors.ink }]} accessibilityRole="header">
+            Entrar
+          </Text>
+          <Text style={[styles.subtitle, { color: colors.dim }]}>
+            {adminMode
+              ? 'Ingresá con la cuenta de administración del local.'
+              : 'Elegí tu perfil: cada uno abre solo lo suyo, así nadie se pierde entre pantallas ajenas.'}
+          </Text>
 
-        {/* Card */}
-        <View style={styles.card}>
-          <Text style={styles.title}>¡Bienvenido de nuevo!</Text>
+          {adminMode ? (
+            <TouchableOpacity
+              onPress={() => cambiarModo(false)}
+              style={styles.linkBox}
+              disabled={enviando}
+              accessibilityRole="button"
+              accessibilityLabel="Elegir mi perfil de mozo, juez o jugador"
+            >
+              <Text style={[styles.linkFuerte, { color: colors.br }]}>← Elegir mi perfil</Text>
+            </TouchableOpacity>
+          ) : (
+            <View>
+              <RoleSelector
+                value={role}
+                onChange={(r) => {
+                  eligioPerfil.current = true;
+                  setRole(r);
+                  limpiarError('role');
+                }}
+                variant="list"
+                disabled={enviando}
+              />
+              {errores.role ? (
+                <Text style={[styles.errorTexto, { color: colors.dg }]} accessibilityLiveRegion="polite">
+                  {errores.role}
+                </Text>
+              ) : null}
+            </View>
+          )}
 
-          <Text style={styles.label}>Email</Text>
-          <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.input}
-              placeholder="tu@email.com"
-              placeholderTextColor={Colors.textLight}
+          <View style={styles.campos}>
+            <FormField
+              label="Email"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(t) => {
+                setEmail(t);
+                limpiarError('email');
+              }}
+              error={errores.email}
+              placeholder="tu@email.com"
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
+              autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="next"
+              maxLength={254}
+              editable={!enviando}
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              submitBehavior="submit"
             />
-          </View>
-
-          <Text style={styles.label}>Contraseña</Text>
-          <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.inputFlex}
-              placeholder="••••••••"
-              placeholderTextColor={Colors.textLight}
+            <FormField
+              ref={passwordRef}
+              label="Contraseña"
               value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
+              onChangeText={(t) => {
+                setPassword(t);
+                limpiarError('password');
+              }}
+              error={errores.password}
+              placeholder="Tu contraseña"
+              secureToggle
               autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="current-password"
+              textContentType="password"
+              returnKeyType="go"
+              maxLength={128}
+              editable={!enviando}
+              onSubmitEditing={() => {
+                void entrar();
+              }}
             />
-            <TouchableOpacity
-              onPress={() => setShowPassword(!showPassword)}
-              style={styles.eyeBtn}
-            >
-              <Text style={styles.eyeText}>{showPassword ? '🙈' : '👁️'}</Text>
-            </TouchableOpacity>
           </View>
-
-          <TouchableOpacity style={styles.forgotBtn}>
-            <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
-          </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
-            onPress={() => { void handleLogin(); }}
-            disabled={loading}
+            onPress={() => {
+              void recuperar();
+            }}
+            disabled={enviandoReset || enviando}
+            style={styles.olvido}
+            accessibilityRole="button"
+            accessibilityLabel="Olvidé mi contraseña"
+            accessibilityHint="Te manda un email para cambiarla"
+            accessibilityState={{ disabled: enviandoReset || enviando, busy: enviandoReset }}
           >
-            {loading
-              ? <ActivityIndicator color={Colors.white} />
-              : <Text style={styles.loginBtnText}>Ingresar</Text>
-            }
+            <Text style={[styles.link, { color: colors.dim }, enviandoReset && styles.apagado]}>
+              {enviandoReset ? 'Enviando link…' : '¿Olvidaste tu contraseña?'}
+            </Text>
           </TouchableOpacity>
 
-          {/* Próximamente */}
-          <View style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>próximamente</Text>
-            <View style={styles.dividerLine} />
-          </View>
+          {errorGeneral ? <ErrorBanner mensaje={errorGeneral} /> : null}
 
-          <TouchableOpacity style={styles.socialBtnDisabled} disabled>
-            <Text style={styles.socialIcon}>G</Text>
-            <Text style={styles.socialTextDisabled}>Continuar con Google</Text>
-            <View style={styles.comingSoonBadge}>
-              <Text style={styles.comingSoonText}>Pronto</Text>
-            </View>
-          </TouchableOpacity>
+          <Button
+            label={botonLabel}
+            onPress={() => {
+              void entrar();
+            }}
+            loading={enviando}
+          />
 
-          <TouchableOpacity style={styles.socialBtnDisabled} disabled>
-            <Text style={styles.socialIcon}>🍎</Text>
-            <Text style={styles.socialTextDisabled}>Continuar con Apple</Text>
-            <View style={styles.comingSoonBadge}>
-              <Text style={styles.comingSoonText}>Pronto</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
+          {!adminMode ? (
+            <TouchableOpacity
+              onPress={() => cambiarModo(true)}
+              disabled={enviando}
+              style={styles.linkBox}
+              accessibilityRole="button"
+              accessibilityLabel="Entrar con cuenta de administración"
+            >
+              <Text style={[styles.link, { color: colors.dim }]}>Entrar con cuenta de administración</Text>
+            </TouchableOpacity>
+          ) : null}
 
-        <View style={styles.registerRow}>
-          <Text style={styles.registerText}>¿No tenés cuenta? </Text>
-          <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
-            <Text style={styles.registerLink}>Registrate</Text>
-          </TouchableOpacity>
-        </View>
+          <View style={styles.spacer} />
 
-      </ScrollView>
-    </KeyboardAvoidingView>
+          {!adminMode ? (
+            <TouchableOpacity
+              onPress={() => router.replace('/(auth)/register')}
+              disabled={enviando}
+              style={styles.notaBox}
+              accessibilityRole="link"
+              accessibilityLabel="¿Sos jugador y venís por primera vez? Registrate y el juez te suma al próximo torneo."
+            >
+              <Text style={[styles.nota, { color: colors.dim }]}>
+                ¿Sos jugador y venís por primera vez?{' '}
+                <Text style={[styles.notaLink, { color: colors.br }]}>Registrate</Text> y el juez te suma al próximo torneo.
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { flexGrow: 1, justifyContent: 'center', padding: 24 },
-  header: { alignItems: 'center', marginBottom: 32 },
-  logoCircle: {
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center',
-    marginBottom: 12, shadowColor: Colors.secondary,
-    shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
-  },
-  logoText: { fontSize: 40, fontWeight: 'bold', color: Colors.white },
-  appName: { fontSize: 32, fontWeight: 'bold', color: Colors.text, letterSpacing: 2 },
-  subtitle: { fontSize: 14, color: Colors.textLight, marginTop: 4 },
-  card: {
-    backgroundColor: Colors.white, borderRadius: 24, padding: 24,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08, shadowRadius: 12, elevation: 4,
-  },
-  title: { fontSize: 22, fontWeight: '700', color: Colors.text, marginBottom: 20, textAlign: 'center' },
-  label: { fontSize: 13, fontWeight: '600', color: Colors.text, marginBottom: 6, marginTop: 12 },
-  inputContainer: {
-    flexDirection: 'row', alignItems: 'center', borderWidth: 1.5,
-    borderColor: Colors.border, borderRadius: 12,
-    backgroundColor: Colors.background, paddingHorizontal: 14,
-  },
-  input: { flex: 1, paddingVertical: 14, fontSize: 15, color: Colors.text },
-  inputFlex: { flex: 1, paddingVertical: 14, fontSize: 15, color: Colors.text },
-  eyeBtn: { padding: 8 },
-  eyeText: { fontSize: 16 },
-  forgotBtn: { alignSelf: 'flex-end', marginTop: 8, marginBottom: 20 },
-  forgotText: { fontSize: 13, color: Colors.primary, fontWeight: '500' },
-  loginBtn: {
-    backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center',
-    shadowColor: Colors.primary, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4, shadowRadius: 8, elevation: 5,
-  },
-  loginBtnDisabled: { opacity: 0.7 },
-  loginBtnText: { color: Colors.white, fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
-  dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 20 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
-  dividerText: { marginHorizontal: 12, fontSize: 12, color: Colors.textLight },
-  socialBtnDisabled: {
-    flexDirection: 'row', alignItems: 'center', borderWidth: 1.5,
-    borderColor: Colors.border, borderRadius: 14, paddingVertical: 13,
-    paddingHorizontal: 20, marginBottom: 10, backgroundColor: Colors.background, opacity: 0.5,
-  },
-  socialIcon: { fontSize: 18, marginRight: 12, fontWeight: 'bold', color: Colors.textLight, width: 24, textAlign: 'center' },
-  socialTextDisabled: { fontSize: 15, color: Colors.textLight, fontWeight: '500', flex: 1 },
-  comingSoonBadge: {
-    backgroundColor: Colors.card, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
-  },
-  comingSoonText: { fontSize: 11, color: Colors.textLight, fontWeight: '600' },
-  registerRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
-  registerText: { color: Colors.textLight, fontSize: 14 },
-  registerLink: { color: Colors.primary, fontSize: 14, fontWeight: '700' },
+  flex: { flex: 1 },
+  scroll: { flexGrow: 1, paddingHorizontal: 26, paddingTop: 14, paddingBottom: 30 },
+  back: { alignSelf: 'flex-start', marginBottom: 16, minHeight: 24, justifyContent: 'center' },
+  backText: { fontFamily: Typography.fontFamily.semibold, fontSize: 12 },
+  title: { fontFamily: Typography.fontFamily.bold, fontSize: 27, letterSpacing: -0.8 },
+  subtitle: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, lineHeight: 19, marginTop: 6, marginBottom: 20 },
+  campos: { gap: 12, marginTop: 20 },
+  errorTexto: { fontFamily: Typography.fontFamily.medium, fontSize: 11.5, marginTop: 8, marginLeft: 4 },
+  olvido: { alignSelf: 'flex-end', minHeight: 44, justifyContent: 'center', marginBottom: 6 },
+  link: { fontFamily: Typography.fontFamily.medium, fontSize: 11.5, textAlign: 'center', textDecorationLine: 'underline' },
+  linkFuerte: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5 },
+  apagado: { opacity: 0.6 },
+  linkBox: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 8, marginTop: 6 },
+  spacer: { flexGrow: 1, minHeight: 20 },
+  notaBox: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
+  nota: { fontFamily: Typography.fontFamily.regular, fontSize: 11, lineHeight: 17.6, textAlign: 'center' },
+  notaLink: { fontFamily: Typography.fontFamily.semibold, textDecorationLine: 'underline' },
 });
