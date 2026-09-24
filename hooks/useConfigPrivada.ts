@@ -1,0 +1,78 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { getRandomBytes } from 'expo-crypto';
+import { db } from '../config/firebase';
+import { useToast } from '../contexts/ToastContext';
+import { ConfigPrivada, generarCodigoInvitacion } from '../lib/config';
+import { mensajeError } from '../lib/errores';
+
+const CONFIG_PRIVADO_REF = doc(db, 'config', 'privado');
+
+interface UseConfigPrivadaResult {
+  config: ConfigPrivada;
+  cargando: boolean;
+  error: unknown;
+  reintentar: () => void;
+  generando: boolean;
+  /** Devuelve el código nuevo, o null si no se pudo (el error ya se avisó con un toast). */
+  generarCodigo: () => Promise<string | null>;
+}
+
+function normalizarPrivada(raw: unknown): ConfigPrivada {
+  const codigo = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).codigoInvitacion : undefined;
+  return { codigoInvitacion: typeof codigo === 'string' && codigo.trim() ? codigo.trim() : null };
+}
+
+// Solo el admin puede leer config/privado: con `habilitado` en false no se escucha nada.
+export function useConfigPrivada(habilitado: boolean): UseConfigPrivadaResult {
+  const { mostrar } = useToast();
+  const [config, setConfig] = useState<ConfigPrivada>({ codigoInvitacion: null });
+  const [cargando, setCargando] = useState(habilitado);
+  const [error, setError] = useState<unknown>(null);
+  const [intento, setIntento] = useState(0);
+  const [generando, setGenerando] = useState(false);
+  const generandoRef = useRef(false);
+
+  useEffect(() => {
+    if (!habilitado) {
+      setCargando(false);
+      return undefined;
+    }
+    setCargando(true);
+    const unsub = onSnapshot(
+      CONFIG_PRIVADO_REF,
+      (snap) => {
+        setConfig(normalizarPrivada(snap.data()));
+        setError(null);
+        setCargando(false);
+      },
+      (e) => {
+        setError(e);
+        setCargando(false);
+      }
+    );
+    return unsub;
+  }, [habilitado, intento]);
+
+  const reintentar = useCallback(() => setIntento((n) => n + 1), []);
+
+  const generarCodigo = useCallback(async (): Promise<string | null> => {
+    if (generandoRef.current) return null;
+    generandoRef.current = true;
+    setGenerando(true);
+    try {
+      const codigo = generarCodigoInvitacion(getRandomBytes(8));
+      await setDoc(CONFIG_PRIVADO_REF, { codigoInvitacion: codigo }, { merge: true });
+      mostrar('Código nuevo listo para compartir', 'ok');
+      return codigo;
+    } catch (e) {
+      mostrar(mensajeError(e, 'No se pudo generar el código. Probá de nuevo.'), 'error');
+      return null;
+    } finally {
+      generandoRef.current = false;
+      setGenerando(false);
+    }
+  }, [mostrar]);
+
+  return { config, cargando, error, reintentar, generando, generarCodigo };
+}
