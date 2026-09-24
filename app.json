@@ -1,24 +1,20 @@
 {
   "expo": {
-    "name": "duel",
+    "name": "Duel",
     "slug": "duel",
+    "scheme": "duel",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#FBF6EF"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
@@ -27,11 +23,32 @@
       "favicon": "./assets/favicon.png"
     },
     "experiments": {
-      "tsconfigPaths": true
+      "tsconfigPaths": true,
+      "typedRoutes": false
     },
     "plugins": [
-      "@react-native-google-signin/google-signin",
-      "expo-router"
+      "expo-router",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Duel usa tus fotos solo para cargar el logo del local.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FBF6EF",
+          "image": "./assets/brand/isotipo.png",
+          "dark": {
+            "backgroundColor": "#14100D",
+            "image": "./assets/brand/duel-mark-dark.png"
+          },
+          "imageWidth": 140
+        }
+      ]
     ]
   }
 }
