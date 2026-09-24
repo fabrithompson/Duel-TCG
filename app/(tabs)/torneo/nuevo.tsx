@@ -1,0 +1,696 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../../config/firebase';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { useConfig } from '../../../contexts/ConfigContext';
+import { useToast } from '../../../contexts/ToastContext';
+import { useUserProfileContext } from '../../../contexts/UserProfileContext';
+import { Typography, tabularNums } from '../../../constants/theme';
+import { useJugadores, type JugadorCuenta } from '../../../hooks/useJugadores';
+import { useCatalogo } from '../../../hooks/useCatalogo';
+import { useMesasDuelo } from '../../../hooks/useMesasDuelo';
+import { useUltimoTorneo } from '../../../hooks/useUltimoTorneo';
+import { LIMITES, type DefaultsTorneo } from '../../../lib/config';
+import {
+  FORMATOS,
+  JUEGOS,
+  TOP_CUTS,
+  generarRonda,
+  sugerirRondas,
+  timerNuevaRonda,
+  topCutEfectivo,
+  totalRondasPara,
+  type FormatoId,
+  type Juego,
+  type JugadorTorneo,
+  type PuestoPremio,
+} from '../../../lib/torneo';
+import { formatARS, type CatalogoItem } from '../../../lib/pedido';
+import { fechaCorta, fechaLocal } from '../../../lib/fecha';
+import { mensajeError } from '../../../lib/errores';
+import { tocar } from '../../../lib/haptics';
+import Screen, { LoadingScreen } from '../../../components/Screen';
+import Button from '../../../components/Button';
+import Chip from '../../../components/Chip';
+import Stepper from '../../../components/Stepper';
+import FormField from '../../../components/FormField';
+import { Card, EmptyState, ErrorBanner, SectionLabel, SettingRow, SmallButton } from '../../../components/ui';
+
+const TOTAL_PASOS = 4;
+const TITULOS_PASO = ['Juego y formato', 'Reglas de la ronda', 'Inscriptos', 'Premios'];
+const MAX_PUESTOS = 8;
+const PASO_CREDITO = 500;
+// Tope de cordura por puesto (las reglas de Firestore frenan subidas de crédito mayores).
+const MAX_CREDITO_PUESTO = 1_000_000;
+const MAX_CANTIDAD_PUESTO = 99;
+
+interface Reparto {
+  cantidad: number;
+  credito: number;
+}
+
+function limitar(valor: number, lim: { readonly min: number; readonly max: number }): number {
+  return Math.min(lim.max, Math.max(lim.min, Math.round(valor)));
+}
+
+function sinAcentos(texto: string): string {
+  try {
+    return texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  } catch {
+    return texto.toLowerCase();
+  }
+}
+
+function claveProducto(item: Pick<CatalogoItem, 'origen' | 'id'>): string {
+  return `${item.origen}:${item.id}`;
+}
+
+export default function NuevoTorneoScreen() {
+  const router = useRouter();
+  const { config, cargando: cargandoConfig } = useConfig();
+  const { torneo, loading, error, reintentar } = useUltimoTorneo();
+  // Se decide una sola vez: al crear, el torneo nuevo aparece en curso y no hay que bloquear la pantalla que lo creó.
+  const [ocupado, setOcupado] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!loading && !error && ocupado === null) setOcupado(torneo?.estado === 'en_curso');
+  }, [loading, error, torneo, ocupado]);
+
+  if (cargandoConfig || loading) return <LoadingScreen />;
+  if (error) {
+    return (
+      <Screen back="Torneo" title="Nuevo torneo">
+        <ErrorBanner mensaje={mensajeError(error, 'No se pudo comprobar si hay un torneo en curso.')} onRetry={reintentar} />
+      </Screen>
+    );
+  }
+  if (ocupado === null) return <LoadingScreen />;
+  if (ocupado) {
+    return (
+      <Screen back="Torneo en curso" title="Nuevo torneo">
+        <EmptyState
+          title="Ya hay un torneo en curso"
+          body="Cerralo desde la última ronda (o descartalo, si sos admin) antes de armar otro: la app sigue un torneo a la vez."
+          action={<Button label="Volver al torneo" variant="secondary" onPress={() => router.back()} />}
+        />
+      </Screen>
+    );
+  }
+  return <Asistente defaults={config.torneo} creditoPremio={config.creditoPremio} />;
+}
+
+interface AsistenteProps {
+  readonly defaults: DefaultsTorneo;
+  readonly creditoPremio: boolean;
+}
+
+function Asistente({ defaults, creditoPremio }: AsistenteProps) {
+  const router = useRouter();
+  const { colors } = useTheme();
+  const { mostrar } = useToast();
+  const { user } = useUserProfileContext();
+  const jugadoresQ = useJugadores();
+  const catalogoQ = useCatalogo();
+  const mesasQ = useMesasDuelo();
+
+  const [paso, setPaso] = useState(1);
+  const [juego, setJuego] = useState<Juego>(JUEGOS[0]);
+  const [formatoId, setFormatoId] = useState<FormatoId>('suizo');
+  const [rondas, setRondas] = useState(() => limitar(defaults.rondas, LIMITES.rondas));
+  const [topCut, setTopCut] = useState(TOP_CUTS[0]);
+  const [minutos, setMinutos] = useState(() => limitar(defaults.minutos, LIMITES.minutos));
+  const [extra, setExtra] = useState(() => limitar(defaults.extra, LIMITES.extra));
+  const [inscripcion, setInscripcion] = useState(() => limitar(defaults.inscripcion, LIMITES.inscripcion));
+  const [cupo, setCupo] = useState(() => limitar(defaults.cupo, LIMITES.cupo));
+  const [seleccion, setSeleccion] = useState<string[]>([]);
+  const [pagados, setPagados] = useState<Record<string, boolean>>({});
+  const [busqueda, setBusqueda] = useState('');
+  const [puestos, setPuestos] = useState(4);
+  const [reparto, setReparto] = useState<Reparto[]>(() =>
+    Array.from({ length: MAX_PUESTOS }, (_, i) => ({ cantidad: Math.max(1, 4 - i), credito: 0 }))
+  );
+  const [productoClave, setProductoClave] = useState<string | null | undefined>(undefined);
+  const [creando, setCreando] = useState(false);
+
+  const porUid = useMemo(() => new Map(jugadoresQ.jugadores.map((j) => [j.uid, j])), [jugadoresQ.jugadores]);
+  const inscriptos = useMemo(
+    () => seleccion.map((uid) => porUid.get(uid)).filter((j): j is JugadorCuenta => j !== undefined),
+    [seleccion, porUid]
+  );
+  const n = inscriptos.length;
+  const nParaRondas = n >= 2 ? n : cupo;
+  const totalRondas = totalRondasPara(formatoId, nParaRondas, rondas, topCut);
+  const corte = formatoId === 'suizo_top_cut' ? topCutEfectivo(nParaRondas, topCut) : 0;
+  const pozo = n * inscripcion;
+  const puestosMax = Math.max(1, Math.min(MAX_PUESTOS, n));
+  const puestosEfectivos = Math.min(puestos, puestosMax);
+
+  const productos = useMemo(
+    () =>
+      catalogoQ.items
+        .filter((i) => i.activo && i.stock !== null)
+        .sort((a, b) => Number(b.rubro === 'TCG') - Number(a.rubro === 'TCG') || a.nombre.localeCompare(b.nombre, 'es')),
+    [catalogoQ.items]
+  );
+
+  // Producto por defecto: el primero de TCG con stock, una vez que carga el catálogo.
+  useEffect(() => {
+    if (productoClave !== undefined || catalogoQ.loading) return;
+    const primero = productos.find((p) => (p.stock ?? 0) > 0) ?? null;
+    setProductoClave(primero ? claveProducto(primero) : null);
+  }, [productoClave, catalogoQ.loading, productos]);
+
+  const producto = productos.find((p) => claveProducto(p) === productoClave) ?? null;
+  const comprometidos = producto ? reparto.slice(0, puestosEfectivos).reduce((acc, r) => acc + r.cantidad, 0) : 0;
+
+  const filtrados = useMemo(() => {
+    const q = sinAcentos(busqueda.trim());
+    return q ? jugadoresQ.jugadores.filter((j) => sinAcentos(j.nombre).includes(q)) : jugadoresQ.jugadores;
+  }, [busqueda, jugadoresQ.jugadores]);
+
+  const salir = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/torneo');
+  };
+
+  const atras = () => {
+    if (paso > 1) setPaso(paso - 1);
+    else salir();
+  };
+
+  const problemaPaso = (p: number): string | null => {
+    if (p === 3) {
+      if (n < 2) return 'Anotá al menos 2 jugadores.';
+      if (n > cupo) return `Hay ${n} anotados y el cupo es ${cupo}: sacá jugadores o subí el cupo.`;
+    }
+    return null;
+  };
+
+  const continuar = () => {
+    const problema = problemaPaso(paso);
+    if (problema) {
+      mostrar(problema, 'info');
+      return;
+    }
+    setPaso(paso + 1);
+  };
+
+  const alternarJugador = (uid: string) => {
+    setSeleccion((prev) => {
+      if (prev.includes(uid)) return prev.filter((u) => u !== uid);
+      if (prev.length >= cupo) {
+        mostrar(`Llegaste al cupo de ${cupo}. Subilo en el paso 2 si entran más.`, 'info');
+        return prev;
+      }
+      return [...prev, uid];
+    });
+  };
+
+  const cambiarReparto = (indice: number, campo: keyof Reparto, delta: number) => {
+    setReparto((prev) =>
+      prev.map((r, i) => {
+        if (i !== indice) return r;
+        const tope = campo === 'cantidad' ? MAX_CANTIDAD_PUESTO : MAX_CREDITO_PUESTO;
+        return { ...r, [campo]: Math.min(tope, Math.max(0, r[campo] + delta)) };
+      })
+    );
+  };
+
+  const crear = async () => {
+    if (creando) return;
+    const problema = problemaPaso(3);
+    if (problema) {
+      mostrar(problema, 'info');
+      setPaso(3);
+      return;
+    }
+    if (!user) {
+      mostrar('Tu sesión venció. Volvé a iniciar sesión.', 'error');
+      return;
+    }
+    setCreando(true);
+    try {
+      const jugadores: JugadorTorneo[] = inscriptos.map((j) => ({ uid: j.uid, nombre: j.nombre, pagado: pagados[j.uid] === true }));
+      const total = totalRondasPara(formatoId, jugadores.length, rondas, topCut);
+      const corteFinal = formatoId === 'suizo_top_cut' ? topCutEfectivo(jugadores.length, topCut) : 0;
+      const ronda1 = generarRonda(
+        { jugadores, rondas: [], formatoId, totalRondas: total, topCut: corteFinal },
+        1,
+        mesasQ.mesas.map((m) => ({ id: m.id, numero: m.numero }))
+      );
+      const premios: PuestoPremio[] = reparto.slice(0, Math.min(puestos, jugadores.length, MAX_PUESTOS)).map((r, i) => ({
+        puesto: i + 1,
+        jugadorUid: null,
+        productoId: producto ? producto.id : null,
+        productoOrigen: producto ? producto.origen : 'tcg',
+        productoNombre: producto ? producto.nombre : null,
+        cantidadProducto: producto ? r.cantidad : 0,
+        creditoCafeteria: creditoPremio ? r.credito : 0,
+        entregado: false,
+      }));
+      const fecha = fechaLocal();
+      await addDoc(collection(db, 'torneos'), {
+        nombre: `Torneo del ${fechaCorta(fecha)}`,
+        juego,
+        formatoId,
+        formato: FORMATOS.find((f) => f.id === formatoId)?.nombre ?? 'Suizo',
+        totalRondas: total,
+        topCut: corteFinal,
+        minutosPorRonda: minutos,
+        minutosExtra: extra,
+        inscripcion,
+        cupo,
+        jugadores,
+        jugadoresUids: jugadores.map((j) => j.uid),
+        estado: 'en_curso',
+        rondaActual: 1,
+        rondas: [ronda1],
+        premios,
+        ...timerNuevaRonda(minutos, Date.now()),
+        fecha,
+        creadoPor: user.uid,
+        creadoEn: serverTimestamp(),
+      });
+      mostrar('Torneo creado. La ronda 1 ya está emparejada.', 'ok');
+      salir();
+    } catch (e) {
+      mostrar(mensajeError(e, 'No se pudo crear el torneo.'), 'error');
+      setCreando(false);
+    }
+  };
+
+  const problemaActual = problemaPaso(paso);
+
+  return (
+    <Screen
+      back="Torneo"
+      onBack={salir}
+      title="Nuevo torneo"
+      subtitle={`Paso ${paso} de ${TOTAL_PASOS} · ${TITULOS_PASO[paso - 1]}`}
+      footer={
+        <View style={[styles.footer, { borderTopColor: colors.line, backgroundColor: colors.bg }]}>
+          <View style={styles.flex1}>
+            <Button label="Atrás" variant="secondary" onPress={atras} disabled={creando} />
+          </View>
+          <View style={styles.flex17}>
+            {paso < TOTAL_PASOS ? (
+              <Button label="Continuar" onPress={continuar} accessibilityHint={problemaActual ?? undefined} />
+            ) : (
+              <Button label="Crear y emparejar R1" onPress={() => void crear()} loading={creando} disabled={mesasQ.cargando} />
+            )}
+          </View>
+        </View>
+      }
+    >
+      <View style={styles.progreso} accessibilityRole="progressbar" accessibilityValue={{ min: 1, max: TOTAL_PASOS, now: paso }}>
+        {Array.from({ length: TOTAL_PASOS }, (_, i) => (
+          <View key={`paso-${i}`} style={[styles.progresoTramo, { backgroundColor: i < paso ? colors.br : colors.line }]} />
+        ))}
+      </View>
+
+      {paso === 1 ? (
+        <View>
+          <SectionLabel>Juego</SectionLabel>
+          <View style={styles.chips}>
+            {JUEGOS.map((j) => (
+              <Chip key={j} label={j} active={juego === j} onPress={() => setJuego(j)} />
+            ))}
+          </View>
+          <View style={styles.bloque}>
+            <SectionLabel>Formato</SectionLabel>
+            <View style={styles.lista} accessibilityRole="radiogroup">
+              {FORMATOS.map((f) => {
+                const activo = formatoId === f.id;
+                return (
+                  <TouchableOpacity
+                    key={f.id}
+                    style={[styles.formato, { borderColor: activo ? colors.br : colors.line, backgroundColor: activo ? colors.brs : colors.sf }]}
+                    onPress={() => {
+                      tocar();
+                      setFormatoId(f.id);
+                    }}
+                    activeOpacity={0.7}
+                    accessibilityRole="radio"
+                    accessibilityLabel={f.nombre}
+                    accessibilityHint={f.descripcion}
+                    accessibilityState={{ checked: activo }}
+                  >
+                    <View style={[styles.radio, { borderColor: activo ? colors.br : colors.line, backgroundColor: activo ? colors.br : 'transparent' }]} />
+                    <View style={styles.flex1}>
+                      <Text style={[styles.formatoNombre, { color: activo ? colors.br : colors.ink }]}>{f.nombre}</Text>
+                      <Text style={[styles.formatoDesc, { color: colors.dim }]}>{f.descripcion}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {paso === 2 ? (
+        <View style={styles.lista}>
+          {formatoId === 'eliminacion' ? (
+            <SettingRow
+              label="Rondas"
+              sub={`Se calculan solas: llave de ${nParaRondas} ${n >= 2 ? 'inscriptos' : 'jugadores (cupo)'}`}
+              value={String(totalRondas)}
+            />
+          ) : (
+            <SettingRow
+              label={formatoId === 'suizo_top_cut' ? 'Rondas suizas' : 'Rondas'}
+              sub={`Sugeridas para ${nParaRondas} jugadores${n >= 2 ? '' : ' (cupo)'}: ${sugerirRondas(nParaRondas)}`}
+            >
+              <Stepper
+                value={rondas}
+                min={LIMITES.rondas.min}
+                max={LIMITES.rondas.max}
+                onIncrement={() => setRondas((v) => limitar(v + 1, LIMITES.rondas))}
+                onDecrement={() => setRondas((v) => limitar(v - 1, LIMITES.rondas))}
+                accessibilityLabel="rondas"
+              />
+            </SettingRow>
+          )}
+          {formatoId === 'suizo_top_cut' ? (
+            <SettingRow label="Top cut" sub={`Llave final de los mejores del suizo · ${totalRondas} rondas en total`}>
+              <View style={styles.chipsFila}>
+                {TOP_CUTS.map((k) => (
+                  <Chip key={k} label={`Top ${k}`} active={topCut === k} onPress={() => setTopCut(k)} />
+                ))}
+              </View>
+            </SettingRow>
+          ) : null}
+          <SettingRow label="Minutos por ronda" sub="Reloj de sala">
+            <Stepper
+              value={minutos}
+              min={LIMITES.minutos.min}
+              max={LIMITES.minutos.max}
+              onIncrement={() => setMinutos((v) => limitar(v + 5, LIMITES.minutos))}
+              onDecrement={() => setMinutos((v) => limitar(v - 5, LIMITES.minutos))}
+              accessibilityLabel="minutos por ronda"
+            />
+          </SettingRow>
+          <SettingRow label="Minutos extra" sub="Se suman al reloj al llegar a cero">
+            <Stepper
+              value={extra}
+              min={LIMITES.extra.min}
+              max={LIMITES.extra.max}
+              onIncrement={() => setExtra((v) => limitar(v + 1, LIMITES.extra))}
+              onDecrement={() => setExtra((v) => limitar(v - 1, LIMITES.extra))}
+              accessibilityLabel="minutos extra"
+            />
+          </SettingRow>
+          <SettingRow label="Inscripción" sub="Cobrable desde el salón">
+            <Stepper
+              value={inscripcion}
+              min={LIMITES.inscripcion.min}
+              max={LIMITES.inscripcion.max}
+              formatValue={formatARS}
+              onIncrement={() => setInscripcion((v) => limitar(v + 500, LIMITES.inscripcion))}
+              onDecrement={() => setInscripcion((v) => limitar(v - 500, LIMITES.inscripcion))}
+              accessibilityLabel="inscripción"
+            />
+          </SettingRow>
+          <SettingRow
+            label="Cupo máximo"
+            sub={
+              mesasQ.cargando
+                ? 'Contando mesas de duelo…'
+                : mesasQ.error
+                  ? 'No se pudieron leer las mesas de duelo'
+                  : `Mesas de duelo disponibles: ${mesasQ.mesas.length}`
+            }
+          >
+            <Stepper
+              value={cupo}
+              min={LIMITES.cupo.min}
+              max={LIMITES.cupo.max}
+              onIncrement={() => setCupo((v) => limitar(v + 2, LIMITES.cupo))}
+              onDecrement={() => setCupo((v) => limitar(v - 2, LIMITES.cupo))}
+              accessibilityLabel="cupo máximo"
+            />
+          </SettingRow>
+          <Card dashed>
+            <Text style={[styles.nota, { color: colors.dim }]}>Tomados de los ajustes del local. Cambiarlos acá afecta solo a este torneo.</Text>
+          </Card>
+        </View>
+      ) : null}
+
+      {paso === 3 ? (
+        <View>
+          <SectionLabel
+            right={
+              <Text style={[styles.contador, { color: n > cupo ? colors.dg : colors.dim }, tabularNums(11.5)]}>
+                {n} de {cupo}
+              </Text>
+            }
+          >
+            Inscriptos
+          </SectionLabel>
+          <FormField
+            label="Buscar"
+            value={busqueda}
+            onChangeText={setBusqueda}
+            placeholder="Nombre del jugador"
+            autoCorrect={false}
+            autoCapitalize="none"
+            maxLength={60}
+            returnKeyType="search"
+            containerStyle={styles.buscador}
+          />
+          {problemaActual ? <Text style={[styles.meta, styles.sugerenciaTexto, { color: n > cupo ? colors.dg : colors.dim }]}>{problemaActual}</Text> : null}
+          {formatoId !== 'eliminacion' && n >= 2 && rondas !== limitar(sugerirRondas(n), LIMITES.rondas) ? (
+            <View style={styles.sugerencia}>
+              <Text style={[styles.meta, styles.flex1, { color: colors.dim }]}>
+                Con {n} inscriptos se sugieren {sugerirRondas(n)} rondas{formatoId === 'suizo_top_cut' ? ' suizas' : ''} (elegiste {rondas}).
+              </Text>
+              <SmallButton label={`Usar ${limitar(sugerirRondas(n), LIMITES.rondas)}`} onPress={() => setRondas(limitar(sugerirRondas(n), LIMITES.rondas))} />
+            </View>
+          ) : null}
+          {formatoId === 'suizo_top_cut' && n >= 2 && corte !== topCut ? (
+            <Text style={[styles.meta, styles.sugerenciaTexto, { color: colors.dim }]}>
+              Con {n} inscriptos el top cut queda en {corte > 0 ? `top ${corte}` : 'nada'}.
+            </Text>
+          ) : null}
+
+          {jugadoresQ.error ? (
+            <ErrorBanner mensaje={mensajeError(jugadoresQ.error, 'No se pudo cargar la lista de jugadores.')} onRetry={jugadoresQ.reintentar} />
+          ) : null}
+          {jugadoresQ.cargando ? (
+            <ActivityIndicator color={colors.br} style={styles.cargando} accessibilityLabel="Cargando jugadores" />
+          ) : jugadoresQ.jugadores.length === 0 && !jugadoresQ.error ? (
+            <EmptyState
+              title="Todavía no hay jugadores registrados"
+              body="Cada jugador se crea su cuenta desde la app (perfil Jugador) y aparece acá al instante."
+            />
+          ) : filtrados.length === 0 && busqueda.trim() ? (
+            <EmptyState title={`Nadie coincide con "${busqueda.trim()}"`} body="Probá con otra parte del nombre." />
+          ) : (
+            filtrados.map((j) => (
+              <FilaInscripto
+                key={j.uid}
+                jugador={j}
+                marcado={seleccion.includes(j.uid)}
+                pagado={pagados[j.uid] === true}
+                onAlternar={() => alternarJugador(j.uid)}
+                onPago={() => setPagados((prev) => ({ ...prev, [j.uid]: !prev[j.uid] }))}
+              />
+            ))
+          )}
+          <Card style={styles.bloque}>
+            <Text style={[styles.nota, { color: colors.dim }]}>
+              Tocá Pagado / Impago para marcar la inscripción. La impaga se cobra desde el salón como cualquier consumo.
+            </Text>
+          </Card>
+        </View>
+      ) : null}
+
+      {paso === 4 ? (
+        <View>
+          <Card>
+            <Text style={[styles.etiqueta, { color: colors.dim }]}>POZO</Text>
+            <Text style={[styles.pozo, { color: colors.ink }, tabularNums(30)]}>{formatARS(pozo)}</Text>
+            <Text style={[styles.meta, { color: colors.dim }]}>
+              {n} {n === 1 ? 'inscripción' : 'inscripciones'} de {formatARS(inscripcion)}
+            </Text>
+          </Card>
+
+          <View style={styles.bloque}>
+            <SectionLabel>Producto del premio</SectionLabel>
+            {catalogoQ.error ? <ErrorBanner mensaje={mensajeError(catalogoQ.error, 'No se pudo cargar el stock.')} /> : null}
+            {catalogoQ.loading ? (
+              <ActivityIndicator color={colors.gold} accessibilityLabel="Cargando productos" />
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsFila}>
+                <Chip label="Sin producto" tone="gold" active={productoClave === null} onPress={() => setProductoClave(null)} />
+                {productos.map((p) => (
+                  <Chip
+                    key={claveProducto(p)}
+                    label={`${p.nombre} · ${p.stock ?? 0}`}
+                    tone="gold"
+                    active={productoClave === claveProducto(p)}
+                    onPress={() => setProductoClave(claveProducto(p))}
+                  />
+                ))}
+              </ScrollView>
+            )}
+          </View>
+
+          <View style={styles.bloque}>
+            <SectionLabel>Reparto</SectionLabel>
+            <SettingRow label="Puestos premiados" sub={`Del 1º al ${puestosEfectivos}º`}>
+              <Stepper
+                value={puestosEfectivos}
+                min={1}
+                max={puestosMax}
+                onIncrement={() => setPuestos(Math.min(puestosMax, puestosEfectivos + 1))}
+                onDecrement={() => setPuestos(Math.max(1, puestosEfectivos - 1))}
+                accessibilityLabel="puestos premiados"
+              />
+            </SettingRow>
+            {reparto.slice(0, puestosEfectivos).map((r, i) => (
+              <View key={`puesto-${i}`} style={[styles.puesto, { borderBottomColor: colors.line }]}>
+                <View style={styles.puestoFila}>
+                  <Text style={[styles.puestoNumero, { color: colors.gold }, tabularNums(17)]}>{i + 1}º</Text>
+                  <View style={styles.flex1}>
+                    <Text style={[styles.puestoTexto, { color: colors.ink }]}>
+                      {producto ? `${r.cantidad} × ${producto.nombre}` : 'Sin producto'}
+                    </Text>
+                    <Text style={[styles.meta, { color: colors.dim }, tabularNums(10.5)]}>
+                      {creditoPremio ? (r.credito > 0 ? `Crédito ${formatARS(r.credito)}` : 'Sin crédito') : 'El local no da crédito como premio'}
+                    </Text>
+                  </View>
+                  {producto ? (
+                    <Stepper
+                      value={r.cantidad}
+                      min={0}
+                      max={MAX_CANTIDAD_PUESTO}
+                      onIncrement={() => cambiarReparto(i, 'cantidad', 1)}
+                      onDecrement={() => cambiarReparto(i, 'cantidad', -1)}
+                      accessibilityLabel={`cantidad de ${producto.nombre} para el puesto ${i + 1}`}
+                    />
+                  ) : null}
+                </View>
+                {creditoPremio ? (
+                  <View style={styles.creditoFila}>
+                    <Text style={[styles.meta, { color: colors.dim }]}>Crédito de cafetería</Text>
+                    <Stepper
+                      value={r.credito}
+                      min={0}
+                      max={MAX_CREDITO_PUESTO}
+                      formatValue={formatARS}
+                      onIncrement={() => cambiarReparto(i, 'credito', PASO_CREDITO)}
+                      onDecrement={() => cambiarReparto(i, 'credito', -PASO_CREDITO)}
+                      accessibilityLabel={`crédito para el puesto ${i + 1}`}
+                    />
+                  </View>
+                ) : null}
+              </View>
+            ))}
+            {producto ? (
+              <View style={styles.comprometidos}>
+                <Text style={[styles.meta, { color: colors.dim }]}>Comprometidos</Text>
+                <Text
+                  style={[styles.comprometidosValor, { color: comprometidos > (producto.stock ?? 0) ? colors.dg : colors.ok }, tabularNums(12.5)]}
+                >
+                  {comprometidos} de {producto.stock ?? 0} en stock
+                </Text>
+              </View>
+            ) : null}
+            {comprometidos > (producto?.stock ?? 0) ? (
+              <Text style={[styles.meta, { color: colors.dg }]}>
+                No alcanza el stock: podés crear igual, pero al entregar el stock queda negativo hasta que se reponga.
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+    </Screen>
+  );
+}
+
+interface FilaInscriptoProps {
+  readonly jugador: JugadorCuenta;
+  readonly marcado: boolean;
+  readonly pagado: boolean;
+  readonly onAlternar: () => void;
+  readonly onPago: () => void;
+}
+
+function FilaInscripto({ jugador, marcado, pagado, onAlternar, onPago }: FilaInscriptoProps) {
+  const { colors } = useTheme();
+  return (
+    <TouchableOpacity
+      style={[styles.inscripto, { borderBottomColor: colors.line }]}
+      onPress={() => {
+        tocar();
+        onAlternar();
+      }}
+      activeOpacity={0.7}
+      accessibilityRole="checkbox"
+      accessibilityLabel={jugador.nombre}
+      accessibilityState={{ checked: marcado }}
+    >
+      <View style={[styles.check, { borderColor: marcado ? colors.br : colors.line, backgroundColor: marcado ? colors.br : 'transparent' }]}>
+        {marcado ? <Ionicons name="checkmark" size={13} color="#FFFFFF" /> : null}
+      </View>
+      <Text style={[styles.inscriptoNombre, { color: colors.ink }]} numberOfLines={1}>
+        {jugador.nombre}
+      </Text>
+      <TouchableOpacity
+        style={styles.pago}
+        onPress={() => {
+          tocar();
+          onPago();
+        }}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        accessibilityRole="switch"
+        accessibilityLabel={`Inscripción de ${jugador.nombre}`}
+        accessibilityState={{ checked: pagado }}
+        accessibilityHint="Tocá para marcarla como pagada o impaga"
+      >
+        <Text style={[styles.pagoTexto, { color: pagado ? colors.ok : colors.dg }]}>{pagado ? 'Pagado' : 'Impago'}</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+}
+
+const styles = StyleSheet.create({
+  flex1: { flex: 1 },
+  flex17: { flex: 1.7 },
+  footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 14, borderTopWidth: 1 },
+  progreso: { flexDirection: 'row', gap: 5, marginBottom: 20 },
+  progresoTramo: { flex: 1, height: 4, borderRadius: 4 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  chipsFila: { flexDirection: 'row', gap: 7, alignItems: 'center' },
+  bloque: { marginTop: 22 },
+  lista: { gap: 8 },
+  formato: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderRadius: 13, paddingVertical: 13, paddingHorizontal: 14, minHeight: 56 },
+  radio: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5 },
+  formatoNombre: { fontFamily: Typography.fontFamily.semibold, fontSize: 13.5 },
+  formatoDesc: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 2 },
+  nota: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 18 },
+  meta: { fontFamily: Typography.fontFamily.regular, fontSize: 11, lineHeight: 16 },
+  contador: { fontFamily: Typography.fontFamily.medium, fontSize: 11.5 },
+  buscador: { marginBottom: 6 },
+  sugerencia: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 8 },
+  sugerenciaTexto: { marginBottom: 8 },
+  cargando: { marginVertical: 24 },
+  inscripto: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 52, paddingVertical: 6, borderBottomWidth: 1 },
+  check: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  inscriptoNombre: { flex: 1, fontFamily: Typography.fontFamily.medium, fontSize: 13.5 },
+  pago: { minHeight: 44, minWidth: 64, alignItems: 'flex-end', justifyContent: 'center' },
+  pagoTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 11 },
+  etiqueta: { fontFamily: Typography.fontFamily.bold, fontSize: 10, letterSpacing: 1.6 },
+  pozo: { fontFamily: Typography.fontFamily.bold, fontSize: 30, marginTop: 8 },
+  puesto: { paddingVertical: 11, borderBottomWidth: 1, gap: 8 },
+  puestoFila: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  puestoNumero: { fontFamily: Typography.fontFamily.bold, fontSize: 17, minWidth: 30 },
+  puestoTexto: { fontFamily: Typography.fontFamily.medium, fontSize: 13 },
+  creditoFila: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 42 },
+  comprometidos: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 },
+  comprometidosValor: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5 },
+});
