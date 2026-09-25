@@ -9,19 +9,18 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useUserProfileContext } from '../contexts/UserProfileContext';
 import { getTheme, Typography, tabularNums, type ThemeTokens } from '../constants/theme';
 import { useUltimoTorneo } from '../hooks/useUltimoTorneo';
+import { useSincronizarReloj } from '../hooks/useReloj';
 import {
   calcularStandings,
-  estadoTimer,
-  formatTimer,
+  conNombresUnicos,
   nombreRonda,
   pendientesDe,
-  segundosRestantes,
   type Partida,
   type Torneo,
   etiquetaMesa,
 } from '../lib/torneo';
 import { ahoraServidor } from '../lib/reloj';
-import { SEGUNDOS_RELOJ_BAJO } from '../lib/temporada';
+import { describirReloj } from '../lib/relojRonda';
 import { mensajeError } from '../lib/errores';
 
 // Pantalla de solo lectura para la tele del local: siempre en paleta noche.
@@ -44,6 +43,7 @@ export default function ModoTvScreen() {
   );
   const { config } = useConfig();
   const { user, profile, loading } = useUserProfileContext();
+  useSincronizarReloj(profile?.estadoAprobacion === 'aprobado' ? profile.uid : null);
   const colors = useMemo(() => getTheme('night', config.marca ?? undefined), [config.marca]);
 
   const salir = () => {
@@ -93,7 +93,8 @@ function BotonSalir({ colors, onPress }: { readonly colors: ThemeTokens; readonl
 }
 
 function TvTorneo({ colors, onSalir }: { readonly colors: ThemeTokens; readonly onSalir: () => void }) {
-  const { torneo, loading, error, reintentar } = useUltimoTorneo();
+  const { torneo: leido, loading, error, reintentar } = useUltimoTorneo();
+  const torneo = useMemo(() => (leido ? conNombresUnicos(leido) : null), [leido]);
 
   if (loading) {
     return (
@@ -269,28 +270,25 @@ function RelojTv({ torneo, colors, tamano }: { readonly torneo: Torneo; readonly
     return () => clearInterval(id);
   }, [torneo.rondaPausada, torneo.rondaFinEn]);
 
-  const segundos = segundosRestantes(torneo, ahora);
-  const estado = estadoTimer(torneo, ahora);
-  const textoEstado =
-    estado === 'pausado' ? 'Pausada por el juez' : estado === 'extra' ? 'Tiempo extra · cierren la ronda' : `Ronda en curso · ${torneo.minutosPorRonda} min`;
+  const reloj = describirReloj(torneo, ahora);
 
   return (
     <View style={styles.timerZona}>
       <Text
         style={[
           styles.timer,
-          { color: segundos < SEGUNDOS_RELOJ_BAJO ? colors.dg : colors.ink, fontSize: tamano, lineHeight: Math.round(tamano * 1.08) },
+          { color: reloj.fase === 'extra' || reloj.bajo ? colors.dg : colors.ink, fontSize: tamano, lineHeight: Math.round(tamano * 1.08) },
           tabularNums(tamano),
           { letterSpacing: -0.04 * tamano },
         ]}
         accessibilityRole="timer"
-        accessibilityLabel={`Quedan ${Math.floor(segundos / 60)} minutos y ${segundos % 60} segundos`}
+        accessibilityLabel={reloj.accesible}
         numberOfLines={1}
         adjustsFontSizeToFit
       >
-        {formatTimer(segundos)}
+        {reloj.reloj}
       </Text>
-      <Text style={[styles.estado, { color: estado === 'extra' ? colors.dg : colors.dim }]}>{textoEstado.toUpperCase()}</Text>
+      <Text style={[styles.estado, { color: reloj.fase === 'extra' ? colors.dg : colors.dim }]}>{reloj.estado.toUpperCase()}</Text>
     </View>
   );
 }

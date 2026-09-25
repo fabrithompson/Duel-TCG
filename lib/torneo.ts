@@ -1,5 +1,6 @@
 import { CONFIG_DEFAULT } from './config';
 import { aMilis, fechaLocal } from './fecha';
+import { etiquetasDesambiguadas, normalizarBusqueda } from './jugadores';
 
 // Torneos.
 //
@@ -835,15 +836,52 @@ export function etiquetaMesa(p: Pick<Partida, 'mesa' | 'mesaSalonNumero' | 'juga
   return { titulo: `Partida ${p.mesa}`, corta: `P${p.mesa}`, larga: `Partida ${p.mesa}, sin mesa asignada`, enSalon: false };
 }
 
+/**
+ * Para mostrar: si dos inscriptos se llaman igual, se agrega "· #XXXX" (inicio del uid) en todos lados
+ * (mesas, tabla, premios, TV), así nadie carga el resultado o entrega el premio al equivocado.
+ * Solo para pantallas: lo que se escribe sale siempre del torneo leído en la transacción.
+ */
+export function conNombresUnicos(t: Torneo): Torneo {
+  const etiquetas = etiquetasDesambiguadas(t.jugadores.map((j) => ({ uid: j.uid, nombre: j.nombre, nombreBusqueda: normalizarBusqueda(j.nombre) })));
+  if (t.jugadores.every((j) => etiquetas.get(j.uid) === j.nombre)) return t;
+  const nombre = <J extends { uid: string; nombre: string }>(j: J): J => ({ ...j, nombre: etiquetas.get(j.uid) ?? j.nombre });
+  return {
+    ...t,
+    jugadores: t.jugadores.map(nombre),
+    rondas: t.rondas.map((r) => ({
+      ...r,
+      partidas: r.partidas.map((p) => ({ ...p, jugador1: nombre(p.jugador1), jugador2: p.jugador2 ? nombre(p.jugador2) : null })),
+    })),
+    posiciones: t.posiciones?.map(nombre),
+  };
+}
+
 /** Mesas del Salón con duelo en curso: partidas sin resultado de la ronda actual de un torneo en curso. */
+export interface DueloEnMesa {
+  ronda: number;
+  partida: Partida;
+}
+
+/**
+ * Duelos en juego por mesa del Salón: partidas sin resultado de la ronda actual de un torneo en curso.
+ * El duelo no se guarda en la mesa: se deriva del torneo, así nunca queda "colgado" si alguien cierra la app.
+ * Salón, Pedido y Hoy usan esta misma función.
+ */
+export function duelosPorMesa(torneo: Pick<Torneo, 'estado' | 'rondaActual' | 'rondas'> | null | undefined): Map<string, DueloEnMesa> {
+  const mapa = new Map<string, DueloEnMesa>();
+  if (!torneo || torneo.estado !== 'en_curso' || !Array.isArray(torneo.rondas)) return mapa;
+  const ronda = torneo.rondas.find((r) => r && r.numero === torneo.rondaActual);
+  if (!ronda || !Array.isArray(ronda.partidas)) return mapa;
+  for (const partida of ronda.partidas) {
+    if (partida && typeof partida.mesaSalonId === 'string' && partida.mesaSalonId && partida.resultado === null) {
+      mapa.set(partida.mesaSalonId, { ronda: ronda.numero, partida });
+    }
+  }
+  return mapa;
+}
+
 export function mesasSalonEnDuelo(t: Pick<Torneo, 'estado' | 'rondaActual' | 'rondas'> | null | undefined): Set<string> {
-  const ids = new Set<string>();
-  if (!t || t.estado !== 'en_curso') return ids;
-  const ronda = t.rondas.find((r) => r.numero === t.rondaActual);
-  ronda?.partidas.forEach((p) => {
-    if (p.resultado === null && p.mesaSalonId) ids.add(p.mesaSalonId);
-  });
-  return ids;
+  return new Set(duelosPorMesa(t).keys());
 }
 
 // ---------------------------------------------------------------------------

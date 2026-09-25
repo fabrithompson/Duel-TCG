@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Screen, { LoadingScreen } from '../../components/Screen';
 import Button from '../../components/Button';
@@ -12,10 +12,10 @@ import { Typography, tabularNums } from '../../constants/theme';
 import { reportarResultado, useMiDuelo, useReportesPartida } from '../../hooks/useMiDuelo';
 import { useMiCredito } from '../../hooks/useDirectorioJugadores';
 import { ahoraServidor } from '../../lib/reloj';
-import { RESULTADOS, calcularStandings, etiquetaMesa, formatTimer, nombreRonda, recordDe, type Resultado, type Standing, type Torneo } from '../../lib/torneo';
+import { describirReloj } from '../../lib/relojRonda';
+import { RESULTADOS, calcularStandings, etiquetaMesa, nombreRonda, recordDe, type Resultado, type Standing, type Torneo } from '../../lib/torneo';
 import {
   esVictoria,
-  estadoReloj,
   miPartidaActual,
   resultadoParaJugador,
   type MiPartida,
@@ -24,6 +24,7 @@ import { formatARS } from '../../lib/pedido';
 import { MENSAJE_FALTA_INDICE, codigoError, esFaltaDeIndice, mensajeError } from '../../lib/errores';
 import { advertencia, tocar } from '../../lib/haptics';
 import { fechaDeNegocio } from '../../lib/fecha';
+import { confirmar } from '../../lib/dialogo';
 
 /** Pasado este tiempo sin respuesta del servidor, el reporte queda en la cola offline de Firestore. */
 const ESPERA_MAXIMA_MS = 10_000;
@@ -60,18 +61,6 @@ function textosSinPartida(torneo: Torneo): { titulo: string; cuerpo: string } {
     titulo: `No tenés partida en la ronda ${torneo.rondaActual}`,
     cuerpo: 'Si creés que es un error, avisale al juez.',
   };
-}
-
-function confirmar(titulo: string, mensaje: string, accion: string, onOk: () => void): void {
-  // Alert.alert con botones no hace nada en react-native-web.
-  if (Platform.OS === 'web') {
-    if (window.confirm(`${titulo}\n\n${mensaje}`)) onOk();
-    return;
-  }
-  Alert.alert(titulo, mensaje, [
-    { text: 'Cancelar', style: 'cancel' },
-    { text: accion, onPress: onOk },
-  ]);
 }
 
 function creditoValido(valor: unknown): number {
@@ -308,7 +297,7 @@ function RelojRonda({ torneo }: { readonly torneo: Torneo }) {
     }, [])
   );
 
-  const reloj = estadoReloj(torneo, ahora);
+  const reloj = describirReloj(torneo, ahora);
   const aviso = reloj.fase === 'extra' ? 'extra' : reloj.fase === 'corriendo' && reloj.bajo ? 'bajo' : 'normal';
 
   useEffect(() => {
@@ -317,25 +306,18 @@ function RelojRonda({ torneo }: { readonly torneo: Torneo }) {
     avisoAnterior.current = aviso;
   }, [aviso]);
 
-  let estado = `Ronda en curso · ${torneo.minutosPorRonda} min`;
-  if (reloj.fase === 'sin_iniciar') estado = 'El reloj todavía no arrancó';
-  if (reloj.fase === 'pausada') estado = 'Pausada por el juez';
-  if (reloj.fase === 'extra') estado = torneo.minutosExtra > 0 ? `Tiempo extra · +${torneo.minutosExtra} min` : 'Tiempo extra';
-
-  const colorTiempo = reloj.fase === 'extra' ? colors.gold : reloj.bajo ? colors.dg : colors.ink;
-  const minutos = Math.floor(reloj.segundos / 60);
-  const segundos = reloj.segundos % 60;
+  const colorTiempo = reloj.fase === 'extra' || reloj.bajo ? colors.dg : colors.ink;
 
   return (
     <View style={[styles.reloj, styles.bloque, { borderColor: colors.line, backgroundColor: colors.sf }]}>
       <Text
         style={[styles.relojTiempo, { color: colorTiempo }, tabularNums(64)]}
         accessibilityRole="timer"
-        accessibilityLabel={reloj.fase === 'extra' ? 'Se cumplió el tiempo de la ronda' : `${minutos} minutos y ${segundos} segundos`}
+        accessibilityLabel={reloj.accesible}
       >
-        {formatTimer(reloj.segundos)}
+        {reloj.reloj}
       </Text>
-      <Text style={[styles.relojEstado, { color: colors.dim }]}>{estado.toUpperCase()}</Text>
+      <Text style={[styles.relojEstado, { color: reloj.fase === 'extra' ? colors.dg : colors.dim }]}>{reloj.estado.toUpperCase()}</Text>
       <Text style={[styles.relojNota, { color: colors.dim }]}>
         El reloj lo maneja el juez. Con la app abierta, tu celular vibra al entrar en los últimos 5 minutos y en el tiempo extra.
       </Text>
@@ -395,7 +377,7 @@ function ReporteResultado({ torneo, mia, uid, habilitado, nombreRival }: Reporte
     const avisarError = (e: unknown) =>
       mostrar(
         codigoError(e) === 'permission-denied'
-          ? 'No se guardó: la ronda ya cambió o el reporte está cerrado.'
+          ? 'No se guardó: la ronda ya cambió o el reporte está cerrado. Si sigue, avisale al juez: él carga el resultado.'
           : mensajeError(e, 'No pudimos guardar tu reporte. Probá de nuevo.'),
         'error'
       );

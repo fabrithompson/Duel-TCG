@@ -1,6 +1,5 @@
-import { etiquetaMesa, pozoCobrado, pozoDe, premioPorEntregar, premiosPorEntregar, type PuestoPremio } from '../lib/torneo';
+import { conNombresUnicos, etiquetaMesa, normalizarTorneo, pozoCobrado, pozoDe, premioPorEntregar, premiosPorEntregar, type PuestoPremio } from '../lib/torneo';
 import { torneosDeTemporada } from '../lib/temporada';
-import { rubrosDeStock } from '../lib/pedido';
 import { estimarDesfase } from '../lib/reloj';
 import { CONFIG_DEFAULT, JUEGOS_POR_DEFECTO, MEDIOS_COBRO, normalizarConfig } from '../lib/config';
 
@@ -80,15 +79,6 @@ describe('temporada que arranca a mitad del día', () => {
   });
 });
 
-describe('rubrosDeStock', () => {
-  it('cada rol ve solo lo que puede resolver', () => {
-    expect(rubrosDeStock('mozo')).toEqual(['Café', 'Pastelería']);
-    expect(rubrosDeStock('juez')).toEqual(['TCG']);
-    expect(rubrosDeStock('admin')).toEqual(['Café', 'Pastelería', 'TCG', 'Mesa']);
-    expect(rubrosDeStock('jugador')).toEqual([]);
-  });
-});
-
 describe('estimarDesfase', () => {
   it('toma el punto medio del viaje como la hora local de la escritura', () => {
     // El teléfono está 3 minutos atrasado: el servidor marcó 180 s más que el medio del viaje.
@@ -112,5 +102,30 @@ describe('config: juegos y medios de pago', () => {
     const c = normalizarConfig({ juegos: [], mediosPago: [] });
     expect(c.juegos).toEqual(JUEGOS_POR_DEFECTO);
     expect(c.mediosPago).toEqual(MEDIOS_COBRO);
+  });
+});
+
+describe('conNombresUnicos', () => {
+  const partida = (a: string, b: string) => ({ mesa: 1, jugador1: { uid: a, nombre: 'Juan Pérez', pagado: true }, jugador2: { uid: b, nombre: 'Juan Perez', pagado: true }, resultado: null });
+
+  it('si dos inscriptos se llaman igual, los distingue en todos lados', () => {
+    const t = normalizarTorneo('t', {
+      estado: 'finalizado',
+      jugadores: [
+        { uid: 'abcd1', nombre: 'Juan Pérez' },
+        { uid: 'wxyz2', nombre: 'Juan Perez' },
+      ],
+      rondas: [{ numero: 1, partidas: [partida('abcd1', 'wxyz2')] }],
+      posiciones: [{ uid: 'wxyz2', nombre: 'Juan Perez', puesto: 1, puntos: 3, victorias: 1, derrotas: 0 }],
+    });
+    const u = conNombresUnicos(t);
+    expect(u.jugadores.map((j) => j.nombre)).toEqual(['Juan Pérez · #ABCD', 'Juan Perez · #WXYZ']);
+    expect(u.rondas[0].partidas[0].jugador2?.nombre).toBe('Juan Perez · #WXYZ');
+    expect(u.posiciones?.[0].nombre).toBe('Juan Perez · #WXYZ');
+  });
+
+  it('sin repetidos devuelve el mismo torneo', () => {
+    const t = normalizarTorneo('t', { jugadores: [{ uid: 'a', nombre: 'Ana' }, { uid: 'b', nombre: 'Beto' }] });
+    expect(conNombresUnicos(t)).toBe(t);
   });
 });

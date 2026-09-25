@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, doc, getDocsFromServer, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
@@ -22,13 +22,12 @@ import {
   aplicarReportes,
   describirResultado,
   asignarPremios,
+  conNombresUnicos,
   crearRng,
   nuevaSemilla,
   etiquetaMesa,
   calcularStandings,
   esUltimaRonda,
-  estadoTimer,
-  formatTimer,
   generarRonda,
   nombreRonda,
   pendientesDe,
@@ -36,14 +35,13 @@ import {
   recordDe,
   reportesDePartida,
   rondaCompleta,
-  segundosRestantes,
   timerConExtra,
   timerNuevaRonda,
   timerPausado,
   timerReanudado,
 } from '../../../lib/torneo';
 import { ahoraServidor } from '../../../lib/reloj';
-import { SEGUNDOS_RELOJ_BAJO } from '../../../lib/temporada';
+import { describirReloj } from '../../../lib/relojRonda';
 import { codigoError, mensajeError } from '../../../lib/errores';
 import { advertencia } from '../../../lib/haptics';
 import Screen, { LoadingScreen } from '../../../components/Screen';
@@ -51,6 +49,7 @@ import { tocar } from '../../../lib/haptics';
 import SoloParaRoles from '../../../components/SoloParaRoles';
 import Button from '../../../components/Button';
 import { Card, EmptyState, ErrorBanner, SectionLabel, SmallButton } from '../../../components/ui';
+import { preguntar } from '../../../lib/dialogo';
 
 const ERRORES_TRANSITORIOS = ['unavailable', 'aborted', 'deadline-exceeded'];
 
@@ -63,7 +62,8 @@ export default function TorneoScreen() {
 }
 
 function TorneoPantalla() {
-  const { torneo, loading, error, reintentar } = useUltimoTorneo();
+  const { torneo: leido, loading, error, reintentar } = useUltimoTorneo();
+  const torneo = useMemo(() => (leido ? conNombresUnicos(leido) : null), [leido]);
 
   if (loading) return <LoadingScreen />;
   if (error) {
@@ -104,6 +104,9 @@ function SinTorneo({ ultimo }: { readonly ultimo: Torneo | null }) {
 }
 
 type Accion = 'ronda' | 'cierre' | 'descartar' | null;
+
+// Si el torneo no llega a reflejar un resultado guardado (listener caído), la fila se libera igual.
+const TOPE_EN_VUELO_MS = 10_000;
 
 function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
   const router = useRouter();
@@ -194,6 +197,23 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
     updateDoc(refTorneo, campos).catch((e: unknown) => mostrar(mensajeError(e, 'No se pudo actualizar el reloj.'), 'error'));
   };
 
+  const soltarEnVuelo = useCallback((mesa: number) => {
+    setEnVuelo((prev) => {
+      if (!(mesa in prev)) return prev;
+      const copia = { ...prev };
+      delete copia[mesa];
+      return copia;
+    });
+  }, []);
+
+  // Cuando el torneo ya trae el resultado guardado, deja de estar en vuelo.
+  useEffect(() => {
+    for (const [mesa, valor] of Object.entries(enVuelo)) {
+      const p = ronda?.partidas.find((x) => x.mesa === Number(mesa));
+      if (!p || p.resultado === valor) soltarEnVuelo(Number(mesa));
+    }
+  }, [ronda, enVuelo, soltarEnVuelo]);
+
   const guardarResultado = async (partida: Partida, nuevo: Resultado | null) => {
     const mesa = partida.mesa;
     setEnVuelo((prev) => ({ ...prev, [mesa]: nuevo }));
@@ -207,14 +227,11 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
         );
         return { rondas };
       });
+      // La transacción no actualiza la caché local: el valor queda "en vuelo" hasta que llega en el torneo.
+      setTimeout(() => soltarEnVuelo(mesa), TOPE_EN_VUELO_MS);
     } catch (e) {
       fallar(e, 'No se pudo guardar el resultado.');
-    } finally {
-      setEnVuelo((prev) => {
-        const copia = { ...prev };
-        delete copia[mesa];
-        return copia;
-      });
+      soltarEnVuelo(mesa);
     }
   };
 
@@ -225,7 +242,7 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
       return;
     }
     // Borrar es la excepción: se pregunta, así un doble toque no deshace lo que se acaba de cargar.
-    Alert.alert(`Borrar el resultado de ${etiquetaMesa(partida).larga}`, 'La partida vuelve a quedar sin resultado.', [
+    preguntar(`Borrar el resultado de ${etiquetaMesa(partida).larga}`, 'La partida vuelve a quedar sin resultado.', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Borrar', style: 'destructive', onPress: () => void guardarResultado(partida, null) },
     ]);
@@ -312,13 +329,13 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
   const confirmarAvance = () => {
     if (!completa || accion || Object.keys(enVuelo).length > 0) return;
     if (ultima) {
-      Alert.alert('¿Cerrar el torneo?', 'Se guardan las posiciones finales y se asigna cada premio a su puesto. No se puede deshacer.', [
+      preguntar('¿Cerrar el torneo?', 'Se guardan las posiciones finales y se asigna cada premio a su puesto. No se puede deshacer.', [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Cerrar torneo', onPress: () => void cerrar() },
       ]);
       return;
     }
-    Alert.alert(
+    preguntar(
       `¿Cerrar la ronda ${numeroRonda}?`,
       `Se empareja la ronda ${numeroRonda + 1} y el reloj vuelve a ${torneo.minutosPorRonda} min.`,
       [
@@ -330,13 +347,13 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
 
   const confirmarDescarte = () => {
     advertencia();
-    Alert.alert('¿Descartar el torneo?', 'Se borra el torneo en curso con sus rondas, resultados y reportes.', [
+    preguntar('¿Descartar el torneo?', 'Se borra el torneo en curso con sus rondas, resultados y reportes.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Descartar',
         style: 'destructive',
         onPress: () =>
-          Alert.alert('¿Seguro?', `"${torneo.nombre}" no se puede recuperar después.`, [
+          preguntar('¿Seguro?', `"${torneo.nombre}" no se puede recuperar después.`, [
             { text: 'No, dejarlo', style: 'cancel' },
             { text: 'Borrar definitivamente', style: 'destructive', onPress: () => void descartar() },
           ]),
@@ -356,11 +373,11 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
       eyebrowTone="gold"
       title={nombreRonda(torneo, ronda)}
       subtitle={`${torneo.nombre} · ${torneo.juego}`}
-      right={
-        <View style={styles.headerBtns}>
+      acciones={
+        <>
           <SmallButton label="Modo TV" tone="gold" onPress={() => router.push('/tv')} />
           <SmallButton label="Premios" tone="gold" onPress={() => router.push('/premios')} />
-        </View>
+        </>
       }
     >
       <RelojRonda torneo={torneo} onCambiar={cambiarTimer} />
@@ -453,21 +470,18 @@ function RelojRonda({ torneo, onCambiar }: { readonly torneo: Torneo; readonly o
     return () => clearInterval(id);
   }, [torneo.rondaPausada, torneo.rondaFinEn]);
 
-  const segundos = segundosRestantes(torneo, ahora);
-  const estado = estadoTimer(torneo, ahora);
-  const textoEstado =
-    estado === 'pausado' ? 'Pausada por el juez' : estado === 'extra' ? 'Tiempo extra' : `Ronda en curso · ${torneo.minutosPorRonda} min`;
+  const reloj = describirReloj(torneo, ahora);
 
   return (
     <Card style={styles.timerCard}>
       <Text
-        style={[styles.timer, { color: segundos < SEGUNDOS_RELOJ_BAJO ? colors.dg : colors.ink }, tabularNums(60)]}
+        style={[styles.timer, { color: reloj.fase === 'extra' || reloj.bajo ? colors.dg : colors.ink }, tabularNums(60)]}
         accessibilityRole="timer"
-        accessibilityLabel={`Quedan ${Math.floor(segundos / 60)} minutos y ${segundos % 60} segundos`}
+        accessibilityLabel={reloj.accesible}
       >
-        {formatTimer(segundos)}
+        {reloj.reloj}
       </Text>
-      <Text style={[styles.timerEstado, { color: estado === 'extra' ? colors.dg : colors.dim }]}>{textoEstado.toUpperCase()}</Text>
+      <Text style={[styles.timerEstado, { color: reloj.fase === 'extra' ? colors.dg : colors.dim }]}>{reloj.estado.toUpperCase()}</Text>
       <View style={styles.timerBtns}>
         <View style={styles.flex1}>
           <Button
@@ -612,7 +626,6 @@ const styles = StyleSheet.create({
   flex1: { flex: 1 },
   centrado: { alignItems: 'center' },
   emptyActions: { gap: 14 },
-  headerBtns: { flexDirection: 'row', gap: 6 },
   timerCard: { alignItems: 'center', borderRadius: 18, paddingVertical: 20, paddingHorizontal: 16 },
   timer: { fontFamily: Typography.fontFamily.light, fontSize: 60, lineHeight: 68 },
   timerEstado: { fontFamily: Typography.fontFamily.semibold, fontSize: 10.5, letterSpacing: 1.5, marginTop: 8 },

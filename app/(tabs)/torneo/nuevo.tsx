@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation, usePreventRemove } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -48,6 +48,7 @@ import Chip from '../../../components/Chip';
 import Stepper from '../../../components/Stepper';
 import FormField from '../../../components/FormField';
 import { Card, EmptyState, ErrorBanner, SectionLabel, SettingRow, SmallButton } from '../../../components/ui';
+import { preguntar } from '../../../lib/dialogo';
 
 const TOTAL_PASOS = 4;
 const TITULOS_PASO = ['Juego y formato', 'Reglas de la ronda', 'Inscriptos', 'Premios'];
@@ -207,7 +208,7 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
   // Ya hay algo armado: salir por error (atrás de Android, "← Torneo", otra pestaña) no lo tira sin preguntar.
   const hayProgreso = !creado && (paso > 1 || seleccion.length > 0 || nombre.trim() !== '');
   usePreventRemove(hayProgreso && !creando, ({ data }) => {
-    Alert.alert('¿Salir sin crear el torneo?', 'Se pierde lo que cargaste en el asistente.', [
+    preguntar('¿Salir sin crear el torneo?', 'Se pierde lo que cargaste en el asistente.', [
       { text: 'Seguir armando', style: 'cancel' },
       { text: 'Salir', style: 'destructive', onPress: () => navigation.dispatch(data.action) },
     ]);
@@ -365,6 +366,7 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
       back="Torneo"
       onBack={salir}
       title="Nuevo torneo"
+      keyboard
       subtitle={`Paso ${paso} de ${TOTAL_PASOS} · ${TITULOS_PASO[paso - 1]}`}
       footer={
         <View style={[styles.footer, { borderTopColor: colors.line, backgroundColor: colors.bg }]}>
@@ -479,7 +481,7 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
               accessibilityLabel="minutos por ronda"
             />
           </SettingRow>
-          <SettingRow label="Minutos extra" sub="Se suman al reloj al llegar a cero">
+          <SettingRow label="Minutos extra" sub="Los suma el juez al llegar a cero">
             <Stepper
               value={extra}
               min={LIMITES.extra.min}
@@ -751,7 +753,7 @@ function FilaInscripto({ etiqueta, marcado, pagado, onAlternar, onPago }: FilaIn
         accessibilityState={{ checked: marcado }}
       >
         <View style={[styles.check, { borderColor: marcado ? colors.br : colors.line, backgroundColor: marcado ? colors.br : 'transparent' }]}>
-          {marcado ? <Ionicons name="checkmark" size={13} color="#FFFFFF" /> : null}
+          {marcado ? <Ionicons name="checkmark" size={13} color={colors.onBr} /> : null}
         </View>
         <Text style={[styles.inscriptoNombre, { color: colors.ink }]} numberOfLines={1}>
           {etiqueta}

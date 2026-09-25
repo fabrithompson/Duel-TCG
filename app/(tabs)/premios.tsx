@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { doc, increment } from 'firebase/firestore';
+import { doc, increment, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useConfig } from '../../contexts/ConfigContext';
@@ -10,7 +10,7 @@ import { useUserProfileContext } from '../../contexts/UserProfileContext';
 import { Typography, tabularNums } from '../../constants/theme';
 import { AvisoTorneo, actualizarTorneo, esAvisoTorneo, mensajeTransaccion, useTorneosRecientes } from '../../hooks/useUltimoTorneo';
 import { normalizarProducto, normalizarProductoTcg, useCatalogo } from '../../hooks/useCatalogo';
-import { pozoCobrado, pozoDe, premioPorEntregar, premiosPorEntregar, type PuestoPremio, type Torneo } from '../../lib/torneo';
+import { conNombresUnicos, pozoCobrado, pozoDe, premioPorEntregar, premiosPorEntregar, type PuestoPremio, type Torneo } from '../../lib/torneo';
 import { coleccionDe, formatARS, type CatalogoItem } from '../../lib/pedido';
 import { mensajeError } from '../../lib/errores';
 import Screen, { LoadingScreen } from '../../components/Screen';
@@ -19,6 +19,7 @@ import Button from '../../components/Button';
 import Chip from '../../components/Chip';
 import Stepper from '../../components/Stepper';
 import { Badge, Card, EmptyState, ErrorBanner, SectionLabel, SmallButton } from '../../components/ui';
+import { preguntar } from '../../lib/dialogo';
 
 const PASO_CREDITO = 500;
 // Tope de cordura por puesto (las reglas de Firestore frenan subidas de crédito mayores).
@@ -38,8 +39,13 @@ function PremiosPantalla() {
   const { config } = useConfig();
   const params = useLocalSearchParams<{ torneoId?: string | string[] }>();
   const pedido = Array.isArray(params.torneoId) ? params.torneoId[0] : params.torneoId;
-  const { torneos, loading, error, reintentar } = useTorneosRecientes();
+  const { torneos: leidos, loading, error, reintentar } = useTorneosRecientes();
+  const torneos = useMemo(() => leidos.map(conNombresUnicos), [leidos]);
   const [elegido, setElegido] = useState<string | null>(null);
+  // La pestaña queda montada: un torneoId nuevo (el del cierre) manda sobre el chip que se tocó antes.
+  useEffect(() => {
+    if (pedido) setElegido(null);
+  }, [pedido]);
 
   // El último torneo siempre; los anteriores solo si quedaron premios sin entregar (si no, se pierden de vista).
   const relevantes = useMemo(
@@ -160,6 +166,8 @@ function PremiosTorneo({ torneo, otros, onElegir }: PremiosTorneoProps) {
   };
 
   const entregar = async (p: PuestoPremio, credito: number) => {
+    const uid = profile?.uid;
+    if (!uid) return;
     clearTimeout(timers.current[p.puesto]);
     delete pendientesGuardar.current[p.puesto];
     setEntregando(p.puesto);
@@ -199,6 +207,15 @@ function PremiosTorneo({ torneo, otros, onElegir }: PremiosTorneoProps) {
             tx.update(refProducto, { stock: increment(-actual.cantidadProducto) });
             descontoStock = true;
           }
+          // Registro único de la entrega: las reglas no dejan acreditar dos veces el mismo premio.
+          tx.set(doc(db, 'torneos', t.id, 'entregas', String(actual.puesto)), {
+            puesto: actual.puesto,
+            jugadorUid: actual.jugadorUid,
+            creditoCafeteria: credito,
+            cantidadProducto: actual.cantidadProducto,
+            entregadoPor: uid,
+            entregadoEn: serverTimestamp(),
+          });
           // ultimoPremio ata la acreditación a este premio: las reglas no aceptan crédito sin un premio que se entrega.
           if (credito > 0) tx.update(refJugador, { creditoCafeteria: increment(credito), ultimoPremio: { torneoId: t.id, puesto: actual.puesto } });
         }
@@ -226,14 +243,14 @@ function PremiosTorneo({ torneo, otros, onElegir }: PremiosTorneoProps) {
       p.cantidadProducto > 0 ? (!p.productoId || (item && item.stock === null) ? 'no mueve stock' : 'se descuenta del stock') : null,
       credito > 0 ? 'el crédito queda en su cuenta' : null,
     ].filter((x): x is string => x !== null);
-    Alert.alert(`Entregar el ${p.puesto}º puesto`, `${detalle}${efectos.length > 0 ? ` Al confirmar, ${efectos.join(' y ')}.` : ''}`, [
+    preguntar(`Entregar el ${p.puesto}º puesto`, `${detalle}${efectos.length > 0 ? ` Al confirmar, ${efectos.join(' y ')}.` : ''}`, [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Entregar', onPress: () => void entregar(p, credito) },
     ]);
   };
 
   const marcarPagada = (uid: string, nombre: string) => {
-    Alert.alert('Inscripción cobrada', `¿${nombre} pagó la inscripción de ${formatARS(torneo.inscripcion)}?`, [
+    preguntar('Inscripción cobrada', `¿${nombre} pagó la inscripción de ${formatARS(torneo.inscripcion)}?`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Sí, pagó',
@@ -277,7 +294,7 @@ function PremiosTorneo({ torneo, otros, onElegir }: PremiosTorneoProps) {
   const conPendientes = otros.filter((t) => t.id !== torneo.id && premiosPorEntregar(t, creditoPremio) > 0);
 
   return (
-    <Screen back={enCurso ? `Ronda ${torneo.rondaActual}` : 'Torneo'} onBack={() => router.navigate('/torneo')} title="Premios">
+    <Screen back={enCurso ? `Ronda ${torneo.rondaActual}` : 'Torneo'} onBack={() => router.navigate('/torneo')} title="Premios" keyboard>
       {otros.length > 1 ? (
         <View style={styles.selector}>
           {conPendientes.length > 0 ? (

@@ -181,8 +181,9 @@ function premioDe(premios: readonly PuestoPremio[], uid: string): PremioJugador 
   const nombres = new Set<string>();
   for (const p of premios) {
     if (p.jugadorUid !== uid) continue;
-    if (p.productoId) {
-      cantidadProducto += Math.max(0, numeroFinito(p.cantidadProducto));
+    const cantidad = Math.max(0, numeroFinito(p.cantidadProducto));
+    if (cantidad > 0) {
+      cantidadProducto += cantidad;
       nombres.add(p.productoNombre ?? '');
     }
     credito += Math.max(0, numeroFinito(p.creditoCafeteria));
