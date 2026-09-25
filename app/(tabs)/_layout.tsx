@@ -274,6 +274,6 @@ function RoleTabs({ role }: { readonly role: Role }) {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   aviso: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 26, paddingVertical: 32, gap: 12 },
-  avisoTitulo: { fontFamily: Typography.fontFamily.bold, fontSize: 22, letterSpacing: -0.6, marginBottom: 4 },
+  avisoTitulo: { fontFamily: Typography.display.bold, fontSize: 22, letterSpacing: -0.6, marginBottom: 4 },
   avisoTexto: { fontFamily: Typography.fontFamily.regular, fontSize: 13.5, lineHeight: 20, marginBottom: 8 },
 });

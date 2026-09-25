@@ -41,9 +41,6 @@ export default function TablaScreen() {
         {estoyEnLaTabla ? null : (
           <Text style={[styles.pieTexto, { color: colors.ink }]}>Todavía no sumaste puntos en {temporada}.</Text>
         )}
-        <Text style={[styles.pieTexto, { color: colors.dim }]}>
-          Los puntos de {temporada} se suman cuando se cierra cada torneo.
-        </Text>
         {recortada ? (
           <Text style={[styles.pieTexto, { color: colors.dim }]}>
             Se cuentan los últimos {MAX_TORNEOS_SIN_INICIO} torneos. El admin puede fijar el inicio de la temporada en Ajustes.
@@ -132,10 +129,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     minHeight: 56,
   },
-  posicion: { fontFamily: Typography.fontFamily.bold, fontSize: 15, minWidth: 24 },
+  posicion: { fontFamily: Typography.display.bold, fontSize: 15, minWidth: 24 },
   nombre: { fontSize: 13.5 },
-  record: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 2 },
-  puntos: { fontFamily: Typography.fontFamily.bold, fontSize: 15 },
+  record: { fontFamily: Typography.display.regular, fontSize: 11, marginTop: 2 },
+  puntos: { fontFamily: Typography.display.bold, fontSize: 15 },
   pie: { marginTop: 16, gap: 6 },
   pieTexto: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 18 },
 });

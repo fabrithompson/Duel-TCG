@@ -689,7 +689,7 @@ const styles = StyleSheet.create({
   lienzoVacioTexto: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, textAlign: 'center', marginTop: 6 },
   mesa: { position: 'absolute', borderWidth: 1.5 },
   mesaPress: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-  mesaNumero: { fontFamily: Typography.fontFamily.semibold, fontSize: 18, lineHeight: 20 },
+  mesaNumero: { fontFamily: Typography.display.semibold, fontSize: 18, lineHeight: 20 },
   mesaTipo: { fontFamily: Typography.fontFamily.semibold, fontSize: 8.5, letterSpacing: 1, marginTop: 3 },
   mesaInfo: { fontFamily: Typography.fontFamily.semibold, fontSize: 11, marginTop: 2 },
   leyenda: { flexDirection: 'row', flexWrap: 'wrap', gap: 18, marginTop: 12 },

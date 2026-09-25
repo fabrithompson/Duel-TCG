@@ -227,6 +227,14 @@ export const Typography = {
     semibold: 'PlusJakartaSans_600SemiBold',
     bold: 'PlusJakartaSans_700Bold',
   },
+  /** Space Grotesk: títulos de pantalla y cifras (reloj, precios, totales, números de mesa, puntajes). */
+  display: {
+    light: 'SpaceGrotesk_300Light',
+    regular: 'SpaceGrotesk_400Regular',
+    medium: 'SpaceGrotesk_500Medium',
+    semibold: 'SpaceGrotesk_600SemiBold',
+    bold: 'SpaceGrotesk_700Bold',
+  },
 };
 
 /** Estilo tabular para cifras (equivalente a font-feature-settings:'tnum'). */

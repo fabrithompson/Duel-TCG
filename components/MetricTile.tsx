@@ -59,7 +59,7 @@ export default function MetricTile({ value, label, onPress, accessibilityHint, t
 
 const styles = StyleSheet.create({
   card: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 11, minHeight: 64 },
-  value: { fontFamily: Typography.fontFamily.semibold, fontSize: 22, lineHeight: 26 },
+  value: { fontFamily: Typography.display.semibold, fontSize: 22, lineHeight: 26 },
   label: { fontFamily: Typography.fontFamily.semibold, fontSize: 9.5, letterSpacing: 0.95, textTransform: 'uppercase', marginTop: 6, paddingRight: 10 },
   // Señal de que la tarjeta lleva a otra pantalla (si no, nadie descubre que se puede tocar).
   chevron: { position: 'absolute', right: 9, bottom: 8, fontFamily: Typography.fontFamily.semibold, fontSize: 16, lineHeight: 18 },

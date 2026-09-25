@@ -609,7 +609,7 @@ const styles = StyleSheet.create({
   fila: { paddingVertical: 13, borderBottomWidth: 1, minHeight: 44 },
   filaTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   filaNombre: { flex: 1, fontFamily: Typography.fontFamily.medium, fontSize: 13.5 },
-  filaCantidad: { fontFamily: Typography.fontFamily.bold, fontSize: 15 },
+  filaCantidad: { fontFamily: Typography.display.bold, fontSize: 15 },
   filaUnidad: { fontFamily: Typography.fontFamily.regular, fontSize: 11, minWidth: 34, textAlign: 'right' },
   filaSinControl: { fontFamily: Typography.fontFamily.regular, fontSize: 11 },
   barra: { height: 4, borderRadius: 4, marginTop: 9, overflow: 'hidden' },
@@ -635,7 +635,7 @@ const styles = StyleSheet.create({
   sheetScroll: { padding: 20, paddingBottom: 32, gap: 12 },
   rubros: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  sheetTitulo: { flex: 1, fontFamily: Typography.fontFamily.bold, fontSize: 21, letterSpacing: -0.5 },
+  sheetTitulo: { flex: 1, fontFamily: Typography.display.bold, fontSize: 21, letterSpacing: -0.5 },
   cerrar: { minHeight: 44, justifyContent: 'center' },
   cerrarTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 13 },
 });

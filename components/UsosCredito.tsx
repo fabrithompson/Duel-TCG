@@ -80,6 +80,6 @@ const styles = StyleSheet.create({
   titulo: { fontFamily: Typography.fontFamily.bold, fontSize: 10, letterSpacing: 1.6, marginBottom: 4 },
   fila: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, gap: 10 },
   texto: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, flexShrink: 1 },
-  monto: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5 },
+  monto: { fontFamily: Typography.display.semibold, fontSize: 12.5 },
   nota: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 17, marginTop: 6 },
 });

@@ -105,7 +105,7 @@ const styles = StyleSheet.create({
   seccion: { marginTop: 22 },
   fila: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, borderBottomWidth: 1, minHeight: 56 },
   puestoCol: { minWidth: 34 },
-  puesto: { fontFamily: Typography.fontFamily.bold, fontSize: 17 },
+  puesto: { fontFamily: Typography.display.bold, fontSize: 17 },
   nombre: { fontFamily: Typography.fontFamily.medium, fontSize: 13.5 },
   meta: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 2 },
   premio: { fontFamily: Typography.fontFamily.medium, fontSize: 11, textAlign: 'right', maxWidth: 110 },

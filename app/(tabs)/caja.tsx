@@ -145,7 +145,6 @@ function CajaAdmin() {
         <View style={styles.seccion}>
           <EmptyState
             title={esHoy ? 'Todavía no se cobró nada hoy' : 'Ese día no hubo cobros'}
-            body={esHoy ? 'Cuando se cobre una mesa desde el Salón, el cierre se arma solo acá.' : 'Mirá otro día con las flechas de arriba.'}
           />
         </View>
       ) : (
@@ -196,8 +195,8 @@ export default function CajaScreen() {
 const styles = StyleSheet.create({
   totalBloque: { marginBottom: 16 },
   totalFila: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
-  total: { flexShrink: 1, fontFamily: Typography.fontFamily.bold, fontSize: 40 },
-  variacion: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5 },
+  total: { flexShrink: 1, fontFamily: Typography.display.bold, fontSize: 40 },
+  variacion: { fontFamily: Typography.display.semibold, fontSize: 12.5 },
   totalSub: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, marginTop: 4 },
   metricas: { flexDirection: 'row', gap: 8 },
   grafico: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: ALTO_GRAFICO, marginTop: 22 },
@@ -207,8 +206,8 @@ const styles = StyleSheet.create({
   seccion: { marginTop: 24 },
   fila: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: 1 },
   filaNombre: { flex: 1, fontFamily: Typography.fontFamily.medium, fontSize: 13 },
-  filaPct: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, minWidth: 40, textAlign: 'right' },
-  filaMonto: { fontFamily: Typography.fontFamily.semibold, fontSize: 13, minWidth: 80, textAlign: 'right' },
+  filaPct: { fontFamily: Typography.display.regular, fontSize: 12.5, minWidth: 40, textAlign: 'right' },
+  filaMonto: { fontFamily: Typography.display.semibold, fontSize: 13, minWidth: 80, textAlign: 'right' },
   cobro: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, borderBottomWidth: 1 },
   cobroTextos: { flex: 1 },
   cobroTexto: { fontFamily: Typography.fontFamily.regular, fontSize: 13 },

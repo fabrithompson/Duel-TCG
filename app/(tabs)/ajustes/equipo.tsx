@@ -140,7 +140,7 @@ function EquipoAdmin() {
             {sinNadieMas && !equipo.error ? (
               <EmptyState
                 title="Todavía no hay mozos ni jueces"
-                body="Generá un código de invitación y compartilo. Cuando alguien se registre, aparece acá para que lo apruebes."
+                body="Generá un código de invitación y compartilo."
               />
             ) : null}
 
@@ -392,7 +392,7 @@ const styles = StyleSheet.create({
   lista: { gap: 9 },
 
   codigoBloque: { gap: 6 },
-  codigo: { fontFamily: Typography.fontFamily.semibold, fontSize: 30 },
+  codigo: { fontFamily: Typography.display.semibold, fontSize: 30 },
   codigoEspaciado: { letterSpacing: 3 },
   codigoSub: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 17 },
   sinCodigo: { fontFamily: Typography.fontFamily.medium, fontSize: 13, lineHeight: 19 },

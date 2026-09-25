@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   btn: { width: 30, height: 30, borderRadius: 9, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   btnText: { fontFamily: Typography.fontFamily.semibold, fontSize: 16, lineHeight: 19 },
-  value: { fontFamily: Typography.fontFamily.semibold, fontSize: 13, minWidth: 44, textAlign: 'center' },
+  value: { fontFamily: Typography.display.semibold, fontSize: 13, minWidth: 44, textAlign: 'center' },
   editable: { borderBottomWidth: 1, borderStyle: 'dashed', paddingBottom: 1 },
   tocable: { minHeight: 44, justifyContent: 'center' },
   input: { minWidth: 72, borderWidth: 1, borderRadius: 8, paddingVertical: 3, paddingHorizontal: 6 },

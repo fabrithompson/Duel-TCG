@@ -26,6 +26,7 @@ Cada perfil ve solo lo suyo: el rol define las pestañas, la pantalla de inicio 
 
 - Expo SDK 57 con expo-router, React Native 0.86, React 19.2 y TypeScript 6 estricto.
 - Firebase JS SDK 12 (Authentication, Cloud Firestore y Storage), inicializado en `config/firebase.ts`.
+- Tipografía (Google Fonts, licencia libre): Space Grotesk para títulos y cifras (`Typography.display`) y Plus Jakarta Sans para el resto (`Typography.fontFamily`), en `constants/theme.ts`.
 - No hay backend propio: toda la lógica corre en el cliente y la seguridad la hacen cumplir las reglas de Firestore y Storage (`firestore.rules`, `storage.rules`).
 
 ## Puesta en marcha

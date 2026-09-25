@@ -482,7 +482,7 @@ const styles = StyleSheet.create({
   vsRecord: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 3 },
   vsSeparador: { fontFamily: Typography.fontFamily.semibold, fontSize: 11 },
   reloj: { borderWidth: 1, borderRadius: 18, paddingVertical: 22, paddingHorizontal: 16, alignItems: 'center' },
-  relojTiempo: { fontFamily: Typography.fontFamily.light, fontSize: 64, lineHeight: 72, includeFontPadding: false },
+  relojTiempo: { fontFamily: Typography.display.light, fontSize: 64, lineHeight: 72, includeFontPadding: false },
   relojEstado: { fontFamily: Typography.fontFamily.semibold, fontSize: 10.5, letterSpacing: 1.47, marginTop: 8, textAlign: 'center' },
   botonesFila: { flexDirection: 'row', gap: 7 },
   botonReporte: {
@@ -495,7 +495,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   botonApagado: { opacity: 0.45 },
-  botonTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 14 },
+  botonTexto: { fontFamily: Typography.display.semibold, fontSize: 14 },
   estadoReporte: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 18, marginTop: 12, textAlign: 'center' },
   notaTitulo: { fontFamily: Typography.fontFamily.semibold, fontSize: 13.5 },
   notaCuerpo: { fontFamily: Typography.fontFamily.regular, fontSize: 12, lineHeight: 18, marginTop: 4 },
@@ -511,5 +511,5 @@ const styles = StyleSheet.create({
   },
   creditoTitulo: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5 },
   creditoSub: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 2 },
-  creditoMonto: { fontFamily: Typography.fontFamily.bold, fontSize: 19 },
+  creditoMonto: { fontFamily: Typography.display.bold, fontSize: 19 },
 });

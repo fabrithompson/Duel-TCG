@@ -816,7 +816,7 @@ export default function PedidoScreen() {
       {errorCatalogo ? <ErrorBanner mensaje={mensajeError(errorCatalogo, 'No se pudo cargar el catálogo.')} onRetry={reintentarCatalogo} /> : null}
 
       {rubros.length === 0 ? (
-        errorCatalogo ? null : <EmptyState title="Todavía no hay productos" body="El admin los carga desde Stock. Mientras tanto podés cobrar lo que ya está en la cuenta." />
+        errorCatalogo ? null : <EmptyState title="Todavía no hay productos" body="El admin los carga desde Stock." />
       ) : (
         <>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} style={styles.chipsScroll}>
@@ -916,13 +916,13 @@ const styles = StyleSheet.create({
   productoNombre: { fontFamily: Typography.fontFamily.semibold, fontSize: 14, lineHeight: 17, paddingRight: 18 },
   productoMeta: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 5 },
   contador: { position: 'absolute', top: 8, right: 8, minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
-  contadorTexto: { fontFamily: Typography.fontFamily.bold, fontSize: 11 },
+  contadorTexto: { fontFamily: Typography.display.bold, fontSize: 11 },
   cuentaHeader: { marginTop: 22 },
   linea: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, borderBottomWidth: 1 },
   lineaTextos: { flex: 1 },
   lineaNombre: { fontFamily: Typography.fontFamily.regular, fontSize: 13 },
   lineaAviso: { fontFamily: Typography.fontFamily.medium, fontSize: 11, marginTop: 2 },
-  lineaSubtotal: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5 },
+  lineaSubtotal: { fontFamily: Typography.display.semibold, fontSize: 12.5 },
   nota: { fontFamily: Typography.fontFamily.regular, fontSize: 12, lineHeight: 18 },
   notaCredito: { marginTop: 14, borderWidth: 1, borderStyle: 'dashed', borderRadius: 12, paddingVertical: 11, paddingHorizontal: 13 },
   notaCreditoTexto: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 18 },
@@ -938,7 +938,7 @@ const styles = StyleSheet.create({
   totalIzquierda: { gap: 4 },
   verCuenta: { minHeight: 28, justifyContent: 'center' },
   verCuentaTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 12, textDecorationLine: 'underline' },
-  total: { fontFamily: Typography.fontFamily.bold, fontSize: 27 },
+  total: { fontFamily: Typography.display.bold, fontSize: 27 },
   acciones: { flexDirection: 'row', gap: 8 },
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(20,16,13,0.55)' },
   sheetWrap: { maxHeight: '90%' },
@@ -946,13 +946,13 @@ const styles = StyleSheet.create({
   handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, marginTop: 8 },
   sheetScroll: { padding: 20, paddingTop: 12, gap: 12 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  sheetTitulo: { fontFamily: Typography.fontFamily.bold, fontSize: 21, letterSpacing: -0.5 },
+  sheetTitulo: { fontFamily: Typography.display.bold, fontSize: 21, letterSpacing: -0.5 },
   cerrar: { minHeight: 44, justifyContent: 'center' },
   cerrarTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 13 },
   resumen: { borderWidth: 1, borderRadius: 12, padding: 13, gap: 6 },
   resumenFila: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 },
   resumenTexto: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, flexShrink: 1 },
-  resumenTotal: { fontFamily: Typography.fontFamily.bold, fontSize: 24 },
+  resumenTotal: { fontFamily: Typography.display.bold, fontSize: 24 },
   divisor: { height: 1, marginVertical: 4 },
   aviso: { fontFamily: Typography.fontFamily.medium, fontSize: 12, lineHeight: 17 },
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

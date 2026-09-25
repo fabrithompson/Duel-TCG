@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   headerTexts: { flex: 1 },
   eyebrow: { fontFamily: Typography.fontFamily.bold, fontSize: 10, letterSpacing: 1.6, marginBottom: 4 },
-  title: { fontFamily: Typography.fontFamily.bold, fontSize: 25, letterSpacing: -0.75 },
+  title: { fontFamily: Typography.display.bold, fontSize: 25, letterSpacing: -0.75 },
   subtitle: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, lineHeight: 18, marginTop: 4 },
   right: { paddingTop: 2 },
   acciones: { paddingTop: 2, flexDirection: 'row', gap: 6 },

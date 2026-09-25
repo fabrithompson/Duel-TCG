@@ -364,7 +364,7 @@ const styles = StyleSheet.create({
   scroll: { flexGrow: 1, paddingHorizontal: 26, paddingTop: 14, paddingBottom: 30 },
   back: { alignSelf: 'flex-start', marginBottom: 16, minHeight: 24, justifyContent: 'center' },
   backText: { fontFamily: Typography.fontFamily.semibold, fontSize: 12 },
-  title: { fontFamily: Typography.fontFamily.bold, fontSize: 27, letterSpacing: -0.8 },
+  title: { fontFamily: Typography.display.bold, fontSize: 27, letterSpacing: -0.8 },
   titleGap: { marginBottom: 20 },
   completarTexto: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, lineHeight: 18, marginTop: -8, marginBottom: 16 },
   campos: { gap: 12, marginTop: 20 },
