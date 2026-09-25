@@ -47,6 +47,7 @@ import { SEGUNDOS_RELOJ_BAJO } from '../../../lib/temporada';
 import { codigoError, mensajeError } from '../../../lib/errores';
 import { advertencia } from '../../../lib/haptics';
 import Screen, { LoadingScreen } from '../../../components/Screen';
+import { tocar } from '../../../lib/haptics';
 import SoloParaRoles from '../../../components/SoloParaRoles';
 import Button from '../../../components/Button';
 import { Card, EmptyState, ErrorBanner, SectionLabel, SmallButton } from '../../../components/ui';
@@ -102,7 +103,7 @@ function SinTorneo({ ultimo }: { readonly ultimo: Torneo | null }) {
   );
 }
 
-type Accion = 'resultado' | 'ronda' | 'cierre' | 'descartar' | null;
+type Accion = 'ronda' | 'cierre' | 'descartar' | null;
 
 function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
   const router = useRouter();
@@ -118,6 +119,9 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
   const { mesas: mesasDuelo, error: errorMesas, reintentar: reintentarMesas } = useMesasDuelo();
 
   const [accion, setAccion] = useState<Accion>(null);
+  // Resultado que el juez acaba de tocar, por mesa, mientras se guarda: se ve al instante y cada mesa
+  // se guarda por su cuenta (antes un toque en otra mesa se ignoraba en silencio).
+  const [enVuelo, setEnVuelo] = useState<Record<number, Resultado | null>>({});
   const [verPosiciones, setVerPosiciones] = useState(false);
 
   const general = useMemo(() => calcularStandings(torneo), [torneo]);
@@ -190,25 +194,41 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
     updateDoc(refTorneo, campos).catch((e: unknown) => mostrar(mensajeError(e, 'No se pudo actualizar el reloj.'), 'error'));
   };
 
-  const cargarResultado = async (partida: Partida, resultado: Resultado) => {
-    if (accion) return;
-    const nuevo = partida.resultado === resultado ? null : resultado;
-    setAccion('resultado');
+  const guardarResultado = async (partida: Partida, nuevo: Resultado | null) => {
+    const mesa = partida.mesa;
+    setEnVuelo((prev) => ({ ...prev, [mesa]: nuevo }));
     try {
       await actualizarTorneo(torneo.id, (t) => {
         if (t.estado !== 'en_curso' || t.rondaActual !== numeroRonda) throw new AvisoTorneo('La ronda ya cambió en otro dispositivo.');
         const rondas = t.rondas.map((r) =>
           r.numero !== numeroRonda
             ? r
-            : { ...r, partidas: r.partidas.map((p) => (p.mesa === partida.mesa && p.jugador2 ? { ...p, resultado: nuevo, manual: true } : p)) }
+            : { ...r, partidas: r.partidas.map((p) => (p.mesa === mesa && p.jugador2 ? { ...p, resultado: nuevo, manual: true } : p)) }
         );
         return { rondas };
       });
     } catch (e) {
       fallar(e, 'No se pudo guardar el resultado.');
     } finally {
-      setAccion(null);
+      setEnVuelo((prev) => {
+        const copia = { ...prev };
+        delete copia[mesa];
+        return copia;
+      });
     }
+  };
+
+  const cargarResultado = (partida: Partida, resultado: Resultado) => {
+    if (accion || partida.mesa in enVuelo) return;
+    if (partida.resultado !== resultado) {
+      void guardarResultado(partida, resultado);
+      return;
+    }
+    // Borrar es la excepción: se pregunta, así un doble toque no deshace lo que se acaba de cargar.
+    Alert.alert(`Borrar el resultado de ${etiquetaMesa(partida).larga}`, 'La partida vuelve a quedar sin resultado.', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Borrar', style: 'destructive', onPress: () => void guardarResultado(partida, null) },
+    ]);
   };
 
   const avanzar = async () => {
@@ -290,7 +310,7 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
   };
 
   const confirmarAvance = () => {
-    if (!completa || accion) return;
+    if (!completa || accion || Object.keys(enVuelo).length > 0) return;
     if (ultima) {
       Alert.alert('¿Cerrar el torneo?', 'Se guardan las posiciones finales y se asigna cada premio a su puesto. No se puede deshacer.', [
         { text: 'Cancelar', style: 'cancel' },
@@ -379,7 +399,8 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
               reportes={reportes}
               ronda={numeroRonda}
               deshabilitado={accion !== null}
-              onResultado={(r) => void cargarResultado(p, r)}
+              enVuelo={p.mesa in enVuelo ? { resultado: enVuelo[p.mesa] } : null}
+              onResultado={(r) => cargarResultado(p, r)}
             />
           ))
         )}
@@ -407,7 +428,7 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
         <Button
           label={etiquetaAvance}
           onPress={confirmarAvance}
-          disabled={!completa}
+          disabled={!completa || Object.keys(enVuelo).length > 0}
           loading={accion === 'ronda' || accion === 'cierre'}
         />
         {esAdmin ? (
@@ -478,6 +499,8 @@ interface FilaPartidaProps {
   readonly reportes: readonly Reporte[];
   readonly ronda: number;
   readonly deshabilitado: boolean;
+  /** Resultado que se está guardando para esta mesa (se muestra ya elegido). */
+  readonly enVuelo: { resultado: Resultado | null } | null;
   readonly onResultado: (r: Resultado) => void;
 }
 
@@ -485,7 +508,7 @@ function primerNombre(nombre: string): string {
   return nombre.split(' ')[0] || nombre;
 }
 
-function FilaPartida({ partida, standings, reportes, ronda, deshabilitado, onResultado }: FilaPartidaProps) {
+function FilaPartida({ partida, standings, reportes, ronda, deshabilitado, enVuelo, onResultado }: FilaPartidaProps) {
   const { colors } = useTheme();
   const { jugador1, jugador2 } = partida;
   const etiqueta = etiquetaMesa(partida);
@@ -533,25 +556,34 @@ function FilaPartida({ partida, standings, reportes, ronda, deshabilitado, onRes
         </Text>
         <View style={styles.resultados} accessibilityRole="radiogroup">
           {RESULTADOS.map((r) => {
-            const activo = partida.resultado === r;
+            const activo = (enVuelo ? enVuelo.resultado : partida.resultado) === r;
             return (
               <TouchableOpacity
                 key={r}
                 style={[styles.resultado, { borderColor: activo ? colors.ok : colors.line, backgroundColor: activo ? colors.ok : 'transparent' }]}
-                onPress={() => onResultado(r)}
-                disabled={deshabilitado}
+                onPress={() => {
+                  tocar();
+                  onResultado(r);
+                }}
+                disabled={deshabilitado || !!enVuelo}
                 activeOpacity={0.7}
                 accessibilityRole="radio"
                 accessibilityLabel={`${etiqueta.larga}: ${jugador1.nombre} ${r} ${jugador2.nombre}`}
                 accessibilityHint={activo ? 'Tocá de nuevo para borrar el resultado' : undefined}
-                accessibilityState={{ checked: activo, disabled: deshabilitado }}
+                accessibilityState={{ checked: activo, disabled: deshabilitado || !!enVuelo, busy: !!enVuelo }}
               >
                 <Text style={[styles.resultadoTexto, { color: activo ? colors.onOk : colors.dim }, tabularNums(12)]}>{r}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
-        {aviso ? <Text style={[styles.aviso, { color: aviso.color }]}>{aviso.texto}</Text> : null}
+        {enVuelo ? (
+          <Text style={[styles.aviso, { color: colors.dim }]} accessibilityLiveRegion="polite">
+            Guardando…
+          </Text>
+        ) : aviso ? (
+          <Text style={[styles.aviso, { color: aviso.color }]}>{aviso.texto}</Text>
+        ) : null}
       </View>
     </View>
   );

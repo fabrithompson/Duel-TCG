@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useNavigation, usePreventRemove } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
@@ -167,6 +168,8 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
   );
   const [productoClave, setProductoClave] = useState<string | null | undefined>(undefined);
   const [creando, setCreando] = useState(false);
+  const [creado, setCreado] = useState(false);
+  const navigation = useNavigation();
 
   const inscriptos = seleccion;
   const n = inscriptos.length;
@@ -201,10 +204,27 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
   }, [seleccion, jugadoresQ.jugadores]);
   const etiquetas = useMemo(() => etiquetasDesambiguadas([...seleccion, ...filtrados]), [seleccion, filtrados]);
 
+  // Ya hay algo armado: salir por error (atrás de Android, "← Torneo", otra pestaña) no lo tira sin preguntar.
+  const hayProgreso = !creado && (paso > 1 || seleccion.length > 0 || nombre.trim() !== '');
+  usePreventRemove(hayProgreso && !creando, ({ data }) => {
+    Alert.alert('¿Salir sin crear el torneo?', 'Se pierde lo que cargaste en el asistente.', [
+      { text: 'Seguir armando', style: 'cancel' },
+      { text: 'Salir', style: 'destructive', onPress: () => navigation.dispatch(data.action) },
+    ]);
+  });
+
   const salir = () => {
     if (router.canGoBack()) router.back();
     else router.replace('/torneo');
   };
+
+  // Creado el torneo, se vuelve una sola vez (y solo si el juez sigue en esta pantalla).
+  const salido = useRef(false);
+  useEffect(() => {
+    if (!creado || salido.current || !montado.current) return;
+    salido.current = true;
+    salir();
+  });
 
   const atras = () => {
     if (paso > 1) setPaso(paso - 1);
@@ -329,7 +349,8 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
         });
       });
       mostrar('Torneo creado. La ronda 1 ya está emparejada.', 'ok');
-      if (montado.current) salir();
+      // Se navega en el efecto de abajo, cuando el aviso de salir sin crear ya no aplica.
+      setCreado(true);
     } catch (e) {
       if (esAvisoTorneo(e)) mostrar(e.message, 'info');
       else mostrar(mensajeTransaccion(e, 'No se pudo crear el torneo.'), 'error');
