@@ -265,7 +265,7 @@ function SinMesaNota() {
     <>
       <Text style={[styles.notaTitulo, { color: colors.ink }]}>Sin mesa del salón</Text>
       <Text style={[styles.notaCuerpo, { color: colors.dim }]}>
-        Esta ronda hay más partidas que mesas de duelo. Preguntale al juez dónde se juega la tuya.
+        Preguntale al juez dónde se juega tu partida.
       </Text>
     </>
   );
@@ -277,7 +277,7 @@ function ByeNota() {
     <>
       <Text style={[styles.notaTitulo, { color: colors.ink }]}>Te tocó bye</Text>
       <Text style={[styles.notaCuerpo, { color: colors.dim }]}>
-        Esta ronda no tenés rival: se te cuenta como victoria y no hay nada que reportar. Esperá a que el juez arme la próxima.
+        Cuenta como victoria. Esperá la próxima ronda.
       </Text>
     </>
   );
@@ -317,9 +317,6 @@ function RelojRonda({ torneo }: { readonly torneo: Torneo }) {
         {reloj.reloj}
       </Text>
       <Text style={[styles.relojEstado, { color: reloj.fase === 'extra' ? colors.dg : colors.dim }]}>{reloj.estado.toUpperCase()}</Text>
-      <Text style={[styles.relojNota, { color: colors.dim }]}>
-        El reloj lo maneja el juez. Con la app abierta, tu celular vibra al entrar en los últimos 5 minutos y en el tiempo extra.
-      </Text>
     </View>
   );
 }
@@ -351,11 +348,11 @@ function ReporteResultado({ torneo, mia, uid, habilitado, nombreRival }: Reporte
   const mio = reportes.mio ? resultadoParaJugador(reportes.mio, soyJugador1) : null;
   const delRival = reportes.rival ? resultadoParaJugador(reportes.rival, soyJugador1) : null;
 
-  let estado = 'Los dos jugadores reportan desde su celular. El juez solo interviene si hay discrepancia.';
+  let estado = 'Cargá el resultado cuando termine la partida.';
   if (confirmado) {
     estado = `El juez confirmó ${marcador(confirmado)}. ${esVictoria(confirmado) ? 'Ganaste esta ronda.' : 'Perdiste esta ronda.'}`;
   } else if (!habilitado) {
-    estado = 'Los resultados los carga el juez. Cuando lo haga, lo vas a ver acá.';
+    estado = 'El resultado lo carga el juez.';
   } else if (mio && delRival && mio === delRival) {
     estado = `Coincide con lo que reportó ${nombreRival}. Queda esperando la confirmación del juez.`;
   } else if (mio && delRival) {
@@ -487,7 +484,6 @@ const styles = StyleSheet.create({
   reloj: { borderWidth: 1, borderRadius: 18, paddingVertical: 22, paddingHorizontal: 16, alignItems: 'center' },
   relojTiempo: { fontFamily: Typography.fontFamily.light, fontSize: 64, lineHeight: 72, includeFontPadding: false },
   relojEstado: { fontFamily: Typography.fontFamily.semibold, fontSize: 10.5, letterSpacing: 1.47, marginTop: 8, textAlign: 'center' },
-  relojNota: { fontFamily: Typography.fontFamily.regular, fontSize: 11, lineHeight: 16.5, marginTop: 10, textAlign: 'center' },
   botonesFila: { flexDirection: 'row', gap: 7 },
   botonReporte: {
     flex: 1,

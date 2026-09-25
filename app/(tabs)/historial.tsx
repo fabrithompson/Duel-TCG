@@ -55,7 +55,6 @@ export default function HistorialScreen() {
           error ? null : (
             <EmptyState
               title="Todavía no jugaste torneos"
-              body="Cuando el juez te anote en uno, acá vas a ver tu puesto, tu récord y lo que ganaste."
             />
           )
         }

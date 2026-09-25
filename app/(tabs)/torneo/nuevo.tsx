@@ -115,7 +115,7 @@ function NuevoTorneoPantalla() {
       <Screen back="Torneo en curso" title="Nuevo torneo">
         <EmptyState
           title="Ya hay un torneo en curso"
-          body="Cerralo desde la última ronda (o descartalo, si sos admin) antes de armar otro: la app sigue un torneo a la vez."
+          body="Cerralo antes de armar otro."
           action={<Button label="Volver al torneo" variant="secondary" onPress={() => router.back()} />}
         />
       </Screen>
@@ -600,12 +600,9 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
             <ActivityIndicator color={colors.br} style={styles.cargando} accessibilityLabel="Buscando jugadores" />
           ) : filtrados.length === 0 && !jugadoresQ.error ? (
             busqueda.trim() ? (
-              <EmptyState title={`Nadie coincide con "${busqueda.trim()}"`} body="Se busca por cómo empieza el nombre con el que se registró (sin importar tildes ni mayúsculas)." />
+              <EmptyState title={`Nadie coincide con "${busqueda.trim()}"`} />
             ) : seleccion.length === 0 ? (
-              <EmptyState
-                title="Todavía no hay jugadores registrados"
-                body="Cada jugador se crea su cuenta desde la app (perfil Jugador) y aparece acá al instante."
-              />
+              <EmptyState title="Todavía no hay jugadores registrados" />
             ) : null
           ) : (
             filtrados.map((j) => (
@@ -623,11 +620,6 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
           {!jugadoresQ.cargando && filtrados.length >= 30 ? (
             <Text style={[styles.meta, { color: colors.dim }]}>Se muestran los primeros 30: escribí parte del nombre para encontrar al resto.</Text>
           ) : null}
-          <Card style={styles.bloque}>
-            <Text style={[styles.nota, { color: colors.dim }]}>
-              Tocá Pagado / Impago para marcar la inscripción. Si alguien paga después, marcalo desde Premios → Inscripciones.
-            </Text>
-          </Card>
         </View>
       ) : null}
 

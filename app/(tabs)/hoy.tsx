@@ -54,18 +54,18 @@ function PanelHoy({ profile }: { readonly profile: UserProfile }) {
 
   const encabezado =
     role === 'admin'
-      ? { titulo: 'Panel del local', subtitulo: 'Cafetería y torneo en un solo lugar' }
+      ? { titulo: 'Panel del local', subtitulo: '' }
       : role === 'mozo'
         ? {
             titulo: `Hola, ${primerNombre(profile.nombre)}`,
             subtitulo: hoy.cargando
-              ? 'Así está el salón ahora'
+              ? ''
               : `${hoy.cuentasAbiertas} ${hoy.cuentasAbiertas === 1 ? 'cuenta abierta' : 'cuentas abiertas'} · ${hoy.mesasTotal} mesas`,
           }
         : {
             titulo: 'Panel del torneo',
             subtitulo: hoy.cargando
-              ? 'Rondas, resultados y stock TCG'
+              ? ''
               : hoy.torneo
                 ? `${hoy.torneo.nombre} · Ronda ${hoy.torneo.rondaActual} de ${hoy.torneo.totalRondas}`
                 : 'No hay un torneo en curso',
@@ -99,13 +99,6 @@ function PanelHoy({ profile }: { readonly profile: UserProfile }) {
             : { valor: cifra(String(stockBajo)), etiqueta: 'Stock bajo', tono: stockBajo > 0 ? 'dg' : 'ink' },
         ];
 
-  const vacio =
-    role === 'juez'
-      ? 'Cuando falten resultados, premios por entregar o stock TCG, aparece acá.'
-      : role === 'mozo'
-        ? 'Cuando una mesa abra cuenta o falte stock, aparece acá.'
-        : 'Cuando haya mesas con cuenta, stock bajo, resultados o staff por aprobar, aparece acá.';
-
   return (
     <Screen contentStyle={styles.contenido}>
       <View style={[styles.header, { borderBottomColor: colors.line }]}>
@@ -116,9 +109,11 @@ function PanelHoy({ profile }: { readonly profile: UserProfile }) {
           <Text style={[styles.titulo, { color: colors.ink }]} accessibilityRole="header" numberOfLines={2}>
             {encabezado.titulo}
           </Text>
-          <Text style={[styles.subtitulo, { color: colors.dim }]} numberOfLines={2}>
-            {encabezado.subtitulo}
-          </Text>
+          {encabezado.subtitulo ? (
+            <Text style={[styles.subtitulo, { color: colors.dim }]} numberOfLines={2}>
+              {encabezado.subtitulo}
+            </Text>
+          ) : null}
         </View>
         <TouchableOpacity
           onPress={() => {
@@ -158,7 +153,7 @@ function PanelHoy({ profile }: { readonly profile: UserProfile }) {
         {hoy.cargando ? (
           <ActivityIndicator color={colors.br} style={styles.spinner} accessibilityLabel="Cargando pendientes" />
         ) : hoy.pendientes.length === 0 ? (
-          <EmptyState title="Nada pendiente por ahora" body={vacio} />
+          <EmptyState title="Nada pendiente por ahora" />
         ) : (
           <View style={styles.lista}>
             {hoy.pendientes.map((p) => (
@@ -181,7 +176,7 @@ function PanelHoy({ profile }: { readonly profile: UserProfile }) {
           <SectionLabel>Ahora en el local</SectionLabel>
           {hoy.cobrosRecientes.length === 0 ? (
             <Text style={[styles.feedVacio, { color: colors.dim }]}>
-              Todavía no hubo cobros hoy. Cada cobro aparece acá apenas se registra.
+              Todavía no hubo cobros hoy.
             </Text>
           ) : (
             hoy.cobrosRecientes.map((c) => (

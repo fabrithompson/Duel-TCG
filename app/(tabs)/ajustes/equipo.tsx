@@ -106,7 +106,7 @@ function EquipoAdmin() {
   const sinNadieMas = !equipo.cargando && pendientes.length === 0 && rechazados.length === 0 && activos.every((m) => m.uid === miUid);
 
   return (
-    <Screen back="Ajustes" onBack={volver} title="Equipo" subtitle="Quién entra, con qué perfil y qué puede tocar.">
+    <Screen back="Ajustes" onBack={volver} title="Equipo">
       <View style={styles.contenido}>
         <CodigoInvitacion />
 
@@ -185,11 +185,6 @@ function EquipoAdmin() {
           </>
         )}
 
-        <Text style={[styles.nota, { color: colors.dim }]}>
-          Tocá a alguien del equipo para cambiarle el rol o quitarle el acceso. Los jugadores no necesitan aprobación: entran solos y el juez
-          los suma al torneo.
-        </Text>
-
         <JugadoresEquipo />
       </View>
     </Screen>
@@ -250,14 +245,10 @@ function CodigoInvitacion() {
               {codigo}
             </Text>
             <Text style={[styles.codigoSub, { color: colors.dim }]}>
-              Mozos y jueces lo escriben al crear su cuenta. Los jugadores no lo necesitan.
+              Mozos y jueces lo escriben al crear su cuenta.
             </Text>
             <Text style={[styles.codigoSub, { color: vencido ? colors.dg : colors.dim }]}>
-              {venceMs === null
-                ? 'Este código es de antes y no vence: ya no sirve. Generá uno nuevo para sumar a alguien.'
-                : vencido
-                  ? 'Venció: generá uno nuevo para sumar a alguien.'
-                  : `Sirve hasta el ${fechaConAnio(fechaLocal(new Date(venceMs)))}.`}
+              {venceMs === null || vencido ? 'Venció: generá uno nuevo.' : `Sirve hasta el ${fechaConAnio(fechaLocal(new Date(venceMs)))}.`}
             </Text>
           </View>
         ) : (
@@ -399,7 +390,6 @@ const styles = StyleSheet.create({
   contenido: { gap: 18 },
   cargando: { paddingVertical: 24, alignItems: 'center' },
   lista: { gap: 9 },
-  nota: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 18 },
 
   codigoBloque: { gap: 6 },
   codigo: { fontFamily: Typography.fontFamily.semibold, fontSize: 30 },

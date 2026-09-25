@@ -201,9 +201,7 @@ export default function LoginScreen() {
             Entrar
           </Text>
           <Text style={[styles.subtitle, { color: colors.dim }]}>
-            {adminMode
-              ? 'Ingresá con la cuenta de administración del local.'
-              : 'Elegí tu perfil: cada uno abre solo lo suyo, así nadie se pierde entre pantallas ajenas.'}
+            {adminMode ? 'Cuenta de administración del local.' : 'Elegí tu perfil.'}
           </Text>
 
           {adminMode ? (
@@ -327,11 +325,10 @@ export default function LoginScreen() {
               disabled={enviando}
               style={styles.notaBox}
               accessibilityRole="link"
-              accessibilityLabel="¿Sos jugador y venís por primera vez? Registrate y el juez te suma al próximo torneo."
+              accessibilityLabel="¿No tenés cuenta? Registrate"
             >
               <Text style={[styles.nota, { color: colors.dim }]}>
-                ¿Sos jugador y venís por primera vez?{' '}
-                <Text style={[styles.notaLink, { color: colors.br }]}>Registrate</Text> y el juez te suma al próximo torneo.
+                ¿No tenés cuenta? <Text style={[styles.notaLink, { color: colors.br }]}>Registrate</Text>
               </Text>
             </TouchableOpacity>
           ) : null}

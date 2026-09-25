@@ -309,9 +309,6 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
         <Card style={styles.credito}>
           <Text style={[styles.creditoLabel, { color: colors.gold }]}>TU CRÉDITO EN LA BARRA</Text>
           <Text style={[styles.creditoValor, { color: colors.ink }, tabularNums(28)]}>{credito === null ? '—' : formatARS(credito)}</Text>
-          <Text style={[styles.ayuda, { color: colors.dim }]}>
-            Lo ganás en los torneos y se descuenta cuando pagás en la barra.
-          </Text>
           <UsosCredito uid={profile.uid} />
         </Card>
       ) : null}
@@ -417,9 +414,6 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
             <Chip key={t.id} label={t.nombre} active={preferencia === t.id} onPress={() => setPreferencia(t.id)} />
           ))}
         </View>
-        <Text style={[styles.ayuda, { color: colors.dim }]}>
-          Automático sigue la preferencia del local o, si no hay, la del teléfono. Solo cambia en este dispositivo.
-        </Text>
       </View>
 
       <View style={styles.seccion}>
@@ -441,7 +435,6 @@ const styles = StyleSheet.create({
   credito: { marginTop: 20, gap: 4 },
   creditoLabel: { fontFamily: Typography.fontFamily.bold, fontSize: 10, letterSpacing: 1.6 },
   creditoValor: { fontFamily: Typography.fontFamily.semibold, fontSize: 28 },
-  ayuda: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 17 },
   seccion: { marginTop: 24, gap: 10 },
   chips: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   version: { fontFamily: Typography.fontFamily.regular, fontSize: 11, textAlign: 'center', marginTop: 28 },

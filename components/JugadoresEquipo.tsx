@@ -100,9 +100,6 @@ export default function JugadoresEquipo() {
     <View>
       <SectionLabel>Jugadores</SectionLabel>
       <Card>
-        <Text style={[styles.intro, { color: colors.dim }]}>
-          Los jugadores entran sin aprobación. Si una cuenta es falsa o molesta, bloqueala: no se borra nada.
-        </Text>
         <FormField
           label="Buscar jugador"
           placeholder="Nombre con el que se registró"
@@ -135,7 +132,6 @@ export default function JugadoresEquipo() {
 }
 
 const styles = StyleSheet.create({
-  intro: { fontFamily: Typography.fontFamily.regular, fontSize: 12, lineHeight: 18, marginBottom: 10 },
   fila: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, minHeight: 52 },
   textos: { flex: 1 },
   nombre: { fontFamily: Typography.fontFamily.semibold, fontSize: 13.5 },

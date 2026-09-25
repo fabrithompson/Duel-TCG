@@ -83,7 +83,6 @@ function AjustesAdmin() {
   return (
     <Screen
       title="Ajustes del local"
-      subtitle="Todo lo que cambia de un local a otro se define acá. El resto de la app se acomoda sola."
       keyboard
     >
       <View style={styles.contenido}>
@@ -535,7 +534,6 @@ function ColorMarca() {
           onPress={() => elegir(null)}
           accessibilityHint="Vuelve al color original de Duel"
         />
-        <Text style={[styles.ayuda, styles.flex1, { color: colors.dim }]}>El color de Duel. Cualquier color se ajusta solo, de día y de noche, para que los textos se lean bien.</Text>
       </View>
     </View>
   );
@@ -547,10 +545,9 @@ function Apariencia() {
   const { config } = useConfig();
   const guardar = useGuardarConfig();
   return (
-    <Grupo titulo="Apariencia" sub="Cómo arranca la app en los celulares del local.">
+    <Grupo titulo="Apariencia">
       <FilaToggle
         label="Modo noche por defecto"
-        sub="Recomendado para el turno noche"
         value={config.oscuroPorDefecto}
         onChange={(v) => void guardar({ oscuroPorDefecto: v })}
       />
@@ -622,7 +619,7 @@ function Turnos() {
   const noSePuedeQuitar = unSoloTurno || guardando;
 
   return (
-    <Grupo titulo="Turnos y horarios" sub="Definen qué se ve al abrir y contra qué se comparan las métricas.">
+    <Grupo titulo="Turnos y horarios">
       {borrador.map((turno, i) => (
         <View key={i} style={[styles.turno, { borderTopColor: colors.line }]}>
           <View style={styles.turnoFila}>
@@ -714,7 +711,7 @@ function Stock() {
   const { config } = useConfig();
   const guardar = useGuardarConfig();
   return (
-    <Grupo titulo="Stock" sub="Cuándo avisa que hay que reponer y cómo se agrupa el catálogo.">
+    <Grupo titulo="Stock">
       <FilaNumero
         label="Aviso de stock bajo"
         sub="Avisa al quedar esta cantidad o menos, salvo que el producto tenga su propio aviso"
@@ -749,7 +746,7 @@ function Torneos() {
   const guardarCampo = (campo: keyof DefaultsTorneo) => (n: number) => guardar({ torneo: { [campo]: n } as Partial<DefaultsTorneo> });
 
   return (
-    <Grupo titulo="Torneos" sub="El juez arranca cada torneo con estos valores ya cargados.">
+    <Grupo titulo="Torneos" sub="Valores con los que arranca cada torneo nuevo.">
       <FilaNumero label="Rondas" sub="Por torneo" valor={config.torneo.rondas} lim={LIMITES.rondas} onGuardar={guardarCampo('rondas')} />
       <FilaNumero
         label="Minutos por ronda"
@@ -830,7 +827,7 @@ function Cobro() {
     void guardar({ mediosPago: nuevos }, 'Medios de pago guardados');
   };
   return (
-    <Grupo titulo="Cobro" sub="Qué pasa cuando se cobra una mesa.">
+    <Grupo titulo="Cobro">
       <FilaToggle
         label="Cobrar descuenta stock"
         sub="Lo vendido baja del stock solo"
@@ -917,7 +914,7 @@ function Temporada() {
   const horaInicio = config.temporada.inicioMs !== null ? horaLocal(new Date(config.temporada.inicioMs)) : null;
 
   return (
-    <Grupo titulo="Temporada" sub="El ranking suma los torneos desde que empieza la temporada.">
+    <Grupo titulo="Temporada">
       <View style={[styles.bloque, { borderTopColor: colors.line }]}>
         <FormField
           label="Nombre de la temporada"

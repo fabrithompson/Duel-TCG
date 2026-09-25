@@ -204,9 +204,6 @@ function PanelIngreso({ catalogo, uid }: PanelIngresoProps) {
   return (
     <View style={[styles.panel, { borderColor: colors.br, backgroundColor: colors.brs }]}>
       <Text style={[styles.panelEtiqueta, { color: colors.br }]}>INGRESO DE MERCADERÍA · SOLO ADMIN</Text>
-      <Text style={[styles.panelTexto, { color: colors.dim }]}>
-        Todo lo que entra al local entra por acá. Cada renglón queda registrado con su costo, la fecha y quién lo cargó.
-      </Text>
 
       <View style={styles.chipsFila} accessibilityRole="radiogroup">
         <Chip label="Producto existente" active={form.modo === 'existente'} onPress={() => cambiar({ modo: 'existente' })} />
@@ -621,7 +618,6 @@ const styles = StyleSheet.create({
   meta: { fontFamily: Typography.fontFamily.regular, fontSize: 11 },
   panel: { borderWidth: 1.5, borderRadius: 14, padding: 15, marginBottom: 14, gap: 12 },
   panelEtiqueta: { fontFamily: Typography.fontFamily.bold, fontSize: 10, letterSpacing: 1.4 },
-  panelTexto: { fontFamily: Typography.fontFamily.regular, fontSize: 12, lineHeight: 18 },
   chipsFila: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   bloque: { gap: 10 },
   miniEtiqueta: { fontFamily: Typography.fontFamily.semibold, fontSize: 9.5, letterSpacing: 1.3 },

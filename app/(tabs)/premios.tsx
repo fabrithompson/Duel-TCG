@@ -68,7 +68,6 @@ function PremiosPantalla() {
       <Screen title="Premios">
         <EmptyState
           title="Todavía no hay torneos"
-          body="El reparto se arma en el último paso de Nuevo torneo y se entrega cuando el torneo cierra."
           action={<Button label="Ir a Torneo" onPress={() => router.navigate('/torneo')} />}
         />
       </Screen>
@@ -320,18 +319,12 @@ function PremiosTorneo({ torneo, otros, onElegir }: PremiosTorneoProps) {
         </View>
       ) : null}
 
-      <Text style={[styles.intro, { color: colors.dim }]}>
-        {torneo.nombre}: {torneo.jugadores.length} inscripciones de {formatARS(torneo.inscripcion)}. Se reparte en productos
-        {creditoPremio ? ' y en crédito de cafetería' : ''}: al entregar, el producto se descuenta del stock
-        {creditoPremio ? ' y el crédito queda en la cuenta del jugador' : ''}.
-      </Text>
-
       {catalogo.error ? (
         <ErrorBanner mensaje={mensajeError(catalogo.error, 'No se pudo leer el stock de los productos del premio.')} onRetry={catalogo.reintentar} />
       ) : null}
 
       {torneo.premios.length === 0 ? (
-        <EmptyState title="Este torneo no tiene premios cargados" body="El reparto se define en el paso 4 de Nuevo torneo." />
+        <EmptyState title="Este torneo no tiene premios cargados" />
       ) : (
         <View>
           {torneo.premios.map((p) => {
@@ -462,7 +455,6 @@ const styles = StyleSheet.create({
   selector: { marginBottom: 14, gap: 8 },
   chips: { gap: 7 },
   aviso: { fontFamily: Typography.fontFamily.semibold, fontSize: 12, lineHeight: 17 },
-  intro: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, lineHeight: 20, marginBottom: 10 },
   puesto: { paddingVertical: 13, borderBottomWidth: 1, gap: 10 },
   fila: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   numero: { fontFamily: Typography.fontFamily.bold, fontSize: 20, minWidth: 32 },

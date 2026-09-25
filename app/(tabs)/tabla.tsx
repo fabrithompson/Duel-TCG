@@ -70,7 +70,6 @@ export default function TablaScreen() {
           error ? null : (
             <EmptyState
               title={`Todavía no hay torneos cerrados en ${temporada}`}
-              body="La tabla se arma sola: cuando el juez cierra un torneo, los puntos de cada jugador se suman acá."
             />
           )
         }

@@ -44,9 +44,6 @@ export default function Splash() {
       <View style={styles.actions}>
         <Button label="Iniciar sesión" onPress={() => router.push('/(auth)/login')} />
         <Button label="Crear cuenta" variant="secondary" onPress={() => router.push('/(auth)/register')} />
-        <Text style={[styles.footnote, { color: colors.dim }]}>
-          La cuenta de administración la crea el desarrollador y no se registra desde acá.
-        </Text>
       </View>
     </SafeAreaView>
   );
@@ -59,5 +56,4 @@ const styles = StyleSheet.create({
   logoCustom: { width: 200, height: 200, borderRadius: 30 },
   localName: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, letterSpacing: 0.5, marginTop: 14, textAlign: 'center' },
   actions: { gap: 10 },
-  footnote: { fontFamily: Typography.fontFamily.regular, fontSize: 11, lineHeight: 17.6, textAlign: 'center', marginTop: 6 },
 });

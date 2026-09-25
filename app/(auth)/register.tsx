@@ -190,7 +190,7 @@ export default function RegisterScreen() {
           <View style={[styles.note, { borderColor: colors.gold }]}>
             <Text style={[styles.noteText, { color: colors.ink }]}>
               Tu cuenta de <Text style={[styles.noteFuerte, { color: colors.gold }]}>{ROLE_LABEL[pendienteComo]}</Text> quedó
-              pendiente de aprobación. Te mandamos un mail para verificar tu dirección: abrilo así el admin sabe que la cuenta es tuya. Cuando te habilite, entrá con tu email y contraseña.
+              pendiente de aprobación. Verificá tu email con el link que te mandamos.
             </Text>
           </View>
           <Button label="Ir a iniciar sesión" onPress={() => router.replace('/(auth)/login')} />
@@ -328,8 +328,7 @@ export default function RegisterScreen() {
 
           <View style={[styles.note, styles.noteGap, { borderColor: colors.gold }]}>
             <Text style={[styles.noteText, { color: colors.ink }]}>
-              <Text style={[styles.noteFuerte, { color: colors.gold }]}>Mozo y juez</Text> quedan pendientes de aprobación:
-              el admin los habilita desde su panel antes del primer turno. El jugador entra al instante.
+              <Text style={[styles.noteFuerte, { color: colors.gold }]}>Mozo y juez</Text> quedan pendientes hasta que el admin los apruebe.
             </Text>
           </View>
 

@@ -80,14 +80,10 @@ function TorneoPantalla() {
 function SinTorneo({ ultimo }: { readonly ultimo: Torneo | null }) {
   const router = useRouter();
   return (
-    <Screen title="Torneo" subtitle="Rondas, reloj y resultados del torneo del día">
+    <Screen title="Torneo">
       <EmptyState
         title="No hay torneo en curso"
-        body={
-          ultimo
-            ? `El último torneo (${ultimo.nombre}) ya cerró. Podés entregar lo que falte en Premios o armar uno nuevo.`
-            : 'Armá el primero en cuatro pasos: juego y formato, reglas, inscriptos y premios.'
-        }
+        body={ultimo ? `Último: ${ultimo.nombre}` : undefined}
         action={
           <View style={styles.emptyActions}>
             <Button label="Nuevo torneo" onPress={() => router.push('/torneo/nuevo')} />
@@ -500,9 +496,6 @@ function RelojRonda({ torneo, onCambiar }: { readonly torneo: Torneo; readonly o
           </View>
         ) : null}
       </View>
-      <Text style={[styles.timerNota, { color: colors.dim }]}>
-        El reloj es el mismo en los celulares de los jugadores y en el Modo TV. Al llegar a 0 la ronda sigue en tiempo extra hasta que la cierres.
-      </Text>
     </Card>
   );
 }
@@ -630,7 +623,6 @@ const styles = StyleSheet.create({
   timer: { fontFamily: Typography.fontFamily.light, fontSize: 60, lineHeight: 68 },
   timerEstado: { fontFamily: Typography.fontFamily.semibold, fontSize: 10.5, letterSpacing: 1.5, marginTop: 8 },
   timerBtns: { flexDirection: 'row', gap: 8, marginTop: 16, alignSelf: 'stretch' },
-  timerNota: { fontFamily: Typography.fontFamily.regular, fontSize: 11, lineHeight: 16, textAlign: 'center', marginTop: 12 },
   seccion: { marginTop: 22 },
   meta: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 2 },
   fila: { flexDirection: 'row', gap: 10, paddingVertical: 12, borderBottomWidth: 1 },
