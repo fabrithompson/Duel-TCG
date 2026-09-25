@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, doc, getDocs, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocsFromServer, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useConfig } from '../../../contexts/ConfigContext';
@@ -20,7 +20,11 @@ import {
   Standing,
   Torneo,
   aplicarReportes,
+  describirResultado,
   asignarPremios,
+  crearRng,
+  nuevaSemilla,
+  etiquetaMesa,
   calcularStandings,
   esUltimaRonda,
   estadoTimer,
@@ -38,16 +42,26 @@ import {
   timerPausado,
   timerReanudado,
 } from '../../../lib/torneo';
+import { ahoraServidor } from '../../../lib/reloj';
+import { SEGUNDOS_RELOJ_BAJO } from '../../../lib/temporada';
 import { codigoError, mensajeError } from '../../../lib/errores';
 import { advertencia } from '../../../lib/haptics';
 import Screen, { LoadingScreen } from '../../../components/Screen';
+import SoloParaRoles from '../../../components/SoloParaRoles';
 import Button from '../../../components/Button';
 import { Card, EmptyState, ErrorBanner, SectionLabel, SmallButton } from '../../../components/ui';
 
-const SEGUNDOS_TIEMPO_BAJO = 300;
 const ERRORES_TRANSITORIOS = ['unavailable', 'aborted', 'deadline-exceeded'];
 
 export default function TorneoScreen() {
+  return (
+    <SoloParaRoles roles={['admin', 'juez']} titulo="Torneo">
+      <TorneoPantalla />
+    </SoloParaRoles>
+  );
+}
+
+function TorneoPantalla() {
   const { torneo, loading, error, reintentar } = useUltimoTorneo();
 
   if (loading) return <LoadingScreen />;
@@ -100,7 +114,7 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
 
   const ronda = torneo.rondas.find((r) => r.numero === torneo.rondaActual);
   const numeroRonda = torneo.rondaActual;
-  const { reportes, error: errorReportes, reintentar: reintentarReportes } = useReportes(torneo.id, numeroRonda);
+  const { reportes, cargando: cargandoReportes, error: errorReportes, reintentar: reintentarReportes } = useReportes(torneo.id, numeroRonda);
   const { mesas: mesasDuelo, error: errorMesas, reintentar: reintentarMesas } = useMesasDuelo();
 
   const [accion, setAccion] = useState<Accion>(null);
@@ -129,16 +143,16 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
   // Cuando los dos jugadores reportan lo mismo, el cliente del juez lo escribe (la transacción lo hace idempotente).
   const intentados = useRef(new Set<string>());
   useEffect(() => {
-    if (!ronda || !config.reporteJugador) return;
-    const aAplicar: { mesa: number; resultado: Resultado }[] = [];
+    if (!ronda || !config.reporteJugador || cargandoReportes) return;
+    const aAplicar: { mesa: number; resultado: Resultado; uid1: string; uid2: string }[] = [];
     ronda.partidas.forEach((p) => {
       if (p.resultado !== null || !p.jugador2) return;
-      const r = aplicarReportes(p, reportes);
+      const r = aplicarReportes(p, reportes, ronda.numero);
       if (!r) return;
       const clave = `${torneo.id}_${ronda.numero}_${p.mesa}_${r}`;
       if (intentados.current.has(clave)) return;
       intentados.current.add(clave);
-      aAplicar.push({ mesa: p.mesa, resultado: r });
+      aAplicar.push({ mesa: p.mesa, resultado: r, uid1: p.jugador1.uid, uid2: p.jugador2.uid });
     });
     if (aAplicar.length === 0) return;
     actualizarTorneo(torneo.id, (t) => {
@@ -151,7 +165,8 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
               ...r,
               partidas: r.partidas.map((p) => {
                 const a = aAplicar.find((x) => x.mesa === p.mesa);
-                if (!a || p.resultado !== null) return p;
+                // Solo si sigue siendo la misma pareja y nadie la tocó a mano mientras tanto.
+                if (!a || p.resultado !== null || p.manual || p.jugador1.uid !== a.uid1 || p.jugador2?.uid !== a.uid2) return p;
                 cambio = true;
                 return { ...p, resultado: a.resultado };
               }),
@@ -166,7 +181,7 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
       }
       fallar(e, 'No se pudo aplicar el resultado que reportaron los jugadores.');
     });
-  }, [ronda, reportes, config.reporteJugador, torneo.id, fallar]);
+  }, [ronda, reportes, cargandoReportes, config.reporteJugador, torneo.id, fallar]);
 
   const refTorneo = doc(db, 'torneos', torneo.id);
 
@@ -185,7 +200,7 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
         const rondas = t.rondas.map((r) =>
           r.numero !== numeroRonda
             ? r
-            : { ...r, partidas: r.partidas.map((p) => (p.mesa === partida.mesa && p.jugador2 ? { ...p, resultado: nuevo } : p)) }
+            : { ...r, partidas: r.partidas.map((p) => (p.mesa === partida.mesa && p.jugador2 ? { ...p, resultado: nuevo, manual: true } : p)) }
         );
         return { rondas };
       });
@@ -204,11 +219,13 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
         if (t.estado !== 'en_curso' || t.rondaActual !== numeroRonda) throw new AvisoTorneo('La ronda ya avanzó en otro dispositivo.');
         const actual = t.rondas.find((r) => r.numero === numeroRonda);
         if (!actual || !rondaCompleta(actual)) throw new AvisoTorneo('Todavía faltan resultados en esta ronda.');
-        const nueva = generarRonda(t, numeroRonda + 1, mesas);
+        // La semilla queda guardada: el sorteo de la ronda se puede reproducir si alguien lo cuestiona.
+        const semilla = nuevaSemilla();
+        const nueva = { ...generarRonda(t, numeroRonda + 1, mesas, crearRng(semilla)), semilla };
         return {
           rondaActual: numeroRonda + 1,
           rondas: [...t.rondas.filter((r) => r.numero <= numeroRonda), nueva],
-          ...timerNuevaRonda(t.minutosPorRonda, Date.now()),
+          ...timerNuevaRonda(t.minutosPorRonda, ahoraServidor()),
         };
       });
       mostrar(`Ronda ${numeroRonda + 1} emparejada`, 'ok');
@@ -235,9 +252,14 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
           rondaFinEn: null,
           rondaRestanteMs: null,
         };
+      }, async (tx, t) => {
+        // Se libera el candado de torneo en curso (ver Nuevo torneo) si apuntaba a este.
+        const refCandado = doc(db, 'bloqueos', 'torneo');
+        const candado = await tx.get(refCandado);
+        if (candado.exists() && candado.get('torneoId') === t.id) tx.set(refCandado, { torneoId: null, actualizadoEn: serverTimestamp() });
       });
       mostrar('Torneo cerrado. Ya podés entregar los premios.', 'ok');
-      router.push('/premios');
+      router.push({ pathname: '/premios', params: { torneoId: torneo.id } });
     } catch (e) {
       fallar(e, 'No se pudo cerrar el torneo.');
     } finally {
@@ -248,7 +270,8 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
   const descartar = async () => {
     setAccion('descartar');
     try {
-      const reportesSnap = await getDocs(collection(db, 'torneos', torneo.id, 'reportes'));
+      // Del servidor: sin señal falla en el acto (con la caché se borraría solo lo que quedó guardado local).
+      const reportesSnap = await getDocsFromServer(collection(db, 'torneos', torneo.id, 'reportes'));
       const refs = reportesSnap.docs.map((d) => d.ref);
       // Un batch admite 500 operaciones: se borra en tandas y el torneo va en la última.
       for (let i = 0; i < refs.length; i += 450) {
@@ -354,6 +377,7 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
               partida={p}
               standings={porUid}
               reportes={reportes}
+              ronda={numeroRonda}
               deshabilitado={accion !== null}
               onResultado={(r) => void cargarResultado(p, r)}
             />
@@ -399,12 +423,12 @@ type CamposTimer = Pick<Torneo, 'rondaPausada' | 'rondaRestanteMs' | 'rondaFinEn
 /** El reloj vive aparte para que el tic de cada segundo no vuelva a dibujar toda la lista de mesas. */
 function RelojRonda({ torneo, onCambiar }: { readonly torneo: Torneo; readonly onCambiar: (campos: CamposTimer) => void }) {
   const { colors } = useTheme();
-  const [ahora, setAhora] = useState(() => Date.now());
+  const [ahora, setAhora] = useState(() => ahoraServidor());
 
   useEffect(() => {
-    setAhora(Date.now());
+    setAhora(ahoraServidor());
     if (torneo.rondaPausada) return undefined;
-    const id = setInterval(() => setAhora(Date.now()), 1000);
+    const id = setInterval(() => setAhora(ahoraServidor()), 1000);
     return () => clearInterval(id);
   }, [torneo.rondaPausada, torneo.rondaFinEn]);
 
@@ -416,7 +440,7 @@ function RelojRonda({ torneo, onCambiar }: { readonly torneo: Torneo; readonly o
   return (
     <Card style={styles.timerCard}>
       <Text
-        style={[styles.timer, { color: segundos < SEGUNDOS_TIEMPO_BAJO ? colors.dg : colors.ink }, tabularNums(60)]}
+        style={[styles.timer, { color: segundos < SEGUNDOS_RELOJ_BAJO ? colors.dg : colors.ink }, tabularNums(60)]}
         accessibilityRole="timer"
         accessibilityLabel={`Quedan ${Math.floor(segundos / 60)} minutos y ${segundos % 60} segundos`}
       >
@@ -427,7 +451,7 @@ function RelojRonda({ torneo, onCambiar }: { readonly torneo: Torneo; readonly o
         <View style={styles.flex1}>
           <Button
             label={torneo.rondaPausada ? 'Reanudar' : 'Pausar'}
-            onPress={() => onCambiar(torneo.rondaPausada ? timerReanudado(torneo, Date.now()) : timerPausado(torneo, Date.now()))}
+            onPress={() => onCambiar(torneo.rondaPausada ? timerReanudado(torneo, ahoraServidor()) : timerPausado(torneo, ahoraServidor()))}
           />
         </View>
         {torneo.minutosExtra > 0 ? (
@@ -436,7 +460,7 @@ function RelojRonda({ torneo, onCambiar }: { readonly torneo: Torneo; readonly o
               label={`+${torneo.minutosExtra} min`}
               variant="secondary"
               accessibilityHint="Suma minutos extra al reloj de la ronda"
-              onPress={() => onCambiar(timerConExtra(torneo, torneo.minutosExtra, Date.now()))}
+              onPress={() => onCambiar(timerConExtra(torneo, torneo.minutosExtra, ahoraServidor()))}
             />
           </View>
         ) : null}
@@ -452,6 +476,7 @@ interface FilaPartidaProps {
   readonly partida: Partida;
   readonly standings: Map<string, Standing>;
   readonly reportes: readonly Reporte[];
+  readonly ronda: number;
   readonly deshabilitado: boolean;
   readonly onResultado: (r: Resultado) => void;
 }
@@ -460,15 +485,15 @@ function primerNombre(nombre: string): string {
   return nombre.split(' ')[0] || nombre;
 }
 
-function FilaPartida({ partida, standings, reportes, deshabilitado, onResultado }: FilaPartidaProps) {
+function FilaPartida({ partida, standings, reportes, ronda, deshabilitado, onResultado }: FilaPartidaProps) {
   const { colors } = useTheme();
   const { jugador1, jugador2 } = partida;
-  const salon = partida.mesaSalonNumero ? ` · Salón ${String(partida.mesaSalonNumero).padStart(2, '0')}` : '';
+  const etiqueta = etiquetaMesa(partida);
 
   if (!jugador2) {
     return (
       <View style={[styles.fila, { borderBottomColor: colors.line }]}>
-        <Text style={[styles.mesa, { color: colors.dim }, tabularNums(11.5)]}>M{partida.mesa}</Text>
+        <Text style={[styles.mesa, { color: colors.dim }, tabularNums(11.5)]}>—</Text>
         <View style={styles.flex1}>
           <Text style={[styles.nombres, { color: colors.ink }]}>{jugador1.nombre}</Text>
           <Text style={[styles.meta, { color: colors.dim }]}>Bye · gana 2-0 sin jugar</Text>
@@ -477,30 +502,34 @@ function FilaPartida({ partida, standings, reportes, deshabilitado, onResultado 
     );
   }
 
-  const { jugador1: r1, jugador2: r2 } = reportesDePartida(partida, reportes);
+  const { jugador1: r1, jugador2: r2 } = reportesDePartida(partida, reportes, ronda);
   let aviso: { texto: string; color: string } | null = null;
-  if (r1 && r2 && r1.resultado === r2.resultado) {
-    aviso = { texto: `Coinciden: ${r1.resultado}`, color: colors.ok };
+  if (partida.manual && partida.resultado === null && (r1 || r2)) {
+    aviso = { texto: 'Borraste el resultado: lo que reporten los jugadores ya no se aplica solo.', color: colors.dim };
+  } else if (r1 && r2 && r1.resultado === r2.resultado) {
+    aviso = { texto: `Coinciden: ${describirResultado(partida, r1.resultado)}`, color: colors.ok };
   } else if (r1 && r2) {
     aviso = {
-      texto: `No coinciden: decidí vos (${primerNombre(jugador1.nombre)} ${r1.resultado} · ${primerNombre(jugador2.nombre)} ${r2.resultado})`,
+      texto: `No coinciden, decidí vos: ${primerNombre(jugador1.nombre)} dice ${describirResultado(partida, r1.resultado)} · ${primerNombre(jugador2.nombre)} dice ${describirResultado(partida, r2.resultado)}`,
       color: colors.dg,
     };
   } else {
     const r = r1 ?? r2;
-    if (r) aviso = { texto: `${primerNombre(r1 ? jugador1.nombre : jugador2.nombre)} reportó ${r.resultado}`, color: colors.dim };
+    if (r) aviso = { texto: `${primerNombre(r1 ? jugador1.nombre : jugador2.nombre)} reportó: ${describirResultado(partida, r.resultado)}`, color: colors.dim };
   }
 
   return (
     <View style={[styles.fila, { borderBottomColor: colors.line }]}>
-      <Text style={[styles.mesa, { color: colors.gold }, tabularNums(11.5)]}>M{partida.mesa}</Text>
+      <Text style={[styles.mesa, { color: etiqueta.enSalon ? colors.gold : colors.dim }, tabularNums(11.5)]} accessibilityLabel={etiqueta.larga}>
+        {etiqueta.corta}
+      </Text>
       <View style={styles.flex1}>
         <Text style={[styles.nombres, { color: colors.ink }]}>
           {jugador1.nombre} <Text style={[styles.vs, { color: colors.dim }]}>vs</Text> {jugador2.nombre}
         </Text>
         <Text style={[styles.meta, { color: colors.dim }, tabularNums(10.5)]}>
           {recordDe(standings.get(jugador1.uid))} · {recordDe(standings.get(jugador2.uid))}
-          {salon}
+          {etiqueta.enSalon ? '' : ' · sin mesa asignada'}
         </Text>
         <View style={styles.resultados} accessibilityRole="radiogroup">
           {RESULTADOS.map((r) => {
@@ -513,11 +542,11 @@ function FilaPartida({ partida, standings, reportes, deshabilitado, onResultado 
                 disabled={deshabilitado}
                 activeOpacity={0.7}
                 accessibilityRole="radio"
-                accessibilityLabel={`Mesa ${partida.mesa}: ${jugador1.nombre} ${r} ${jugador2.nombre}`}
+                accessibilityLabel={`${etiqueta.larga}: ${jugador1.nombre} ${r} ${jugador2.nombre}`}
                 accessibilityHint={activo ? 'Tocá de nuevo para borrar el resultado' : undefined}
                 accessibilityState={{ checked: activo, disabled: deshabilitado }}
               >
-                <Text style={[styles.resultadoTexto, { color: activo ? colors.bg : colors.dim }, tabularNums(12)]}>{r}</Text>
+                <Text style={[styles.resultadoTexto, { color: activo ? colors.onOk : colors.dim }, tabularNums(12)]}>{r}</Text>
               </TouchableOpacity>
             );
           })}

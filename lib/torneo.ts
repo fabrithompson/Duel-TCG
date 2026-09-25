@@ -1,4 +1,5 @@
 import { CONFIG_DEFAULT } from './config';
+import { aMilis, fechaLocal } from './fecha';
 
 // Torneos.
 //
@@ -15,8 +16,8 @@ import { CONFIG_DEFAULT } from './config';
 // Todo lo de este archivo es puro (sin Firebase ni fechas del sistema) para
 // poder testearlo; el azar entra por un `rng` inyectable.
 
-export type Juego = 'Pokémon TCG' | 'Magic' | 'Yu-Gi-Oh' | 'One Piece' | 'Otro';
-export const JUEGOS: readonly Juego[] = ['Pokémon TCG', 'Magic', 'Yu-Gi-Oh', 'One Piece', 'Otro'];
+/** Nombre del juego; la lista que se ofrece la define el local en Ajustes (config.juegos). */
+export type Juego = string;
 
 export type FormatoId = 'suizo' | 'eliminacion' | 'suizo_top_cut' | 'casual';
 
@@ -55,12 +56,16 @@ export interface Partida {
   /** Mesa física del Salón (tipo 'duelo') asignada a esta partida. */
   mesaSalonId?: string | null;
   mesaSalonNumero?: number | null;
+  /** El juez cargó o borró el resultado a mano: ya no se aplica solo desde los reportes. */
+  manual?: boolean;
 }
 
 export type FaseRonda = 'suizo' | 'eliminacion' | 'casual';
 
 export interface Ronda {
   numero: number;
+  /** Semilla del sorteo de esta ronda: con crearRng(semilla) se reproduce el mismo emparejamiento. */
+  semilla?: number;
   /** 'eliminacion' en las rondas de llave (eliminación directa o top cut). */
   fase?: FaseRonda;
   partidas: Partida[];
@@ -174,6 +179,11 @@ export function perdedorDe(p: Partida): JugadorTorneo | null {
 }
 
 /** Generador pseudoaleatorio con semilla (mulberry32), para emparejamientos reproducibles. */
+/** Semilla nueva para sortear una ronda (se guarda en la ronda para poder reproducirla). */
+export function nuevaSemilla(): number {
+  return Math.floor(Math.random() * 0x7fffffff);
+}
+
 export function crearRng(semilla: number): Rng {
   let a = semilla >>> 0;
   return () => {
@@ -320,6 +330,8 @@ export interface Standing {
   omw: number;
   /** Game win %: juegos ganados sobre juegos jugados. */
   gw: number;
+  /** Rondas ganadas por bye (sin jugar). */
+  byes: number;
 }
 
 const PISO_MW = 0.33;
@@ -416,6 +428,7 @@ export function calcularStandings(torneo: Pick<Torneo, 'jugadores' | 'rondas'>, 
     puntos: s.puntos,
     omw: s.rivales.length === 0 ? 0 : s.rivales.reduce((acc, uid) => acc + mw(uid), 0) / s.rivales.length,
     gw: s.juegosJugados === 0 ? 0 : s.juegosGanados / s.juegosJugados,
+    byes: s.byes,
   }));
   return standings.sort(compararStandings);
 }
@@ -641,21 +654,23 @@ function partidasLlaveSiguiente(anterior: Ronda): PartidaSinMesa[] {
   return partidas;
 }
 
-/** Numera las partidas (primero las que se juegan, los byes al final) y les asigna mesas de duelo del Salón en orden. */
-function numerarYAsignarMesas(partidas: readonly PartidaSinMesa[], mesasDuelo: readonly MesaDuelo[]): Partida[] {
+/**
+ * Numera las partidas y les asigna mesas de duelo del Salón en orden. La mesa N queda en la
+ * posición N-1 (las reglas de reportes lo usan para saber quién está sentado dónde).
+ * En suizo y casual los byes van al final; en la llave se respeta el orden, que es el cuadro.
+ */
+function numerarYAsignarMesas(partidas: readonly PartidaSinMesa[], mesasDuelo: readonly MesaDuelo[], esLlave: boolean): Partida[] {
   const mesas = [...mesasDuelo].sort((a, b) => a.numero - b.numero);
-  const reales = partidas.filter((p) => p.jugador2 !== null).length;
+  const ordenadas = esLlave ? partidas : [...partidas.filter((p) => p.jugador2 !== null), ...partidas.filter((p) => p.jugador2 === null)];
   let jugadas = 0;
-  let byes = 0;
-  return partidas.map((p) => {
+  return ordenadas.map((p, i): Partida => {
     if (p.jugador2 === null) {
-      byes += 1;
-      return { mesa: reales + byes, jugador1: p.jugador1, jugador2: null, resultado: '2-0', mesaSalonId: null, mesaSalonNumero: null };
+      return { mesa: i + 1, jugador1: p.jugador1, jugador2: null, resultado: '2-0', mesaSalonId: null, mesaSalonNumero: null };
     }
     const mesa = mesas[jugadas];
     jugadas += 1;
     return {
-      mesa: jugadas,
+      mesa: i + 1,
       jugador1: p.jugador1,
       jugador2: p.jugador2,
       resultado: null,
@@ -669,7 +684,7 @@ function numerarYAsignarMesas(partidas: readonly PartidaSinMesa[], mesasDuelo: r
  * Arma la ronda `numero` a partir de lo jugado en las anteriores.
  *  - Suizo: por puntos, sin revanchas (si es imposible, la de menor costo);
  *    bye al de menos puntos que todavía no tuvo.
- *  - Eliminación: ronda 1 por orden de inscripción; después, ganadores en orden de llave.
+ *  - Eliminación: ronda 1 sorteada; después, ganadores en orden de llave.
  *  - Suizo + top cut: suizo y después llave con los `topCut` mejores del suizo.
  *  - Casual: al azar.
  */
@@ -699,10 +714,11 @@ export function generarRonda(
         .map((s) => s.jugador);
       partidas = partidasLlaveDesdeSemillas(semillas);
     } else {
-      partidas = partidasLlaveDesdeSemillas(torneo.jugadores);
+      // Sorteada: si no, el orden en que el juez anotó a los jugadores decidía quién recibía bye.
+      partidas = partidasLlaveDesdeSemillas(mezclar(torneo.jugadores, rng));
     }
   }
-  return { numero, fase, partidas: numerarYAsignarMesas(partidas, mesasDuelo) };
+  return { numero, fase, partidas: numerarYAsignarMesas(partidas, mesasDuelo, fase === 'eliminacion') };
 }
 
 // ---------------------------------------------------------------------------
@@ -744,14 +760,17 @@ export function posicionesFinales(torneo: Pick<Torneo, 'jugadores' | 'rondas' | 
       .sort((a, b) => nivel(b.uid) - nivel(a.uid) || (indice.get(a.uid) ?? 0) - (indice.get(b.uid) ?? 0));
   }
 
+  // En eliminación directa el bye cae por sorteo: pasa de ronda, pero no regala puntos de temporada.
+  const byesNoSuman = torneo.formatoId === 'eliminacion';
   return orden.map((j, i) => {
     const s = porUid.get(j.uid);
+    const byes = byesNoSuman ? s?.byes ?? 0 : 0;
     return {
       uid: j.uid,
       nombre: j.nombre,
       puesto: i + 1,
-      puntos: torneo.formatoId === 'casual' ? 0 : s?.puntos ?? 0,
-      victorias: s?.victorias ?? 0,
+      puntos: torneo.formatoId === 'casual' ? 0 : (s?.puntos ?? 0) - 3 * byes,
+      victorias: (s?.victorias ?? 0) - byes,
       derrotas: s?.derrotas ?? 0,
     };
   });
@@ -766,8 +785,54 @@ export function asignarPremios(premios: readonly PuestoPremio[], posiciones: rea
   });
 }
 
+/** Pozo previsto: todas las inscripciones, pagas o no. */
 export function pozoDe(t: Pick<Torneo, 'jugadores' | 'inscripcion'>): number {
   return t.jugadores.length * t.inscripcion;
+}
+
+/** Lo efectivamente cobrado de inscripciones (las marcadas como pagas). */
+export function pozoCobrado(t: Pick<Torneo, 'jugadores' | 'inscripcion'>): number {
+  return t.jugadores.filter((j) => j.pagado).length * t.inscripcion;
+}
+
+/**
+ * Un premio que falta entregar: tiene ganador, algo para dar y todavía no se dio.
+ * Hoy, Premios y Nuevo torneo usan esta misma definición para no contradecirse.
+ */
+export function premioPorEntregar(p: PuestoPremio, conCredito = true): boolean {
+  if (p.entregado || !p.jugadorUid) return false;
+  // Sin productoId también cuenta: los torneos viejos daban 'sobres' sin producto del catálogo.
+  return p.cantidadProducto > 0 || (conCredito && p.creditoCafeteria > 0);
+}
+
+/** Premios por entregar de un torneo ya cerrado (mientras está en curso todavía no tienen ganador). */
+export function premiosPorEntregar(t: Pick<Torneo, 'estado' | 'premios'>, conCredito = true): number {
+  return t.estado === 'finalizado' ? t.premios.filter((p) => premioPorEntregar(p, conCredito)).length : 0;
+}
+
+export interface EtiquetaMesa {
+  /** Para títulos y la grilla: "Mesa 04", "Partida 5" o "Bye". */
+  titulo: string;
+  /** Para columnas angostas: "04", "P5" o "Bye". */
+  corta: string;
+  /** Para lectores de pantalla y avisos: "Mesa 04", "Partida 5, sin mesa asignada", "Bye esta ronda". */
+  larga: string;
+  /** true si la partida tiene una mesa física del Salón. */
+  enSalon: boolean;
+}
+
+/**
+ * Cómo se nombra la mesa de una partida en todas las pantallas (Mi duelo, Torneo, Modo TV).
+ * Manda el número físico del Salón, que es el que el jugador busca con la vista; sin mesa
+ * asignada se dice "Partida N" para que nadie se siente en una mesa de café con el mismo número.
+ */
+export function etiquetaMesa(p: Pick<Partida, 'mesa' | 'mesaSalonNumero' | 'jugador2'>): EtiquetaMesa {
+  if (p.jugador2 === null) return { titulo: 'Bye', corta: 'Bye', larga: 'Bye esta ronda', enSalon: false };
+  if (typeof p.mesaSalonNumero === 'number' && p.mesaSalonNumero > 0) {
+    const n = String(p.mesaSalonNumero).padStart(2, '0');
+    return { titulo: `Mesa ${n}`, corta: n, larga: `Mesa ${n}`, enSalon: true };
+  }
+  return { titulo: `Partida ${p.mesa}`, corta: `P${p.mesa}`, larga: `Partida ${p.mesa}, sin mesa asignada`, enSalon: false };
 }
 
 /** Mesas del Salón con duelo en curso: partidas sin resultado de la ronda actual de un torneo en curso. */
@@ -791,18 +856,31 @@ export interface ReportesPartida {
 }
 
 /** Reportes de los dos jugadores de una partida (se asume que `reportes` son de la misma ronda). */
-export function reportesDePartida(partida: Partida, reportes: readonly Reporte[]): ReportesPartida {
+/**
+ * Reportes de cada jugador para esta partida. Se filtra por ronda: si la misma
+ * pareja repite mesa en la ronda siguiente, los reportes viejos no deben contar.
+ */
+export function reportesDePartida(partida: Partida, reportes: readonly Reporte[], ronda: number): ReportesPartida {
   const de = (uid: string | undefined) =>
-    uid ? reportes.find((r) => r.mesa === partida.mesa && r.uid === uid) ?? null : null;
+    uid ? reportes.find((r) => r.ronda === ronda && r.mesa === partida.mesa && r.uid === uid) ?? null : null;
   return { jugador1: de(partida.jugador1.uid), jugador2: de(partida.jugador2?.uid) };
 }
 
-/** El resultado si los dos jugadores reportaron lo mismo; si no, null. */
-export function aplicarReportes(partida: Partida, reportes: readonly Reporte[]): Resultado | null {
-  if (!partida.jugador2) return null;
-  const { jugador1, jugador2 } = reportesDePartida(partida, reportes);
+/** El resultado si los dos jugadores reportaron lo mismo en esta ronda; si no, null. */
+export function aplicarReportes(partida: Partida, reportes: readonly Reporte[], ronda: number): Resultado | null {
+  if (!partida.jugador2 || partida.manual) return null;
+  const { jugador1, jugador2 } = reportesDePartida(partida, reportes, ronda);
   if (!jugador1 || !jugador2) return null;
   return jugador1.resultado === jugador2.resultado ? jugador1.resultado : null;
+}
+
+/** "gana Sofía 2-1": el marcador contado desde el ganador, sin depender de quién es jugador1. */
+export function describirResultado(partida: Pick<Partida, 'jugador1' | 'jugador2'>, resultado: Resultado): string {
+  const [g1, g2] = resultado.split('-').map(Number);
+  const ganaJugador1 = g1 > g2;
+  // Nombre completo: con dos "Juan" en el torneo, el primer nombre no alcanza para saber quién ganó.
+  const ganador = ganaJugador1 ? partida.jugador1.nombre : partida.jugador2?.nombre ?? partida.jugador1.nombre;
+  return `gana ${ganador.trim()} ${Math.max(g1, g2)}-${Math.min(g1, g2)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -814,7 +892,8 @@ type CamposTimer = Pick<Torneo, 'rondaPausada' | 'rondaRestanteMs' | 'rondaFinEn
 /**
  * Segundos que le quedan a la ronda. El timer vive en Firestore como un
  * timestamp de fin (o el restante si está pausado), así sobrevive a que el
- * juez cierre la app y todos los celulares ven lo mismo.
+ * juez cierre la app. `ahoraMs` tiene que ser la hora del servidor
+ * (lib/reloj): así todos los celulares y la TV ven lo mismo aunque tengan la hora corrida.
  */
 export function segundosRestantes(t: CamposTimer, ahoraMs: number): number {
   if (t.rondaPausada) return Math.max(0, Math.round((t.rondaRestanteMs ?? 0) / 1000));
@@ -863,6 +942,12 @@ export function timerConExtra(t: CamposTimer, minutos: number, ahoraMs: number):
 
 type Datos = Record<string, unknown>;
 
+/** Docs viejos sin fecha: se deriva del día local en que se crearon. */
+function fechaDeMarca(v: unknown): string {
+  const ms = aMilis(v);
+  return ms === null ? '' : fechaLocal(new Date(ms));
+}
+
 function esObjeto(v: unknown): v is Datos {
   return !!v && typeof v === 'object' && !Array.isArray(v);
 }
@@ -880,13 +965,7 @@ function textoValido(v: unknown, fallback: string): string {
 }
 
 function juegoDe(v: unknown): Juego {
-  if (typeof v !== 'string') return 'Otro';
-  const t = v.toLowerCase();
-  if (t.includes('pok')) return 'Pokémon TCG';
-  if (t.includes('magic')) return 'Magic';
-  if (t.includes('yu')) return 'Yu-Gi-Oh';
-  if (t.includes('one piece')) return 'One Piece';
-  return 'Otro';
+  return typeof v === 'string' && v.trim() ? v.trim().slice(0, 40) : 'Otro';
 }
 
 function formatoIdDe(formatoId: unknown, formato: unknown): FormatoId {
@@ -929,6 +1008,7 @@ function partidaDe(v: unknown, indice: number): Partida | null {
     resultado: resultadoDe(v, jugador1, jugador2),
     mesaSalonId: typeof v.mesaSalonId === 'string' && v.mesaSalonId ? v.mesaSalonId : null,
     mesaSalonNumero: typeof v.mesaSalonNumero === 'number' && Number.isFinite(v.mesaSalonNumero) ? v.mesaSalonNumero : null,
+    manual: v.manual === true,
   };
 }
 
@@ -939,7 +1019,12 @@ function premioDe(v: unknown, indice: number): PuestoPremio | null {
     jugadorUid: typeof v.jugadorUid === 'string' && v.jugadorUid ? v.jugadorUid : null,
     productoId: typeof v.productoId === 'string' && v.productoId ? v.productoId : null,
     productoOrigen: v.productoOrigen === 'productos' ? 'productos' : 'tcg',
-    productoNombre: typeof v.productoNombre === 'string' && v.productoNombre ? v.productoNombre.slice(0, 60) : null,
+    productoNombre:
+      typeof v.productoNombre === 'string' && v.productoNombre
+        ? v.productoNombre.slice(0, 60)
+        : typeof v.sobres === 'number' && v.cantidadProducto === undefined
+          ? 'Sobres'
+          : null,
     cantidadProducto: enteroValido(v.cantidadProducto ?? v.sobres, 0),
     creditoCafeteria: enteroValido(v.creditoCafeteria, 0),
     entregado: v.entregado === true,
@@ -974,7 +1059,12 @@ export function normalizarTorneo(id: string, data: Datos): Torneo {
   const jugadores = soloValidos(data.jugadores, jugadorDe);
   const rondasCrudas = soloValidos(data.rondas, (v, i) =>
     esObjeto(v)
-      ? { numero: enteroValido(v.numero, i + 1, 1), fase: v.fase, partidas: soloValidos(v.partidas, partidaDe) }
+      ? {
+          numero: enteroValido(v.numero, i + 1, 1),
+          fase: v.fase,
+          semilla: typeof v.semilla === 'number' && Number.isFinite(v.semilla) ? v.semilla : undefined,
+          partidas: soloValidos(v.partidas, partidaDe),
+        }
       : null
   );
   const totalRondas = enteroValido(data.totalRondas, Math.max(1, rondasCrudas.length), 1);
@@ -983,6 +1073,7 @@ export function normalizarTorneo(id: string, data: Datos): Torneo {
   const rondas: Ronda[] = rondasCrudas.map((r) => ({
     numero: r.numero,
     fase: r.fase === 'suizo' || r.fase === 'eliminacion' || r.fase === 'casual' ? r.fase : faseParaRonda(datosFormato, r.numero),
+    ...(r.semilla !== undefined ? { semilla: r.semilla } : {}),
     partidas: r.partidas,
   }));
   const uids = Array.isArray(data.jugadoresUids)
@@ -997,9 +1088,10 @@ export function normalizarTorneo(id: string, data: Datos): Torneo {
     formato: textoValido(data.formato, FORMATOS.find((f) => f.id === formatoId)?.nombre ?? 'Suizo'),
     totalRondas,
     topCut,
-    minutosPorRonda: enteroValido(data.minutosPorRonda, d.minutos, 1),
+    // Docs de la versión anterior: tiempoPorRonda y valorEntrada en vez de los nombres nuevos.
+    minutosPorRonda: enteroValido(data.minutosPorRonda ?? data.tiempoPorRonda, d.minutos, 1),
     minutosExtra: enteroValido(data.minutosExtra, d.extra),
-    inscripcion: numeroValido(data.inscripcion, d.inscripcion),
+    inscripcion: numeroValido(data.inscripcion ?? data.valorEntrada, d.inscripcion),
     cupo: enteroValido(data.cupo, Math.max(d.cupo, jugadores.length)),
     jugadores,
     jugadoresUids: uids,
@@ -1010,7 +1102,7 @@ export function normalizarTorneo(id: string, data: Datos): Torneo {
     rondaFinEn: typeof data.rondaFinEn === 'number' && Number.isFinite(data.rondaFinEn) ? data.rondaFinEn : null,
     rondaRestanteMs: typeof data.rondaRestanteMs === 'number' && Number.isFinite(data.rondaRestanteMs) ? data.rondaRestanteMs : null,
     rondaPausada: data.rondaPausada === true,
-    fecha: typeof data.fecha === 'string' ? data.fecha : '',
+    fecha: typeof data.fecha === 'string' ? data.fecha : fechaDeMarca(data.creadoEn),
     posiciones: Array.isArray(data.posiciones) ? soloValidos(data.posiciones, posicionDe) : undefined,
     creadoPor: typeof data.creadoPor === 'string' ? data.creadoPor : undefined,
     creadoEn: data.creadoEn,

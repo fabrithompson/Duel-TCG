@@ -11,19 +11,19 @@ import { useUserProfileContext } from '../../contexts/UserProfileContext';
 import { Typography, tabularNums } from '../../constants/theme';
 import { reportarResultado, useMiDuelo, useReportesPartida } from '../../hooks/useMiDuelo';
 import { useMiCredito } from '../../hooks/useDirectorioJugadores';
-import { RESULTADOS, calcularStandings, formatTimer, nombreRonda, recordDe, type Resultado, type Standing, type Torneo } from '../../lib/torneo';
+import { ahoraServidor } from '../../lib/reloj';
+import { RESULTADOS, calcularStandings, etiquetaMesa, formatTimer, nombreRonda, recordDe, type Resultado, type Standing, type Torneo } from '../../lib/torneo';
 import {
   esVictoria,
   estadoReloj,
   miPartidaActual,
-  numeroDeMesa,
   resultadoParaJugador,
   type MiPartida,
 } from '../../lib/temporada';
 import { formatARS } from '../../lib/pedido';
 import { MENSAJE_FALTA_INDICE, codigoError, esFaltaDeIndice, mensajeError } from '../../lib/errores';
 import { advertencia, tocar } from '../../lib/haptics';
-import { fechaLocal } from '../../lib/fecha';
+import { fechaDeNegocio } from '../../lib/fecha';
 
 /** Pasado este tiempo sin respuesta del servidor, el reporte queda en la cola offline de Firestore. */
 const ESPERA_MAXIMA_MS = 10_000;
@@ -37,8 +37,9 @@ function detalleMarcador(r: Resultado): string {
   return `${esVictoria(r) ? 'Ganaste' : 'Perdiste'} ${mios} a ${suyos}`;
 }
 
-function textoRecord(s: Standing | undefined): string {
-  return `${recordDe(s)} · ${s?.puntos ?? 0} pts`;
+// En los casuales no hay puntaje: solo el récord de la noche.
+function textoRecord(s: Standing | undefined, conPuntos: boolean): string {
+  return conPuntos ? `${recordDe(s)} · ${s?.puntos ?? 0} pts` : recordDe(s);
 }
 
 function textosSinPartida(torneo: Torneo): { titulo: string; cuerpo: string } {
@@ -130,7 +131,7 @@ function DueloEnCurso({ torneo, uid, avatar, errorBanner, creditoCard }: DueloEn
     <Screen
       eyebrow={`${torneo.nombre} · ${etiquetaRonda}`}
       eyebrowTone="gold"
-      title={mia ? `Mesa ${String(numeroDeMesa(mia.partida)).padStart(2, '0')}` : 'Sin mesa todavía'}
+      title={mia ? (mia.rival ? etiquetaMesa(mia.partida).titulo : 'Bye esta ronda') : 'Sin mesa todavía'}
       right={avatar}
       divider
     >
@@ -140,11 +141,20 @@ function DueloEnCurso({ torneo, uid, avatar, errorBanner, creditoCard }: DueloEn
           yo={standings.find((s) => s.jugador.uid === uid)}
           rival={mia.rival ? standings.find((s) => s.jugador.uid === mia.rival?.uid) : undefined}
           nombreRival={mia.rival?.nombre ?? null}
+          conPuntos={torneo.formatoId !== 'casual'}
         />
       ) : null}
       {sinPartida ? (
         <View style={styles.bloque}>
           <EmptyState title={sinPartida.titulo} body={sinPartida.cuerpo} />
+        </View>
+      ) : null}
+
+      {mia && mia.rival && !etiquetaMesa(mia.partida).enSalon ? (
+        <View style={styles.seccion}>
+          <Card dashed>
+            <SinMesaNota />
+          </Card>
         </View>
       ) : null}
 
@@ -195,7 +205,8 @@ function Avatar({ nombre, onPress }: { readonly nombre: string; readonly onPress
 
 function SinTorneo({ ultimo, uid }: { readonly ultimo: Torneo | null; readonly uid: string | null }) {
   const router = useRouter();
-  const terminadoHoy = ultimo && ultimo.estado === 'finalizado' && ultimo.fecha === fechaLocal() ? ultimo : null;
+  const { config } = useConfig();
+  const terminadoHoy = ultimo && ultimo.estado === 'finalizado' && ultimo.fecha === fechaDeNegocio(config.turnos) ? ultimo : null;
   const puesto = terminadoHoy && uid ? terminadoHoy.posiciones?.find((p) => p.uid === uid)?.puesto : undefined;
 
   let cuerpo = 'Cuando el juez te anote en un torneo y arranque la ronda, acá vas a ver tu mesa, tu rival y el reloj.';
@@ -215,12 +226,13 @@ interface EnfrentamientoProps {
   readonly rival: Standing | undefined;
   /** null = bye. */
   readonly nombreRival: string | null;
+  readonly conPuntos: boolean;
 }
 
-function Enfrentamiento({ yo, rival, nombreRival }: EnfrentamientoProps) {
+function Enfrentamiento({ yo, rival, nombreRival, conPuntos }: EnfrentamientoProps) {
   const { colors } = useTheme();
-  const recordYo = textoRecord(yo);
-  const recordRival = textoRecord(rival);
+  const recordYo = textoRecord(yo, conPuntos);
+  const recordRival = textoRecord(rival, conPuntos);
   return (
     <View style={[styles.vsFila, styles.bloque]}>
       <View
@@ -259,6 +271,18 @@ function Enfrentamiento({ yo, rival, nombreRival }: EnfrentamientoProps) {
   );
 }
 
+function SinMesaNota() {
+  const { colors } = useTheme();
+  return (
+    <>
+      <Text style={[styles.notaTitulo, { color: colors.ink }]}>Sin mesa del salón</Text>
+      <Text style={[styles.notaCuerpo, { color: colors.dim }]}>
+        Esta ronda hay más partidas que mesas de duelo. Preguntale al juez dónde se juega la tuya.
+      </Text>
+    </>
+  );
+}
+
 function ByeNota() {
   const { colors } = useTheme();
   return (
@@ -273,13 +297,13 @@ function ByeNota() {
 
 function RelojRonda({ torneo }: { readonly torneo: Torneo }) {
   const { colors } = useTheme();
-  const [ahora, setAhora] = useState(() => Date.now());
+  const [ahora, setAhora] = useState(() => ahoraServidor());
   const avisoAnterior = useRef<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
-      setAhora(Date.now());
-      const id = setInterval(() => setAhora(Date.now()), 1000);
+      setAhora(ahoraServidor());
+      const id = setInterval(() => setAhora(ahoraServidor()), 1000);
       return () => clearInterval(id);
     }, [])
   );
@@ -437,7 +461,7 @@ function ReporteResultado({ torneo, mia, uid, habilitado, nombreRival }: Reporte
                 {enviando === r ? (
                   <ActivityIndicator color={colors.gold} />
                 ) : (
-                  <Text style={[styles.botonTexto, { color: acento ? colors.bg : colors.ink }, tabularNums(14)]}>{marcador(r)}</Text>
+                  <Text style={[styles.botonTexto, { color: esConfirmado ? colors.onOk : elegido ? colors.onGold : colors.ink }, tabularNums(14)]}>{marcador(r)}</Text>
                 )}
               </TouchableOpacity>
             );

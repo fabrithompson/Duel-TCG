@@ -12,6 +12,7 @@ import { useUserProfileContext } from '../../contexts/UserProfileContext';
 import { Typography } from '../../constants/theme';
 import { ROLE_LABEL, Role } from '../../constants/roles';
 import { useAsegurarDirectorio } from '../../hooks/useAsegurarDirectorio';
+import { useSincronizarReloj } from '../../hooks/useReloj';
 import { LoadingScreen } from '../../components/Screen';
 import { ErrorBanner } from '../../components/ui';
 import Button from '../../components/Button';
@@ -30,7 +31,6 @@ function motivoSinAcceso(profile: UserProfile | null): string | null {
 }
 
 export default function TabsLayout() {
-  const { colors } = useTheme();
   const { mostrar } = useToast();
   const router = useRouter();
   const { user, profile, estadoDoc, nombreLegado, loading, error, reintentar } = useUserProfileContext();
@@ -38,6 +38,8 @@ export default function TabsLayout() {
   const rolVisto = useRef<{ uid: string; role: Role } | null>(null);
 
   useAsegurarDirectorio(profile);
+  // El reloj de ronda se calcula con la hora del servidor: se mide el desfase de este teléfono una vez.
+  useSincronizarReloj(estadoDoc === 'ok' && profile?.estadoAprobacion === 'aprobado' ? profile.uid : null);
 
   // Solo con un perfil confirmado: sin conexión no se echa a nadie por una caché vacía.
   const motivo = !loading && user && !error && estadoDoc === 'ok' ? motivoSinAcceso(profile) : null;

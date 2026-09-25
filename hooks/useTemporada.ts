@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { collection, limitToLast, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useConfig } from '../contexts/ConfigContext';
 import { normalizarTorneo } from '../lib/torneo';
@@ -19,13 +19,19 @@ interface UseTemporadaResult {
   error: unknown;
   /** La consulta necesita el índice compuesto estado + fecha asc. */
   faltaIndice: boolean;
+  /** Sin inicio de temporada solo se miran los últimos torneos: la tabla puede no incluir los más viejos. */
+  recortada: boolean;
   reintentar: () => void;
 }
+
+// Sin inicio de temporada no se baja toda la historia del local en cada apertura de la Tabla.
+export const MAX_TORNEOS_SIN_INICIO = 200;
 
 /** Tabla de la temporada configurada en Ajustes, armada con las posiciones de los torneos cerrados. */
 export function useTemporada(): UseTemporadaResult {
   const { config, cargando: cargandoConfig } = useConfig();
   const inicio = config.temporada.inicio;
+  const inicioMs = config.temporada.inicioMs;
   const [torneos, setTorneos] = useState<TorneoTemporada[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -40,14 +46,14 @@ export function useTemporada(): UseTemporadaResult {
     // Mismo índice compuesto (estado, fecha): el rango sobre fecha no suma índices nuevos.
     const q = inicio
       ? query(base, where('estado', '==', 'finalizado'), where('fecha', '>=', inicio), orderBy('fecha', 'asc'))
-      : query(base, where('estado', '==', 'finalizado'), orderBy('fecha', 'asc'));
+      : query(base, where('estado', '==', 'finalizado'), orderBy('fecha', 'asc'), limitToLast(MAX_TORNEOS_SIN_INICIO));
     return onSnapshot(
       q,
       (snap) => {
         setTorneos(
           snap.docs.map((d) => {
-            const { fecha, posiciones, formatoId } = normalizarTorneo(d.id, d.data());
-            return { fecha, posiciones, formatoId };
+            const { fecha, posiciones, formatoId, creadoEn } = normalizarTorneo(d.id, d.data());
+            return { fecha, posiciones, formatoId, creadoEn };
           })
         );
         setError(null);
@@ -60,9 +66,10 @@ export function useTemporada(): UseTemporadaResult {
     );
   }, [inicio, cargandoConfig, intento]);
 
-  const filas = useMemo(() => calcularTablaTemporada(torneos, inicio), [torneos, inicio]);
-  const fechas = useMemo(() => fechasDeTemporada(torneos, inicio), [torneos, inicio]);
+  const filas = useMemo(() => calcularTablaTemporada(torneos, inicio, inicioMs), [torneos, inicio, inicioMs]);
+  const fechas = useMemo(() => fechasDeTemporada(torneos, inicio, inicioMs), [torneos, inicio, inicioMs]);
   const reintentar = useCallback(() => setIntento((n) => n + 1), []);
 
-  return { filas, fechas, cargando: cargando || cargandoConfig, error, faltaIndice: esFaltaDeIndice(error), reintentar };
+  const recortada = !inicio && torneos.length >= MAX_TORNEOS_SIN_INICIO;
+  return { filas, fechas, cargando: cargando || cargandoConfig, error, faltaIndice: esFaltaDeIndice(error), recortada, reintentar };
 }

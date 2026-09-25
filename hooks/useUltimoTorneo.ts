@@ -56,6 +56,37 @@ export function useUltimoTorneo(): UseUltimoTorneoResult {
   return { torneo, loading, error, reintentar };
 }
 
+// Alcanza para encontrar premios olvidados de las últimas semanas sin bajar toda la historia.
+const TORNEOS_RECIENTES = 12;
+
+interface UseTorneosRecientesResult {
+  torneos: Torneo[];
+  loading: boolean;
+  error: unknown;
+  reintentar: () => void;
+}
+
+/** Los últimos torneos creados, del más nuevo al más viejo (Premios y Hoy buscan ahí premios sin entregar). */
+export function useTorneosRecientes(cantidad = TORNEOS_RECIENTES): UseTorneosRecientesResult {
+  const [estado, setEstado] = useState<{ clave: string; torneos: Torneo[]; error: unknown } | null>(null);
+  const [intento, setIntento] = useState(0);
+  const clave = `${cantidad}|${intento}`;
+
+  useEffect(() => {
+    const claveConsulta = `${cantidad}|${intento}`;
+    const q = query(collection(db, 'torneos'), orderBy('creadoEn', 'desc'), limit(cantidad));
+    return onSnapshot(
+      q,
+      (snap) => setEstado({ clave: claveConsulta, torneos: snap.docs.map((d) => normalizarTorneo(d.id, d.data())), error: null }),
+      (e) => setEstado((prev) => ({ clave: claveConsulta, torneos: prev?.torneos ?? [], error: e }))
+    );
+  }, [cantidad, intento]);
+
+  const reintentar = useCallback(() => setIntento((n) => n + 1), []);
+  const vigente = estado !== null && estado.clave === clave;
+  return { torneos: estado?.torneos ?? [], loading: !vigente, error: vigente ? estado.error : null, reintentar };
+}
+
 /** Motivo de negocio para no aplicar un cambio (la ronda ya avanzó, el premio ya se entregó…): se muestra tal cual. */
 export class AvisoTorneo extends Error {
   constructor(mensaje: string) {
@@ -78,8 +109,11 @@ export function esAvisoTorneo(e: unknown): e is AvisoTorneo {
 export async function actualizarTorneo(
   torneoId: string,
   cambiar: (t: Torneo) => UpdateData<DocumentData> | null,
-  /** Escrituras en otros docs que tienen que ir en la misma transacción (stock, crédito). */
-  extras?: (tx: Transaction, t: Torneo) => void
+  /**
+   * Lecturas y escrituras en otros docs que tienen que ir en la misma transacción (stock, crédito).
+   * Puede leer con tx.get: corre antes de escribir el torneo (Firestore exige leer todo antes de escribir).
+   */
+  extras?: (tx: Transaction, t: Torneo) => void | Promise<void>
 ): Promise<boolean> {
   const ref = doc(db, 'torneos', torneoId);
   return runTransaction(db, async (tx) => {
@@ -88,7 +122,7 @@ export async function actualizarTorneo(
     const t = normalizarTorneo(snap.id, snap.data());
     const cambios = cambiar(t);
     if (!cambios) return false;
-    extras?.(tx, t);
+    await extras?.(tx, t);
     tx.update(ref, cambios);
     return true;
   });

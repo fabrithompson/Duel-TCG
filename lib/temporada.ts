@@ -1,3 +1,4 @@
+import { aMilis } from './fecha';
 import { formatARS } from './pedido';
 import {
   calcularStandings,
@@ -66,23 +67,29 @@ export interface FilaTemporada {
 }
 
 /** `formatoId` es opcional: sin él, el torneo cuenta. */
-export type TorneoTemporada = Pick<Torneo, 'posiciones' | 'fecha'> & Partial<Pick<Torneo, 'formatoId'>>;
+export type TorneoTemporada = Pick<Torneo, 'posiciones' | 'fecha'> & Partial<Pick<Torneo, 'formatoId' | 'creadoEn'>>;
 
 /**
  * Torneos que cuentan para la temporada: fecha >= inicio (todos si no hay inicio),
- * sin los casuales, que no tienen puntaje.
+ * sin los casuales, que no tienen puntaje. Si la temporada empezó a mitad del día
+ * (`inicioMs`), los torneos de ese día creados antes siguen en la anterior.
  */
-export function torneosDeTemporada<T extends TorneoTemporada>(torneos: readonly T[], inicio: string | null): T[] {
+export function torneosDeTemporada<T extends TorneoTemporada>(torneos: readonly T[], inicio: string | null, inicioMs: number | null = null): T[] {
   return torneos.filter((t) => {
     if (t.formatoId === 'casual') return false;
     if (!inicio) return true;
-    return typeof t.fecha === 'string' && t.fecha !== '' && t.fecha >= inicio;
+    if (typeof t.fecha !== 'string' || t.fecha === '' || t.fecha < inicio) return false;
+    if (t.fecha === inicio && inicioMs !== null) {
+      const creado = aMilis(t.creadoEn);
+      if (creado !== null && creado < inicioMs) return false;
+    }
+    return true;
   });
 }
 
 /** Fechas jugadas de la temporada: torneos que cuentan y dejaron al menos una posición. */
-export function fechasDeTemporada(torneos: readonly TorneoTemporada[], inicio: string | null): number {
-  return torneosDeTemporada(torneos, inicio).filter((t) => posicionesValidas(t.posiciones).length > 0).length;
+export function fechasDeTemporada(torneos: readonly TorneoTemporada[], inicio: string | null, inicioMs: number | null = null): number {
+  return torneosDeTemporada(torneos, inicio, inicioMs).filter((t) => posicionesValidas(t.posiciones).length > 0).length;
 }
 
 function compararFilas(a: Omit<FilaTemporada, 'posicion'>, b: Omit<FilaTemporada, 'posicion'>): number {
@@ -94,11 +101,11 @@ function compararFilas(a: Omit<FilaTemporada, 'posicion'>, b: Omit<FilaTemporada
   );
 }
 
-export function calcularTablaTemporada(torneos: readonly TorneoTemporada[], inicio: string | null): FilaTemporada[] {
+export function calcularTablaTemporada(torneos: readonly TorneoTemporada[], inicio: string | null, inicioMs: number | null = null): FilaTemporada[] {
   const acumulado = new Map<string, Omit<FilaTemporada, 'posicion'>>();
   const fechaDelNombre = new Map<string, string>();
 
-  for (const torneo of torneosDeTemporada(torneos, inicio)) {
+  for (const torneo of torneosDeTemporada(torneos, inicio, inicioMs)) {
     const fecha = typeof torneo.fecha === 'string' ? torneo.fecha : '';
     for (const p of posicionesValidas(torneo.posiciones)) {
       const puesto = p.puesto > 0 ? p.puesto : null;

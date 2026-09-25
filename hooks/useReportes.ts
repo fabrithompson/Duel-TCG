@@ -10,20 +10,21 @@ interface UseReportesResult {
   reintentar: () => void;
 }
 
+interface Estado {
+  clave: string;
+  reportes: Reporte[];
+  error: unknown;
+}
+
 /** Reportes que los jugadores cargaron desde el celular para una ronda (`torneos/{id}/reportes`). */
 export function useReportes(torneoId: string | null, ronda: number | null): UseReportesResult {
-  const [reportes, setReportes] = useState<Reporte[]>([]);
-  const [cargando, setCargando] = useState(true);
-  const [error, setError] = useState<unknown>(null);
+  const [estado, setEstado] = useState<Estado | null>(null);
   const [intento, setIntento] = useState(0);
+  const clave = torneoId && ronda ? `${torneoId}_${ronda}` : '';
 
   useEffect(() => {
-    if (!torneoId || !ronda) {
-      setReportes([]);
-      setCargando(false);
-      return undefined;
-    }
-    setCargando(true);
+    if (!torneoId || !ronda) return undefined;
+    const claveConsulta = `${torneoId}_${ronda}`;
     const q = query(collection(db, 'torneos', torneoId, 'reportes'), where('ronda', '==', ronda));
     const unsub = onSnapshot(
       q,
@@ -31,21 +32,24 @@ export function useReportes(torneoId: string | null, ronda: number | null): UseR
         const lista: Reporte[] = [];
         snap.docs.forEach((d) => {
           const data = d.data();
-          if (typeof data.mesa !== 'number' || typeof data.uid !== 'string' || !esResultado(data.resultado)) return;
+          if (data.ronda !== ronda || typeof data.mesa !== 'number' || typeof data.uid !== 'string' || !esResultado(data.resultado)) return;
           lista.push({ id: d.id, ronda, mesa: data.mesa, uid: data.uid, resultado: data.resultado, creadoEn: data.creadoEn });
         });
-        setReportes(lista);
-        setError(null);
-        setCargando(false);
+        setEstado({ clave: claveConsulta, reportes: lista, error: null });
       },
-      (e) => {
-        setError(e);
-        setCargando(false);
-      }
+      (e) => setEstado({ clave: claveConsulta, reportes: [], error: e })
     );
     return unsub;
   }, [torneoId, ronda, intento]);
 
   const reintentar = useCallback(() => setIntento((n) => n + 1), []);
-  return { reportes, cargando, error, reintentar };
+
+  // Se decide en el render: en el primer commit con la ronda nueva, la lista vieja ya no se ve.
+  const vigente = estado !== null && estado.clave === clave;
+  return {
+    reportes: vigente ? estado.reportes : [],
+    cargando: clave !== '' && !vigente,
+    error: vigente ? estado.error : null,
+    reintentar,
+  };
 }

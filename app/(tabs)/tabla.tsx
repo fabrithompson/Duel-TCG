@@ -6,7 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import { useUserProfileContext } from '../../contexts/UserProfileContext';
 import { Typography, tabularNums } from '../../constants/theme';
-import { useTemporada } from '../../hooks/useTemporada';
+import { MAX_TORNEOS_SIN_INICIO, useTemporada } from '../../hooks/useTemporada';
 import { type FilaTemporada } from '../../lib/temporada';
 import { MENSAJE_FALTA_INDICE, mensajeError } from '../../lib/errores';
 
@@ -15,7 +15,7 @@ export default function TablaScreen() {
   const { config } = useConfig();
   const { user } = useUserProfileContext();
   const miUid = user?.uid ?? null;
-  const { filas, fechas, cargando, error, faltaIndice, reintentar } = useTemporada();
+  const { filas, fechas, cargando, error, faltaIndice, recortada, reintentar } = useTemporada();
   const temporada = config.temporada.nombre;
 
   const renderItem = useCallback<ListRenderItem<FilaTemporada>>(
@@ -44,6 +44,11 @@ export default function TablaScreen() {
         <Text style={[styles.pieTexto, { color: colors.dim }]}>
           Los puntos de {temporada} se suman cuando se cierra cada torneo.
         </Text>
+        {recortada ? (
+          <Text style={[styles.pieTexto, { color: colors.dim }]}>
+            Se cuentan los últimos {MAX_TORNEOS_SIN_INICIO} torneos. El admin puede fijar el inicio de la temporada en Ajustes.
+          </Text>
+        ) : null}
       </View>
     ) : null;
 

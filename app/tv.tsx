@@ -18,13 +18,15 @@ import {
   segundosRestantes,
   type Partida,
   type Torneo,
+  etiquetaMesa,
 } from '../lib/torneo';
+import { ahoraServidor } from '../lib/reloj';
+import { SEGUNDOS_RELOJ_BAJO } from '../lib/temporada';
 import { mensajeError } from '../lib/errores';
 
 // Pantalla de solo lectura para la tele del local: siempre en paleta noche.
 
 const ANCHO_DOS_COLUMNAS = 700;
-const SEGUNDOS_TIEMPO_BAJO = 300;
 const ISOTIPO = require('../assets/brand/duel-mark-dark.png');
 
 export default function ModoTvScreen() {
@@ -119,11 +121,30 @@ function TvTorneo({ colors, onSalir }: { readonly colors: ThemeTokens; readonly 
   return <TableroTorneo torneo={torneo} colors={colors} onSalir={onSalir} />;
 }
 
+/** El logo que cargó el local (la tele es lo más visible del local); si no hay o falla, el isotipo de Duel. */
+function LogoLocal({ tamano }: { readonly tamano: number }) {
+  const { config } = useConfig();
+  const [falla, setFalla] = useState(false);
+  const propio = !!config.logoUrl && !falla;
+  return (
+    <Image
+      source={propio && config.logoUrl ? { uri: config.logoUrl } : ISOTIPO}
+      onError={() => setFalla(true)}
+      resizeMode="contain"
+      style={{ width: tamano, height: tamano, borderRadius: propio ? Math.round(tamano * 0.22) : 0 }}
+      accessibilityIgnoresInvertColors
+      accessibilityLabel={config.nombreLocal}
+    />
+  );
+}
+
 function SinTorneo({ torneo, colors, onSalir }: { readonly torneo: Torneo | null; readonly colors: ThemeTokens; readonly onSalir: () => void }) {
+  const nombreLocal = useConfig().config.nombreLocal;
   const podio = (torneo?.posiciones ?? []).filter((p) => p.puesto <= 3).sort((a, b) => a.puesto - b.puesto);
   return (
     <Centro colors={colors}>
-      <Image source={ISOTIPO} style={styles.isotipoGrande} accessibilityIgnoresInvertColors accessibilityLabel="Duel" />
+      <LogoLocal tamano={64} />
+      <Text style={[styles.local, { color: colors.dim }]}>{nombreLocal.toUpperCase()}</Text>
       <Text style={[styles.avisoTitulo, { color: colors.ink }]}>No hay un torneo en curso</Text>
       {torneo && podio.length > 0 ? (
         <View style={styles.podioFinal}>
@@ -172,7 +193,7 @@ function TableroTorneo({ torneo, colors, onSalir }: { readonly torneo: Torneo; r
             {nombreRonda(torneo, ronda)}
           </Text>
         </View>
-        <Image source={ISOTIPO} style={styles.isotipo} accessibilityIgnoresInvertColors accessibilityLabel="Duel" />
+        <LogoLocal tamano={44} />
       </View>
       <RelojTv torneo={torneo} colors={colors} tamano={tamTimer} />
       <View style={styles.pie}>
@@ -239,12 +260,12 @@ function TableroTorneo({ torneo, colors, onSalir }: { readonly torneo: Torneo; r
 
 /** Separado para que el tic de cada segundo no vuelva a dibujar la grilla de mesas. */
 function RelojTv({ torneo, colors, tamano }: { readonly torneo: Torneo; readonly colors: ThemeTokens; readonly tamano: number }) {
-  const [ahora, setAhora] = useState(() => Date.now());
+  const [ahora, setAhora] = useState(() => ahoraServidor());
 
   useEffect(() => {
-    setAhora(Date.now());
+    setAhora(ahoraServidor());
     if (torneo.rondaPausada) return undefined;
-    const id = setInterval(() => setAhora(Date.now()), 1000);
+    const id = setInterval(() => setAhora(ahoraServidor()), 1000);
     return () => clearInterval(id);
   }, [torneo.rondaPausada, torneo.rondaFinEn]);
 
@@ -258,7 +279,7 @@ function RelojTv({ torneo, colors, tamano }: { readonly torneo: Torneo; readonly
       <Text
         style={[
           styles.timer,
-          { color: segundos < SEGUNDOS_TIEMPO_BAJO ? colors.dg : colors.ink, fontSize: tamano, lineHeight: Math.round(tamano * 1.08) },
+          { color: segundos < SEGUNDOS_RELOJ_BAJO ? colors.dg : colors.ink, fontSize: tamano, lineHeight: Math.round(tamano * 1.08) },
           tabularNums(tamano),
           { letterSpacing: -0.04 * tamano },
         ]}
@@ -278,14 +299,13 @@ function CeldaPartida({ partida, colors }: { readonly partida: Partida; readonly
   const bye = partida.jugador2 === null;
   const lista = !bye && partida.resultado !== null;
   const color = lista ? colors.ok : colors.dim;
-  const salon = partida.mesaSalonNumero ? ` · Salón ${String(partida.mesaSalonNumero).padStart(2, '0')}` : '';
+  const etiqueta = etiquetaMesa(partida);
   const estado = bye ? 'Bye' : lista ? `Listo ${partida.resultado}` : 'Jugando';
   return (
     <View style={[styles.celda, { borderColor: lista ? colors.ok : colors.line }]}>
       <View style={styles.celdaFila}>
         <Text style={[styles.celdaMesa, { color: lista ? colors.ok : colors.gold }, tabularNums(13)]}>
-          M{partida.mesa}
-          <Text style={[styles.celdaSalon, { color: colors.dim }]}>{salon}</Text>
+          {etiqueta.titulo}
         </Text>
         <Text style={[styles.celdaEstado, { color }]}>{estado}</Text>
       </View>
@@ -306,7 +326,7 @@ const styles = StyleSheet.create({
   filaBotones: { flexDirection: 'row', gap: 10 },
   salir: { borderWidth: 1, borderRadius: 9, paddingHorizontal: 14, minHeight: 44, minWidth: 64, alignItems: 'center', justifyContent: 'center' },
   salirTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 12 },
-  isotipoGrande: { width: 64, height: 64 },
+  local: { fontFamily: Typography.fontFamily.semibold, fontSize: 11, letterSpacing: 1.6, marginTop: -4 },
   podioFinal: { alignSelf: 'stretch', maxWidth: 440, width: '100%', gap: 4 },
   dosColumnas: { flex: 1, flexDirection: 'row' },
   izquierdaAncha: { flex: 1.15, paddingVertical: 26, paddingHorizontal: 28, borderRightWidth: 1 },
@@ -319,7 +339,6 @@ const styles = StyleSheet.create({
   encabezado: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   etiqueta: { fontFamily: Typography.fontFamily.bold, fontSize: 11, letterSpacing: 2.2 },
   titulo: { fontFamily: Typography.fontFamily.bold, fontSize: 26, lineHeight: 30, letterSpacing: -0.78, marginTop: 6 },
-  isotipo: { width: 44, height: 44 },
   timerZona: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 12 },
   timer: { fontFamily: Typography.fontFamily.light },
   estado: { fontFamily: Typography.fontFamily.semibold, fontSize: 12, letterSpacing: 2.4, marginTop: 6, textAlign: 'center' },
@@ -331,7 +350,6 @@ const styles = StyleSheet.create({
   celda: { flexBasis: '48%', flexGrow: 1, borderWidth: 1, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 10, gap: 3 },
   celdaFila: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 6 },
   celdaMesa: { fontFamily: Typography.fontFamily.semibold, fontSize: 13 },
-  celdaSalon: { fontFamily: Typography.fontFamily.regular, fontSize: 11 },
   celdaEstado: { fontFamily: Typography.fontFamily.semibold, fontSize: 11 },
   celdaNombres: { fontFamily: Typography.fontFamily.medium, fontSize: 12.5, lineHeight: 17 },
   podio: { gap: 2, marginTop: 4 },

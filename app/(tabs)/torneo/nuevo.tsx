@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useConfig } from '../../../contexts/ConfigContext';
@@ -19,27 +19,29 @@ interface JugadorCuenta {
 }
 import { useCatalogo } from '../../../hooks/useCatalogo';
 import { useMesasDuelo } from '../../../hooks/useMesasDuelo';
-import { useUltimoTorneo } from '../../../hooks/useUltimoTorneo';
+import { AvisoTorneo, esAvisoTorneo, mensajeTransaccion, useUltimoTorneo } from '../../../hooks/useUltimoTorneo';
 import { LIMITES, type DefaultsTorneo } from '../../../lib/config';
 import {
   FORMATOS,
-  JUEGOS,
   TOP_CUTS,
+  crearRng,
   generarRonda,
+  nuevaSemilla,
   sugerirRondas,
   timerNuevaRonda,
   topCutEfectivo,
   totalRondasPara,
   type FormatoId,
-  type Juego,
   type JugadorTorneo,
   type PuestoPremio,
 } from '../../../lib/torneo';
+import { ahoraServidor } from '../../../lib/reloj';
 import { formatARS, type CatalogoItem } from '../../../lib/pedido';
-import { fechaCorta, fechaLocal } from '../../../lib/fecha';
+import { fechaCorta, fechaDeNegocio } from '../../../lib/fecha';
 import { mensajeError } from '../../../lib/errores';
 import { tocar } from '../../../lib/haptics';
 import Screen, { LoadingScreen } from '../../../components/Screen';
+import SoloParaRoles from '../../../components/SoloParaRoles';
 import Button from '../../../components/Button';
 import Chip from '../../../components/Chip';
 import Stepper from '../../../components/Stepper';
@@ -59,6 +61,17 @@ interface Reparto {
   credito: number;
 }
 
+const LARGO_NOMBRE_TORNEO = 60;
+
+function limpiarNombre(texto: string): string {
+  return texto.replace(/\s+/g, ' ').trim().slice(0, LARGO_NOMBRE_TORNEO);
+}
+
+/** "Pokémon TCG del 24 sep": en el Historial se ve de qué juego fue cada torneo. */
+function nombrePorDefecto(juego: string, fecha: string): string {
+  return `${juego} del ${fechaCorta(fecha)}`;
+}
+
 function limitar(valor: number, lim: { readonly min: number; readonly max: number }): number {
   return Math.min(lim.max, Math.max(lim.min, Math.round(valor)));
 }
@@ -68,6 +81,14 @@ function claveProducto(item: Pick<CatalogoItem, 'origen' | 'id'>): string {
 }
 
 export default function NuevoTorneoScreen() {
+  return (
+    <SoloParaRoles roles={['admin', 'juez']} titulo="Nuevo torneo">
+      <NuevoTorneoPantalla />
+    </SoloParaRoles>
+  );
+}
+
+function NuevoTorneoPantalla() {
   const router = useRouter();
   const { config, cargando: cargandoConfig } = useConfig();
   const { torneo, loading, error, reintentar } = useUltimoTorneo();
@@ -98,15 +119,25 @@ export default function NuevoTorneoScreen() {
       </Screen>
     );
   }
-  return <Asistente defaults={config.torneo} creditoPremio={config.creditoPremio} />;
+  return <Asistente defaults={config.torneo} creditoPremio={config.creditoPremio} juegos={config.juegos} />;
 }
 
 interface AsistenteProps {
   readonly defaults: DefaultsTorneo;
   readonly creditoPremio: boolean;
+  readonly juegos: readonly string[];
 }
 
-function Asistente({ defaults, creditoPremio }: AsistenteProps) {
+function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
+  const turnos = useConfig().config.turnos;
+  // Si el juez ya se fue de la pantalla cuando termina de crear, no se navega por él (el router es global).
+  const montado = useRef(true);
+  useEffect(() => {
+    montado.current = true;
+    return () => {
+      montado.current = false;
+    };
+  }, []);
   const router = useRouter();
   const { colors } = useTheme();
   const { mostrar } = useToast();
@@ -115,7 +146,9 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
   const mesasQ = useMesasDuelo();
 
   const [paso, setPaso] = useState(1);
-  const [juego, setJuego] = useState<Juego>(JUEGOS[0]);
+  const [juego, setJuego] = useState<string>(juegos[0] ?? 'Otro');
+  // Vacío = se usa el nombre por defecto con la fecha.
+  const [nombre, setNombre] = useState('');
   const [formatoId, setFormatoId] = useState<FormatoId>('suizo');
   const [rondas, setRondas] = useState(() => limitar(defaults.rondas, LIMITES.rondas));
   const [topCut, setTopCut] = useState(TOP_CUTS[0]);
@@ -206,6 +239,11 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
     });
   };
 
+  const fijarReparto = (indice: number, campo: keyof Reparto, valor: number) => {
+    const tope = campo === 'cantidad' ? MAX_CANTIDAD_PUESTO : MAX_CREDITO_PUESTO;
+    setReparto((prev) => prev.map((r, i) => (i === indice ? { ...r, [campo]: Math.min(tope, Math.max(0, Math.round(valor))) } : r)));
+  };
+
   const cambiarReparto = (indice: number, campo: keyof Reparto, delta: number) => {
     setReparto((prev) =>
       prev.map((r, i) => {
@@ -233,11 +271,16 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
       const jugadores: JugadorTorneo[] = inscriptos.map((j) => ({ uid: j.uid, nombre: j.nombre, pagado: pagados[j.uid] === true }));
       const total = totalRondasPara(formatoId, jugadores.length, rondas, topCut);
       const corteFinal = formatoId === 'suizo_top_cut' ? topCutEfectivo(jugadores.length, topCut) : 0;
-      const ronda1 = generarRonda(
-        { jugadores, rondas: [], formatoId, totalRondas: total, topCut: corteFinal },
-        1,
-        mesasQ.mesas.map((m) => ({ id: m.id, numero: m.numero }))
-      );
+      const semilla = nuevaSemilla();
+      const ronda1 = {
+        ...generarRonda(
+          { jugadores, rondas: [], formatoId, totalRondas: total, topCut: corteFinal },
+          1,
+          mesasQ.mesas.map((m) => ({ id: m.id, numero: m.numero })),
+          crearRng(semilla)
+        ),
+        semilla,
+      };
       const premios: PuestoPremio[] = reparto.slice(0, Math.min(puestos, jugadores.length, MAX_PUESTOS)).map((r, i) => ({
         puesto: i + 1,
         jugadorUid: null,
@@ -248,9 +291,22 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
         creditoCafeteria: creditoPremio ? r.credito : 0,
         entregado: false,
       }));
-      const fecha = fechaLocal();
-      await addDoc(collection(db, 'torneos'), {
-        nombre: `Torneo del ${fechaCorta(fecha)}`,
+      const fecha = fechaDeNegocio(turnos);
+      const refTorneo = doc(collection(db, 'torneos'));
+      const refCandado = doc(db, 'bloqueos', 'torneo');
+      await runTransaction(db, async (tx) => {
+        // Dos jueces creando a la vez: el segundo lee el candado del primero y no crea otro torneo en curso.
+        const candado = await tx.get(refCandado);
+        const enCursoId = candado.exists() ? candado.get('torneoId') : null;
+        if (typeof enCursoId === 'string' && enCursoId) {
+          const enCurso = await tx.get(doc(db, 'torneos', enCursoId));
+          if (enCurso.exists() && enCurso.get('estado') === 'en_curso') {
+            throw new AvisoTorneo(`Ya hay un torneo en curso (${String(enCurso.get('nombre') ?? 'sin nombre')}). Cerralo antes de armar otro.`);
+          }
+        }
+        tx.set(refCandado, { torneoId: refTorneo.id, actualizadoEn: serverTimestamp() });
+        tx.set(refTorneo, {
+        nombre: limpiarNombre(nombre) || nombrePorDefecto(juego, fecha),
         juego,
         formatoId,
         formato: FORMATOS.find((f) => f.id === formatoId)?.nombre ?? 'Suizo',
@@ -266,15 +322,17 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
         rondaActual: 1,
         rondas: [ronda1],
         premios,
-        ...timerNuevaRonda(minutos, Date.now()),
+        ...timerNuevaRonda(minutos, ahoraServidor()),
         fecha,
         creadoPor: user.uid,
         creadoEn: serverTimestamp(),
+        });
       });
       mostrar('Torneo creado. La ronda 1 ya está emparejada.', 'ok');
-      salir();
+      if (montado.current) salir();
     } catch (e) {
-      mostrar(mensajeError(e, 'No se pudo crear el torneo.'), 'error');
+      if (esAvisoTorneo(e)) mostrar(e.message, 'info');
+      else mostrar(mensajeTransaccion(e, 'No se pudo crear el torneo.'), 'error');
       setCreando(false);
     }
   };
@@ -310,9 +368,19 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
 
       {paso === 1 ? (
         <View>
+          <FormField
+            label="Nombre del torneo (opcional)"
+            placeholder={nombrePorDefecto(juego, fechaDeNegocio(turnos))}
+            value={nombre}
+            onChangeText={setNombre}
+            maxLength={LARGO_NOMBRE_TORNEO}
+            autoCapitalize="sentences"
+            returnKeyType="done"
+            containerStyle={styles.nombreCampo}
+          />
           <SectionLabel>Juego</SectionLabel>
           <View style={styles.chips}>
-            {JUEGOS.map((j) => (
+            {juegos.map((j) => (
               <Chip key={j} label={j} active={juego === j} onPress={() => setJuego(j)} />
             ))}
           </View>
@@ -408,6 +476,7 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
               formatValue={formatARS}
               onIncrement={() => setInscripcion((v) => limitar(v + 500, LIMITES.inscripcion))}
               onDecrement={() => setInscripcion((v) => limitar(v - 500, LIMITES.inscripcion))}
+              onChangeValue={(v) => setInscripcion(limitar(v, LIMITES.inscripcion))}
               accessibilityLabel="inscripción"
             />
           </SettingRow>
@@ -467,6 +536,13 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
               <SmallButton label={`Usar ${limitar(sugerirRondas(n), LIMITES.rondas)}`} onPress={() => setRondas(limitar(sugerirRondas(n), LIMITES.rondas))} />
             </View>
           ) : null}
+          {!mesasQ.cargando && !mesasQ.error && Math.floor(n / 2) > mesasQ.mesas.length ? (
+            <Text style={[styles.meta, styles.sugerenciaTexto, { color: colors.dg }]}>
+              Con {n} inscriptos se juegan {Math.floor(n / 2)} partidas por ronda y hay {mesasQ.mesas.length}{' '}
+              {mesasQ.mesas.length === 1 ? 'mesa' : 'mesas'} de duelo: {Math.floor(n / 2) - mesasQ.mesas.length} van a quedar sin mesa asignada.
+              Sumá mesas de duelo desde el Salón.
+            </Text>
+          ) : null}
           {formatoId === 'suizo_top_cut' && n >= 2 && corte !== topCut ? (
             <Text style={[styles.meta, styles.sugerenciaTexto, { color: colors.dim }]}>
               Con {n} inscriptos el top cut queda en {corte > 0 ? `top ${corte}` : 'nada'}.
@@ -516,7 +592,7 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
           ) : null}
           <Card style={styles.bloque}>
             <Text style={[styles.nota, { color: colors.dim }]}>
-              Tocá Pagado / Impago para marcar la inscripción. La impaga se cobra desde el salón como cualquier consumo.
+              Tocá Pagado / Impago para marcar la inscripción. Si alguien paga después, marcalo desde Premios → Inscripciones.
             </Text>
           </Card>
         </View>
@@ -598,6 +674,7 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
                       formatValue={formatARS}
                       onIncrement={() => cambiarReparto(i, 'credito', PASO_CREDITO)}
                       onDecrement={() => cambiarReparto(i, 'credito', -PASO_CREDITO)}
+                      onChangeValue={(v) => fijarReparto(i, 'credito', v)}
                       accessibilityLabel={`crédito para el puesto ${i + 1}`}
                     />
                   </View>
@@ -686,6 +763,7 @@ const styles = StyleSheet.create({
   progreso: { flexDirection: 'row', gap: 5, marginBottom: 20 },
   progresoTramo: { flex: 1, height: 4, borderRadius: 4 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  nombreCampo: { marginBottom: 18 },
   chipsFila: { flexDirection: 'row', gap: 7, alignItems: 'center' },
   bloque: { marginTop: 22 },
   lista: { gap: 8 },

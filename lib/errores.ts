@@ -36,8 +36,9 @@ export function mensajeError(error: unknown, porDefecto = 'Algo salió mal. Prob
   return porDefecto;
 }
 
+// Lo ve cualquiera (jugadores incluidos): sin comandos. Qué desplegar está en el README.
 export const MENSAJE_FALTA_INDICE =
-  'Los índices de Firestore no están desplegados o todavía se están creando. Avisale al encargado del local (firebase deploy --only firestore:indexes).';
+  'Esta pantalla todavía se está preparando en el servidor. Probá de nuevo en unos minutos y, si sigue igual, avisale al encargado del local.';
 
 /** Las consultas con índice compuesto fallan con failed-precondition hasta que el índice existe. */
 export function esFaltaDeIndice(error: unknown): boolean {

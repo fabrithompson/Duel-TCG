@@ -9,6 +9,7 @@ import {
   Ronda,
   Torneo,
   aplicarReportes,
+  describirResultado,
   asignarPremios,
   calcularStandings,
   crearRng,
@@ -110,6 +111,14 @@ describe('generarRonda · suizo', () => {
     r2.partidas.forEach((p) => {
       expect(puntos.get(p.jugador1.uid)).toBe(puntos.get(p.jugador2?.uid ?? ''));
     });
+  });
+
+  it('la mesa N queda en la posición N-1 y el bye va al final (las reglas de reportes lo usan)', () => {
+    const t = torneoBase(7, 'suizo', 3);
+    const r1 = generarRonda(t, 1, [{ id: 'a', numero: 4 }, { id: 'b', numero: 5 }], crearRng(3));
+    r1.partidas.forEach((p, i) => expect(p.mesa).toBe(i + 1));
+    expect(r1.partidas[r1.partidas.length - 1].jugador2).toBeNull();
+    expect(r1.partidas.map((p) => p.mesaSalonNumero)).toEqual([4, 5, null, null]);
   });
 
   it('el bye rota: con 7 jugadores y 7 rondas nadie recibe dos', () => {
@@ -259,7 +268,7 @@ describe('eliminación directa', () => {
     expect(ordenLlave(4)).toEqual([1, 4, 2, 3]);
   });
 
-  it('con 5 jugadores: byes a los 3 mejores sembrados, llave hasta la final y posiciones', () => {
+  it('con 5 jugadores: 3 byes sorteados, llave hasta la final y posiciones', () => {
     const base = torneoBase(5, 'eliminacion', totalRondasPara('eliminacion', 5, 0, 0));
     expect(base.totalRondas).toBe(3);
 
@@ -268,34 +277,53 @@ describe('eliminación directa', () => {
     expect(r1.partidas).toHaveLength(4);
     const real = r1.partidas.filter((p) => p.jugador2);
     expect(real).toHaveLength(1);
-    expect([real[0].jugador1.uid, real[0].jugador2?.uid]).toEqual(['u4', 'u5']);
-    expect(real[0].mesa).toBe(1);
+    // En la llave cada partida conserva su lugar en el cuadro; la mesa N siempre está en la posición N-1.
+    r1.partidas.forEach((p, i) => expect(p.mesa).toBe(i + 1));
     expect(real[0].mesaSalonId).toBe('mx');
-    expect(r1.partidas.filter((p) => !p.jugador2).map((p) => p.jugador1.uid).sort()).toEqual(['u1', 'u2', 'u3']);
+    expect(r1.partidas.filter((p) => !p.jugador2)).toHaveLength(3);
     expect(nombreRonda(base, r1)).toBe('Cuartos de final');
 
     const r1j: Ronda = { ...r1, partidas: r1.partidas.map((p) => (p.jugador2 ? { ...p, resultado: '0-2' } : p)) };
     const t1 = { ...base, rondas: [r1j] };
+    const ganadores1 = r1j.partidas.map((p) => (p.jugador2 && p.resultado === '0-2' ? p.jugador2.uid : p.jugador1.uid));
     const r2 = generarRonda(t1, 2, [], crearRng(1));
+    // Ganadores de partidas consecutivas, en el orden del cuadro.
     expect(r2.partidas.map((p) => [p.jugador1.uid, p.jugador2?.uid])).toEqual([
-      ['u1', 'u5'],
-      ['u2', 'u3'],
+      [ganadores1[0], ganadores1[1]],
+      [ganadores1[2], ganadores1[3]],
     ]);
     expect(nombreRonda(t1, r2)).toBe('Semifinal');
 
     const r2j: Ronda = { ...r2, partidas: [{ ...r2.partidas[0], resultado: '2-1' }, { ...r2.partidas[1], resultado: '1-2' }] };
     const t2 = { ...t1, rondas: [r1j, r2j] };
     const r3 = generarRonda(t2, 3, [], crearRng(1));
-    expect(r3.partidas.map((p) => [p.jugador1.uid, p.jugador2?.uid])).toEqual([['u1', 'u3']]);
+    const [finalista1, finalista2] = [r2.partidas[0].jugador1.uid, r2.partidas[1].jugador2?.uid];
+    expect(r3.partidas.map((p) => [p.jugador1.uid, p.jugador2?.uid])).toEqual([[finalista1, finalista2]]);
     expect(nombreRonda(t2, r3)).toBe('Final');
     expect(esUltimaRonda({ ...t2, rondas: [r1j, r2j, r3], rondaActual: 3 })).toBe(true);
 
     const final: Ronda = { ...r3, partidas: [{ ...r3.partidas[0], resultado: '0-2' }] };
     const pos = posicionesFinales({ ...t2, rondas: [r1j, r2j, final] });
-    expect(pos.map((p) => p.uid).slice(0, 2)).toEqual(['u3', 'u1']);
+    expect(pos.map((p) => p.uid).slice(0, 2)).toEqual([finalista2, finalista1]);
     expect(pos.map((p) => p.puesto)).toEqual([1, 2, 3, 4, 5]);
-    expect(pos.slice(2, 4).map((p) => p.uid).sort()).toEqual(['u2', 'u5']);
-    expect(pos[4].uid).toBe('u4');
+    const semifinalistas = [r2.partidas[0].jugador2?.uid, r2.partidas[1].jugador1.uid].sort();
+    expect(pos.slice(2, 4).map((p) => p.uid).sort()).toEqual(semifinalistas);
+    expect(pos[4].uid).toBe(real[0].jugador1.uid);
+    // El bye no regala puntos de temporada: el campeón suma solo lo que jugó.
+    const campeon = pos[0];
+    const jugadasPorCampeon = [r1j, r2j, final].flatMap((r) => r.partidas).filter((p) => p.jugador2 && [p.jugador1.uid, p.jugador2.uid].includes(campeon.uid));
+    expect(campeon.puntos).toBe(3 * jugadasPorCampeon.length);
+  });
+
+  it('la llave se sortea: el orden de inscripción no decide los byes', () => {
+    const base = torneoBase(5, 'eliminacion', 3);
+    const conBye = new Set<string>();
+    for (let semilla = 1; semilla <= 12; semilla++) {
+      generarRonda(base, 1, [], crearRng(semilla))
+        .partidas.filter((p) => !p.jugador2)
+        .forEach((p) => conBye.add(p.jugador1.uid));
+    }
+    expect(conBye.has('u4') || conBye.has('u5')).toBe(true);
   });
 
   it('no arma la siguiente ronda de llave si falta un resultado', () => {
@@ -451,17 +479,33 @@ describe('reportes', () => {
   const rep = (uid: string, resultado: Reporte['resultado'], mesa = 3): Reporte => ({ id: idReporte(2, mesa, uid), ronda: 2, mesa, uid, resultado });
 
   it('aplica solo si los dos reportaron lo mismo', () => {
-    expect(aplicarReportes(p, [rep('u1', '2-1'), rep('u2', '2-1')])).toBe('2-1');
-    expect(aplicarReportes(p, [rep('u1', '2-1'), rep('u2', '1-2')])).toBeNull();
-    expect(aplicarReportes(p, [rep('u1', '2-1')])).toBeNull();
-    expect(aplicarReportes(p, [rep('u1', '2-1'), rep('u2', '2-1', 4)])).toBeNull();
-    expect(aplicarReportes(partida(1, a, null, '2-0'), [rep('u1', '2-0', 1)])).toBeNull();
+    expect(aplicarReportes(p, [rep('u1', '2-1'), rep('u2', '2-1')], 2)).toBe('2-1');
+    expect(aplicarReportes(p, [rep('u1', '2-1'), rep('u2', '1-2')], 2)).toBeNull();
+    expect(aplicarReportes(p, [rep('u1', '2-1')], 2)).toBeNull();
+    expect(aplicarReportes(p, [rep('u1', '2-1'), rep('u2', '2-1', 4)], 2)).toBeNull();
+    expect(aplicarReportes(partida(1, a, null, '2-0'), [rep('u1', '2-0', 1)], 2)).toBeNull();
+  });
+
+  it('no usa los reportes de otra ronda aunque la pareja repita mesa', () => {
+    const repetida = partida(3, a, b, null);
+    expect(aplicarReportes(repetida, [rep('u1', '0-2'), rep('u2', '0-2')], 3)).toBeNull();
+    expect(reportesDePartida(repetida, [rep('u1', '0-2')], 3).jugador1).toBeNull();
+  });
+
+  it('no aplica sobre una partida que el juez tocó a mano', () => {
+    expect(aplicarReportes({ ...p, manual: true }, [rep('u1', '2-1'), rep('u2', '2-1')], 2)).toBeNull();
   });
 
   it('reportesDePartida separa por jugador', () => {
-    const r = reportesDePartida(p, [rep('u2', '0-2'), rep('zz', '2-0')]);
+    const r = reportesDePartida(p, [rep('u2', '0-2'), rep('zz', '2-0')], 2);
     expect(r.jugador1).toBeNull();
     expect(r.jugador2?.resultado).toBe('0-2');
+  });
+
+  it('describirResultado cuenta desde el ganador', () => {
+    expect(describirResultado(p, '2-1')).toBe(`gana ${a.nombre} 2-1`);
+    expect(describirResultado(p, '1-2')).toBe(`gana ${b.nombre} 2-1`);
+    expect(describirResultado(p, '0-2')).toBe(`gana ${b.nombre} 2-0`);
   });
 
   it('idReporte e invertirResultado', () => {
