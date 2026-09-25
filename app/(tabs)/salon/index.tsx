@@ -24,14 +24,17 @@ import { Mesa, estadoVisual, useMesas } from '../../../hooks/useMesas';
 import type { EstadoMesaVisual } from '../../../hooks/useMesas';
 import { useUltimoTorneo } from '../../../hooks/useUltimoTorneo';
 import Screen, { LoadingScreen } from '../../../components/Screen';
+import SoloParaRoles from '../../../components/SoloParaRoles';
 import { EmptyState, ErrorBanner, SmallButton } from '../../../components/ui';
 import Button from '../../../components/Button';
 import Chip from '../../../components/Chip';
 import FormField from '../../../components/FormField';
 import { mensajeError } from '../../../lib/errores';
+import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS } from '../../../lib/escritura';
 import { tocar } from '../../../lib/haptics';
 import { formatARS, subtotalDe } from '../../../lib/pedido';
 import { segundosRestantes } from '../../../lib/torneo';
+import { ahoraServidor } from '../../../lib/reloj';
 import {
   DueloEnMesa,
   TipoMesa,
@@ -51,8 +54,7 @@ import {
 const PASO_PUNTOS = 16;
 const UMBRAL_ARRASTRE = 6;
 const BORDE_LIENZO = 1;
-const ESPERA_ESCRITURA_MS = 4000;
-const SIN_CONEXION = ' Sin señal: se envía cuando vuelva, si no cerrás la app.';
+const SIN_CONEXION = ` ${AVISO_SIN_SENAL}`;
 
 interface Medidas {
   ancho: number;
@@ -60,11 +62,11 @@ interface Medidas {
 }
 
 function useAhora(activo: boolean): number {
-  const [ahora, setAhora] = useState(() => Date.now());
+  const [ahora, setAhora] = useState(() => ahoraServidor());
   useEffect(() => {
     if (!activo) return undefined;
-    setAhora(Date.now());
-    const id = setInterval(() => setAhora(Date.now()), 1000);
+    setAhora(ahoraServidor());
+    const id = setInterval(() => setAhora(ahoraServidor()), 1000);
     return () => clearInterval(id);
   }, [activo]);
   return ahora;
@@ -326,14 +328,22 @@ function infoMesa(mesa: Mesa, estado: EstadoMesaVisual, duelo: DueloEnMesa | und
 }
 
 export default function SalonScreen() {
+  return (
+    <SoloParaRoles roles={['admin', 'mozo']} titulo="Salón">
+      <SalonPantalla />
+    </SoloParaRoles>
+  );
+}
+
+function SalonPantalla() {
   const router = useRouter();
   const { colors } = useTheme();
   const toast = useToast();
   const { profile } = useUserProfileContext();
   const esAdmin = profile?.role === 'admin';
 
-  const { salas, cargando: cargandoSalas, error: errorSalas } = useSalas();
-  const { mesas, cargando: cargandoMesas, error: errorMesas } = useMesas('todas');
+  const { salas, cargando: cargandoSalas, error: errorSalas, reintentar: reintentarSalas } = useSalas();
+  const { mesas, cargando: cargandoMesas, error: errorMesas, reintentar: reintentarMesas } = useMesas('todas');
   const { torneo, error: errorTorneo, reintentar: reintentarTorneo } = useUltimoTorneo();
 
   const duelos = useMemo(() => duelosPorMesa(torneo), [torneo]);
@@ -564,7 +574,15 @@ export default function SalonScreen() {
       }
     >
       <View style={styles.cuerpo}>
-        {errorVisible ? <ErrorBanner mensaje={mensajeError(errorVisible, 'No se pudo cargar el salón.')} /> : null}
+        {errorVisible ? (
+          <ErrorBanner
+            mensaje={mensajeError(errorVisible, 'No se pudo cargar el salón.')}
+            onRetry={() => {
+              reintentarSalas();
+              reintentarMesas();
+            }}
+          />
+        ) : null}
         {errorTorneo ? (
           <ErrorBanner mensaje={`${mensajeError(errorTorneo, 'No se pudo leer el torneo.')} Las mesas en duelo no se marcan.`} onRetry={reintentarTorneo} />
         ) : null}

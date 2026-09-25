@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { CatalogoItem, Rubro, Unidad, UNIDADES } from '../lib/pedido';
+import { CatalogoItem, RUBROS, Rubro, Unidad, UNIDADES } from '../lib/pedido';
 
-const RUBROS_VALIDOS: readonly string[] = ['Café', 'Pastelería', 'TCG', 'Mesa'];
+const RUBROS_VALIDOS: readonly string[] = RUBROS;
 
 /** Mapeo de las categorías viejas de cafetería al rubro nuevo. */
 function rubroDe(data: Record<string, unknown>): Rubro {
@@ -20,7 +20,9 @@ function numero(valor: unknown, fallback: number): number {
 }
 
 export function normalizarProducto(id: string, data: Record<string, unknown>): CatalogoItem {
-  const controla = data.controlStock === true;
+  // Docs viejos con controlStock pero sin número de stock: se tratan como sin control (vendibles),
+  // en vez de mostrarlos 'sin stock' y que las reglas rechacen descontarles.
+  const controla = data.controlStock === true && typeof data.stock === 'number' && Number.isFinite(data.stock);
   return {
     id,
     nombre: typeof data.nombre === 'string' ? data.nombre : 'Sin nombre',
@@ -53,6 +55,7 @@ interface UseCatalogoResult {
   items: CatalogoItem[];
   loading: boolean;
   error: unknown;
+  reintentar: () => void;
 }
 
 /**
@@ -63,38 +66,44 @@ export function useCatalogo(): UseCatalogoResult {
   const [productos, setProductos] = useState<CatalogoItem[]>([]);
   const [tcg, setTcg] = useState<CatalogoItem[]>([]);
   const [loaded, setLoaded] = useState({ productos: false, tcg: false });
-  const [error, setError] = useState<unknown>(null);
+  const [errores, setErrores] = useState<{ productos: unknown; tcg: unknown }>({ productos: null, tcg: null });
+  // Las pestañas no se desmontan: sin reintento, un error de red dejaba el catálogo roto hasta reiniciar la app.
+  const [intento, setIntento] = useState(0);
 
   useEffect(() => {
     const unsub = onSnapshot(
       collection(db, 'productos'),
       (snap) => {
         setProductos(snap.docs.map((d) => normalizarProducto(d.id, d.data())));
+        setErrores((p) => ({ ...p, productos: null }));
         setLoaded((p) => ({ ...p, productos: true }));
       },
       (e) => {
-        setError(e);
+        setErrores((p) => ({ ...p, productos: e }));
         setLoaded((p) => ({ ...p, productos: true }));
       }
     );
     return unsub;
-  }, []);
+  }, [intento]);
 
   useEffect(() => {
     const unsub = onSnapshot(
       collection(db, 'tcg_productos'),
       (snap) => {
         setTcg(snap.docs.map((d) => normalizarProductoTcg(d.id, d.data())));
+        setErrores((p) => ({ ...p, tcg: null }));
         setLoaded((p) => ({ ...p, tcg: true }));
       },
       (e) => {
-        setError(e);
+        setErrores((p) => ({ ...p, tcg: e }));
         setLoaded((p) => ({ ...p, tcg: true }));
       }
     );
     return unsub;
-  }, []);
+  }, [intento]);
 
-  const items = [...productos, ...tcg].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-  return { items, loading: !loaded.productos || !loaded.tcg, error };
+  // Memoizado: un array nuevo en cada render invalidaba todos los useMemo de Pedido, Stock y Premios.
+  const items = useMemo(() => [...productos, ...tcg].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')), [productos, tcg]);
+  const reintentar = useCallback(() => setIntento((n) => n + 1), []);
+  return { items, loading: !loaded.productos || !loaded.tcg, error: errores.productos ?? errores.tcg, reintentar };
 }

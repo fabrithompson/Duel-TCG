@@ -24,7 +24,20 @@ export interface Temporada {
   nombre: string;
   /** YYYY-MM-DD; null = cuentan todos los torneos. */
   inicio: string | null;
+  /**
+   * Momento exacto en que se empezó (ms). Si la temporada arranca "hoy", los torneos
+   * de hoy creados antes de tocar el botón siguen en la temporada anterior.
+   */
+  inicioMs: number | null;
 }
+
+/** Medios de pago que el local puede ofrecer (el crédito de torneo se aplica aparte). */
+export type MedioCobro = 'efectivo' | 'debito' | 'credito' | 'transferencia' | 'qr';
+export const MEDIOS_COBRO: readonly MedioCobro[] = ['efectivo', 'debito', 'credito', 'transferencia', 'qr'];
+
+export const JUEGOS_POR_DEFECTO: readonly string[] = ['Pokémon TCG', 'Magic', 'Yu-Gi-Oh', 'One Piece', 'Otro'];
+export const MAX_JUEGOS = 12;
+export const LARGO_MAX_JUEGO = 40;
 
 export interface ConfigLocal {
   nombreLocal: string;
@@ -42,6 +55,10 @@ export interface ConfigLocal {
   creditoPremio: boolean;
   /** Cobrar un pedido descuenta stock. */
   descontarStock: boolean;
+  /** Juegos que se ofrecen al crear un torneo. */
+  juegos: string[];
+  /** Medios de pago que aparecen al cobrar. */
+  mediosPago: MedioCobro[];
 }
 
 export interface ConfigPrivada {
@@ -68,10 +85,12 @@ export const CONFIG_DEFAULT: ConfigLocal = {
   ],
   alertaStock: 5,
   torneo: { rondas: 5, minutos: 50, extra: 3, inscripcion: 6000, cupo: 16 },
-  temporada: { nombre: 'Temporada 1', inicio: null },
+  temporada: { nombre: 'Temporada 1', inicio: null, inicioMs: null },
   reporteJugador: true,
   creditoPremio: true,
   descontarStock: true,
+  juegos: [...JUEGOS_POR_DEFECTO],
+  mediosPago: [...MEDIOS_COBRO],
 };
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
@@ -104,6 +123,28 @@ function turnosValidos(valor: unknown): Turno[] {
   return turnos.length > 0 ? turnos.slice(0, 4) : CONFIG_DEFAULT.turnos;
 }
 
+function juegosValidos(valor: unknown): string[] {
+  if (!Array.isArray(valor)) return [...JUEGOS_POR_DEFECTO];
+  const vistos = new Set<string>();
+  const juegos: string[] = [];
+  for (const v of valor) {
+    if (typeof v !== 'string') continue;
+    const limpio = v.trim().slice(0, LARGO_MAX_JUEGO);
+    const clave = limpio.toLowerCase();
+    if (!limpio || vistos.has(clave)) continue;
+    vistos.add(clave);
+    juegos.push(limpio);
+  }
+  return juegos.length > 0 ? juegos.slice(0, MAX_JUEGOS) : [...JUEGOS_POR_DEFECTO];
+}
+
+function mediosValidos(valor: unknown): MedioCobro[] {
+  if (!Array.isArray(valor)) return [...MEDIOS_COBRO];
+  // Se respeta el orden canónico: el mozo encuentra cada medio siempre en el mismo lugar.
+  const medios = MEDIOS_COBRO.filter((m) => valor.includes(m));
+  return medios.length > 0 ? medios : [...MEDIOS_COBRO];
+}
+
 /**
  * Normaliza lo que venga de Firestore: cualquier campo faltante o inválido
  * cae a su default, así un documento viejo o editado a mano nunca rompe la app.
@@ -130,10 +171,13 @@ export function normalizarConfig(raw: unknown): ConfigLocal {
     temporada: {
       nombre: texto(temp.nombre, d.temporada.nombre, 30),
       inicio: typeof temp.inicio === 'string' && FECHA.test(temp.inicio) ? temp.inicio : null,
+      inicioMs: typeof temp.inicioMs === 'number' && Number.isFinite(temp.inicioMs) ? temp.inicioMs : null,
     },
     reporteJugador: booleano(r.reporteJugador, d.reporteJugador),
     creditoPremio: booleano(r.creditoPremio, d.creditoPremio),
     descontarStock: booleano(r.descontarStock, d.descontarStock),
+    juegos: juegosValidos(r.juegos),
+    mediosPago: mediosValidos(r.mediosPago),
   };
 }
 

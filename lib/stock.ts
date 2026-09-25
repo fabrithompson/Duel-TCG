@@ -123,7 +123,7 @@ export function validarIngreso(form: FormIngreso, catalogo: readonly CatalogoIte
 }
 
 // Producto e ingreso van en el mismo batch: nunca queda stock sumado sin su renglón de trazabilidad (ni al revés).
-export async function registrarIngreso(ingreso: IngresoValido, uid: string): Promise<string> {
+export async function registrarIngreso(ingreso: IngresoValido, uid: string, fecha: string = fechaLocal()): Promise<string> {
   const batch = writeBatch(db);
   let productoId: string;
   let coleccion: 'productos' | 'tcg_productos';
@@ -161,7 +161,7 @@ export async function registrarIngreso(ingreso: IngresoValido, uid: string): Pro
     cantidad: ingreso.cantidad,
     unidad,
     costoUnitario: ingreso.costoUnitario,
-    fecha: fechaLocal(),
+    fecha,
     creadoPor: uid,
     creadoEn: serverTimestamp(),
   });
@@ -185,6 +185,8 @@ export interface CambiosProducto {
   alerta: number | null;
   activo: boolean;
   controlStock: boolean;
+  /** Rubro elegido en la ficha (los TCG no cambian de rubro). */
+  rubro?: Rubro;
 }
 
 export function validarProducto(
@@ -208,7 +210,10 @@ export function validarProducto(
     if (n > LIMITES.alertaStock.max) return { ok: false, error: `La alerta puede ser hasta ${LIMITES.alertaStock.max}.` };
     alerta = n;
   }
-  return { ok: true, valor: { nombre: nombre.valor, precio: precio.valor, alerta, activo: form.activo, controlStock: form.controlStock } };
+  return {
+    ok: true,
+    valor: { nombre: nombre.valor, precio: precio.valor, alerta, activo: form.activo, controlStock: form.controlStock, rubro: contexto.rubro },
+  };
 }
 
 export async function actualizarProducto(item: CatalogoItem, cambios: CambiosProducto): Promise<void> {
@@ -224,6 +229,8 @@ export async function actualizarProducto(item: CatalogoItem, cambios: CambiosPro
     alerta,
     activo: cambios.activo,
     controlStock: cambios.controlStock,
+    // También corrige los docs viejos que solo tenían 'categoria'.
+    rubro: cambios.rubro ?? item.rubro,
     // Lo que hubiera quedado guardado de antes no se contó mientras el control estaba apagado.
     ...(activaControl ? { stock: 0 } : {}),
   });

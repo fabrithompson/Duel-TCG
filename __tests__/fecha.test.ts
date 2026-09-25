@@ -1,4 +1,4 @@
-import { aMilis, diaCorto, fechaCorta, fechaLocal, horaLocal, minutosDelDia, sumarDias } from '../lib/fecha';
+import { aMilis, diaCorto, fechaCorta, fechaDeNegocio, fechaLocal, horaLocal, minutoDeJornada, minutosDelDia, sumarDias } from '../lib/fecha';
 
 describe('fechaLocal', () => {
   it('usa el día local aunque en UTC ya sea el día siguiente', () => {
@@ -65,5 +65,28 @@ describe('aMilis', () => {
     expect(aMilis(99)).toBe(99);
     expect(aMilis(null)).toBeNull();
     expect(aMilis('2026')).toBeNull();
+  });
+});
+
+describe('jornada de caja con turnos que cruzan la medianoche', () => {
+  const turnos = [
+    { apertura: '08:00', cierre: '15:00' },
+    { apertura: '15:00', cierre: '00:30' },
+  ];
+
+  it('pasada la medianoche, hasta el cierre del turno, sigue siendo el día anterior', () => {
+    expect(fechaDeNegocio(turnos, new Date(2026, 8, 25, 0, 10))).toBe('2026-09-24');
+    expect(fechaDeNegocio(turnos, new Date(2026, 8, 25, 0, 30))).toBe('2026-09-25');
+    expect(fechaDeNegocio(turnos, new Date(2026, 8, 24, 23, 50))).toBe('2026-09-24');
+  });
+
+  it('sin turnos nocturnos la jornada es el día calendario', () => {
+    expect(fechaDeNegocio([{ apertura: '08:00', cierre: '20:00' }], new Date(2026, 8, 25, 0, 10))).toBe('2026-09-25');
+  });
+
+  it('la madrugada del turno va después de las 23:59 al comparar horas', () => {
+    expect(minutoDeJornada('23:50', turnos)).toBe(23 * 60 + 50);
+    expect(minutoDeJornada('00:10', turnos)).toBe(24 * 60 + 10);
+    expect(minutoDeJornada('9:00', turnos)).toBeNull();
   });
 });

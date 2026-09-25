@@ -44,7 +44,7 @@ function PanelHoy({ profile }: { readonly profile: UserProfile }) {
   const router = useRouter();
   const { colors } = useTheme();
   const { config } = useConfig();
-  const hoy = useHoy(profile.role, config.alertaStock);
+  const hoy = useHoy(profile.role, config.alertaStock, config.creditoPremio, config.turnos);
 
   const role = profile.role;
   const tonoRol = role === 'juez' ? colors.gold : colors.br;
@@ -83,11 +83,16 @@ function PanelHoy({ profile }: { readonly profile: UserProfile }) {
       : [
           {
             valor: cifra(formatARS(hoy.totalDia)),
-            etiqueta: 'Día',
+            etiqueta: role === 'admin' ? 'Día · caja' : 'Día',
             onPress: role === 'admin' ? () => router.push('/(tabs)/caja') : undefined,
             hint: 'Abre el cierre de caja',
           },
-          { valor: cifra(`${hoy.mesasOcupadas}/${hoy.mesasTotal}`), etiqueta: 'Mesas' },
+          {
+            valor: cifra(`${hoy.mesasOcupadas}/${hoy.mesasTotal}`),
+            etiqueta: hoy.mesasEnDuelo > 0 ? `Mesas · ${hoy.mesasEnDuelo} en duelo` : 'Mesas',
+            onPress: () => router.push('/(tabs)/salon'),
+            hint: 'Abre el plano del salón',
+          },
           role === 'admin'
             ? { valor: cifra(ronda(hoy)), etiqueta: 'Ronda' }
             : { valor: cifra(String(stockBajo)), etiqueta: 'Stock bajo', tono: stockBajo > 0 ? 'dg' : 'ink' },
@@ -164,7 +169,8 @@ function PanelHoy({ profile }: { readonly profile: UserProfile }) {
                 subtitulo={p.subtitulo}
                 color={p.tono}
                 accessibilityHint={p.hint}
-                onPress={() => router.push(p.destino)}
+                // withAnchor: la raíz de la pestaña queda debajo, así "← Salón" o "← Ajustes" vuelven ahí.
+                onPress={() => router.push(p.destino, { withAnchor: true })}
               />
             ))}
           </View>

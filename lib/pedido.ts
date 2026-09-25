@@ -15,6 +15,8 @@
 //  - `ingresos`: una por ingreso de mercadería (solo admin).
 //      { productoId, coleccion, nombre, rubro, cantidad, unidad, costoUnitario, fecha, creadoPor, creadoEn }
 
+import type { Role } from '../constants/roles';
+
 export type Rubro = 'Café' | 'Pastelería' | 'TCG' | 'Mesa';
 
 export const RUBROS: readonly Rubro[] = ['Café', 'Pastelería', 'TCG', 'Mesa'];
@@ -71,6 +73,17 @@ export interface Venta {
   fecha: string;
   hora: string;
   creadoPor: string;
+}
+
+/**
+ * Rubros de stock que cada rol ve y puede resolver. Stock y Hoy usan esta misma lista:
+ * a nadie le llega un aviso de stock bajo que después no encuentra en su pantalla.
+ */
+export function rubrosDeStock(role: Role): readonly Rubro[] {
+  if (role === 'admin') return RUBROS;
+  if (role === 'mozo') return ['Café', 'Pastelería'];
+  if (role === 'juez') return ['TCG'];
+  return [];
 }
 
 export function coleccionDe(origen: OrigenItem): 'productos' | 'tcg_productos' {

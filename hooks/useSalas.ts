@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
@@ -22,12 +22,14 @@ interface UseSalasResult {
   salas: Sala[];
   cargando: boolean;
   error: unknown;
+  reintentar: () => void;
 }
 
 export function useSalas(): UseSalasResult {
   const [salas, setSalas] = useState<Sala[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  const [intento, setIntento] = useState(0);
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -47,7 +49,8 @@ export function useSalas(): UseSalasResult {
       }
     );
     return unsub;
-  }, []);
+  }, [intento]);
 
-  return { salas, cargando, error };
+  const reintentar = useCallback(() => setIntento((n) => n + 1), []);
+  return { salas, cargando, error, reintentar };
 }

@@ -17,6 +17,7 @@ import { NavigationAction, useNavigation, usePreventRemove } from '@react-naviga
 import { collection, doc, increment, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
 import { useConfig } from '../../../contexts/ConfigContext';
+import type { MedioCobro } from '../../../lib/config';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useUserProfileContext } from '../../../contexts/UserProfileContext';
@@ -32,7 +33,7 @@ import Chip from '../../../components/Chip';
 import FormField from '../../../components/FormField';
 import Stepper from '../../../components/Stepper';
 import { codigoError, mensajeError } from '../../../lib/errores';
-import { fechaLocal, horaLocal } from '../../../lib/fecha';
+import { fechaDeNegocio, horaLocal } from '../../../lib/fecha';
 import { tocar } from '../../../lib/haptics';
 import { etiquetasDesambiguadas, normalizarBusqueda, normalizarJugadorDirectorio } from '../../../lib/jugadores';
 import {
@@ -65,7 +66,8 @@ import {
   numeroMesaTexto,
   puedeAgregar,
 } from '../../../lib/salon';
-import { segundosRestantes } from '../../../lib/torneo';
+import { segundosRestantes, type Torneo } from '../../../lib/torneo';
+import { useAhoraServidor } from '../../../hooks/useReloj';
 
 const MAX_RESULTADOS_JUGADOR = 6;
 const SIN_CONEXION_COBRO = 'Sin conexión: el cobro NO se registró. Reintentá cuando vuelva la señal.';
@@ -102,15 +104,24 @@ function esSinConexion(e: unknown): boolean {
   return c === 'unavailable' || c === 'deadline-exceeded';
 }
 
-function useAhora(activo: boolean): number {
-  const [ahora, setAhora] = useState(() => Date.now());
-  useEffect(() => {
-    if (!activo) return undefined;
-    setAhora(Date.now());
-    const id = setInterval(() => setAhora(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [activo]);
-  return ahora;
+interface EstadoMesaProps {
+  readonly duelo: DueloEnMesa | undefined;
+  readonly torneo: Torneo | null;
+  readonly conCuenta: boolean;
+}
+
+/** Aparte para que el reloj del duelo, que cambia cada segundo, no vuelva a dibujar toda la pantalla. */
+function EstadoMesa({ duelo, torneo, conCuenta }: EstadoMesaProps) {
+  const { colors } = useTheme();
+  const ahora = useAhoraServidor(!!duelo && torneo?.rondaPausada !== true);
+  const segundos = duelo && torneo ? segundosRestantes(torneo, ahora) : 0;
+  const texto = duelo ? `Duelo · ${etiquetaDuelo(duelo.ronda, segundos)}` : conCuenta ? 'Consumo' : 'Libre';
+  const color = duelo ? colors.gold : conCuenta ? colors.br : colors.dim;
+  return (
+    <Text style={[styles.estado, { color }, tabularNums(11.5)]} accessibilityLabel={`Estado: ${texto}`}>
+      {texto}
+    </Text>
+  );
 }
 
 function textoQuedan(restante: number, unidad: Unidad, enCuenta: number): string {
@@ -160,7 +171,7 @@ function ProductoCard({ item, enCuenta, alertaLocal, onAgregar }: ProductoCardPr
     >
       {enCuenta > 0 ? (
         <View style={[styles.contador, { backgroundColor: colors.br }]} importantForAccessibility="no-hide-descendants">
-          <Text style={[styles.contadorTexto, tabularNums(11)]}>{enCuenta}</Text>
+          <Text style={[styles.contadorTexto, { color: colors.onBr }, tabularNums(11)]}>{enCuenta}</Text>
         </View>
       ) : null}
       <Text style={[styles.productoNombre, { color: colors.ink }]} numberOfLines={2}>
@@ -224,7 +235,7 @@ interface CobroSheetProps {
   readonly sentados: readonly JugadorCredito[];
   readonly bloqueo: string | null;
   readonly onCerrar: () => void;
-  readonly onCobrado: (total: number) => void;
+  readonly onCobrado: (total: number, conCredito: boolean) => void;
 }
 
 function CobroSheet(props: CobroSheetProps) {
@@ -267,7 +278,8 @@ function CobroSheet(props: CobroSheetProps) {
   const aplicable = creditoAplicable(credito, subtotal);
   const creditoAplicado = aplicar && elegidoVigente ? aplicable : 0;
   const total = subtotal - creditoAplicado;
-  const medioFinal = medioDePagoFinal(total, medio);
+  const medioFinal = medioDePagoFinal(total, medio, creditoAplicado);
+  const medios = MEDIOS_PAGO.filter((m) => config.mediosPago.includes(m.id as MedioCobro));
   const { descuentos, huerfanas } = useMemo(() => descuentosDeStock(cuenta, catalogo), [cuenta, catalogo]);
   const uid = user?.uid ?? null;
   const puedeConfirmar = !enviando && !bloqueo && cuenta.length > 0 && medioFinal !== null && !!uid;
@@ -301,7 +313,7 @@ function CobroSheet(props: CobroSheetProps) {
           creditoUid: jugador ? jugador.uid : null,
           total,
           medioPago: medioFinal,
-          fecha: fechaLocal(),
+          fecha: fechaDeNegocio(config.turnos),
           hora: horaLocal(),
           creadoPor: uid,
           creadoEn: serverTimestamp(),
@@ -312,7 +324,7 @@ function CobroSheet(props: CobroSheetProps) {
         if (jugador) tx.update(doc(db, 'jugadores', jugador.uid), { creditoCafeteria: increment(-creditoAplicado) });
         tx.update(refMesa, { pedido: [], estado: 'libre' });
       });
-      onCobrado(total);
+      onCobrado(total, creditoAplicado > 0);
     } catch (e) {
       if (e instanceof AvisoMesa) setError(e.message);
       else if (esSinConexion(e)) setError(SIN_CONEXION_COBRO);
@@ -385,12 +397,14 @@ function CobroSheet(props: CobroSheetProps) {
               <SectionLabel>Medio de pago</SectionLabel>
               {total > 0 ? (
                 <View style={styles.chipsWrap} accessibilityRole="radiogroup">
-                  {MEDIOS_PAGO.map((m) => (
+                  {medios.map((m) => (
                     <Chip key={m.id} label={m.nombre} active={medio === m.id} onPress={() => setMedio(m.id)} />
                   ))}
                 </View>
               ) : (
-                <Text style={[styles.nota, { color: colors.dim }]}>El crédito cubre toda la cuenta: se registra como crédito de torneo.</Text>
+                <Text style={[styles.nota, { color: colors.dim }]}>
+                  {creditoAplicado > 0 ? 'El crédito cubre toda la cuenta: se registra como crédito de torneo.' : 'La cuenta está en $0: se registra sin cobrar nada.'}
+                </Text>
               )}
 
               <View style={styles.bloqueCredito}>
@@ -478,7 +492,7 @@ export default function PedidoScreen() {
   const mesaId = Array.isArray(params.mesaId) ? params.mesaId[0] : params.mesaId;
   const puedeOperar = profile?.role === 'admin' || profile?.role === 'mozo';
 
-  const { items: catalogo, loading: cargandoCatalogo, error: errorCatalogo } = useCatalogo();
+  const { items: catalogo, loading: cargandoCatalogo, error: errorCatalogo, reintentar: reintentarCatalogo } = useCatalogo();
   const { torneo } = useUltimoTorneo();
 
   const [mesa, setMesa] = useState<MesaPedido | null>(null);
@@ -550,7 +564,6 @@ export default function PedidoScreen() {
   }, [mesaId, puedeOperar, fijarBase]);
 
   const duelo = useMemo(() => (mesaId ? duelosPorMesa(torneo).get(mesaId) : undefined), [torneo, mesaId]);
-  const ahora = useAhora(!!duelo && torneo?.rondaPausada !== true);
   const uidsSentados = useMemo(
     () => (duelo ? [duelo.partida.jugador1.uid, duelo.partida.jugador2?.uid].filter((u): u is string => !!u) : []),
     [duelo]
@@ -650,13 +663,13 @@ export default function PedidoScreen() {
     }
   };
 
-  const onCobrado = (total: number) => {
+  const onCobrado = (total: number, conCredito: boolean) => {
     setCobroAbierto(false);
     fijarBase([]);
     setCuenta([]);
     // El listener pudo ver la mesa vacía antes de que termine la transacción y marcarla como conflicto.
     setConflicto(null);
-    toast.mostrar(total > 0 ? `Cobrado ${formatARS(total)}` : 'Cobrado con crédito de torneo', 'ok');
+    toast.mostrar(total > 0 ? `Cobrado ${formatARS(total)}` : conCredito ? 'Cobrado con crédito de torneo' : `Mesa ${numero} cerrada sin cargo`, 'ok');
     setSalida({ tipo: 'salon' });
   };
 
@@ -706,9 +719,6 @@ export default function PedidoScreen() {
     );
   }
 
-  const segundos = duelo && torneo ? segundosRestantes(torneo, ahora) : 0;
-  const estadoTexto = duelo ? `Duelo · ${etiquetaDuelo(duelo.ronda, segundos)}` : mesa.estado !== 'libre' || mesa.pedido.length > 0 ? 'Consumo' : 'Libre';
-  const estadoColor = duelo ? colors.gold : estadoTexto === 'Consumo' ? colors.br : colors.dim;
   // Sin el catálogo completo no se sabe qué productos controlan stock: cobrar igual dejaría el stock mal.
   const catalogoIncompleto = config.descontarStock && (cargandoCatalogo || !!errorCatalogo);
   const sentadosConCredito = sentados.filter((j) => j.credito > 0);
@@ -770,14 +780,12 @@ export default function PedidoScreen() {
       onBack={volverAlSalon}
       title={`Mesa ${numero}`}
       right={
-        <Text style={[styles.estado, { color: estadoColor }, tabularNums(11.5)]} accessibilityLabel={`Estado: ${estadoTexto}`}>
-          {estadoTexto}
-        </Text>
+        <EstadoMesa duelo={duelo} torneo={torneo} conCuenta={mesa.estado !== 'libre' || mesa.pedido.length > 0} />
       }
       footer={footer}
     >
       {errorMesa ? <ErrorBanner mensaje={mensajeError(errorMesa, 'Se perdió la conexión con la mesa.')} /> : null}
-      {errorCatalogo ? <ErrorBanner mensaje={mensajeError(errorCatalogo, 'No se pudo cargar el catálogo.')} /> : null}
+      {errorCatalogo ? <ErrorBanner mensaje={mensajeError(errorCatalogo, 'No se pudo cargar el catálogo.')} onRetry={reintentarCatalogo} /> : null}
 
       {rubros.length === 0 ? (
         errorCatalogo ? null : <EmptyState title="Todavía no hay productos" body="El admin los carga desde Stock. Mientras tanto podés cobrar lo que ya está en la cuenta." />
@@ -879,7 +887,7 @@ const styles = StyleSheet.create({
   productoNombre: { fontFamily: Typography.fontFamily.semibold, fontSize: 14, lineHeight: 17, paddingRight: 18 },
   productoMeta: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 5 },
   contador: { position: 'absolute', top: 8, right: 8, minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
-  contadorTexto: { color: '#FFFFFF', fontFamily: Typography.fontFamily.bold, fontSize: 11 },
+  contadorTexto: { fontFamily: Typography.fontFamily.bold, fontSize: 11 },
   cuentaHeader: { marginTop: 22 },
   linea: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, borderBottomWidth: 1 },
   lineaTextos: { flex: 1 },

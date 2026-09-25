@@ -5,6 +5,7 @@ import { db } from '../config/firebase';
 import { useToast } from '../contexts/ToastContext';
 import { ConfigPrivada, generarCodigoInvitacion } from '../lib/config';
 import { mensajeError } from '../lib/errores';
+import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS, esperarConfirmacion } from '../lib/escritura';
 
 const CONFIG_PRIVADO_REF = doc(db, 'config', 'privado');
 
@@ -62,8 +63,12 @@ export function useConfigPrivada(habilitado: boolean): UseConfigPrivadaResult {
     setGenerando(true);
     try {
       const codigo = generarCodigoInvitacion(getRandomBytes(8));
-      await setDoc(CONFIG_PRIVADO_REF, { codigoInvitacion: codigo }, { merge: true });
-      mostrar('Código nuevo listo para compartir', 'ok');
+      const r = await esperarConfirmacion(setDoc(CONFIG_PRIVADO_REF, { codigoInvitacion: codigo }, { merge: true }), ESPERA_ESCRITURA_MS, (e) =>
+        mostrar(mensajeError(e, 'No se pudo guardar el código.'), 'error')
+      );
+      // Sin señal el código todavía no vale para registrarse: se avisa en vez de invitar a compartirlo.
+      if (r === 'pendiente') mostrar(`Código generado. ${AVISO_SIN_SENAL} Compartilo cuando se confirme.`, 'info');
+      else mostrar('Código nuevo listo para compartir', 'ok');
       return codigo;
     } catch (e) {
       mostrar(mensajeError(e, 'No se pudo generar el código. Probá de nuevo.'), 'error');

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { aMilis, diaCorto, fechaLocal, sumarDias } from '../lib/fecha';
+import { aMilis, diaCorto, fechaDeNegocio, fechaLocal, horaLocal, minutoDeJornada, sumarDias, type HorarioTurno } from '../lib/fecha';
+import { normalizarTorneo, pozoCobrado } from '../lib/torneo';
 import { ItemPedido, MEDIOS_PAGO, MedioPago, RUBROS, Rubro, subtotalDe } from '../lib/pedido';
 import { normalizarLineas } from '../lib/salon';
 
@@ -24,9 +25,14 @@ function numero(valor: unknown): number | null {
   return typeof valor === 'number' && Number.isFinite(valor) ? valor : null;
 }
 
-// Las ventas cobradas por versiones anteriores de la app no tienen subtotal, crédito ni medio de pago.
-export function normalizarVenta(id: string, data: Record<string, unknown>): VentaCaja {
+// Las ventas cobradas por versiones anteriores de la app no tienen subtotal, crédito ni medio de pago,
+// y guardaban la fecha en UTC (una venta de las 22 h caía al día siguiente). Como las ventas son
+// inmutables, se corrige al leer: sin medio de pago, fecha y hora salen de la marca de tiempo.
+export function normalizarVenta(id: string, data: Record<string, unknown>, turnos: readonly HorarioTurno[] = []): VentaCaja {
   const items = normalizarLineas(data.items);
+  const legado = typeof data.medioPago !== 'string';
+  const marcaMs = aMilis(data.creadoEn) ?? aMilis(data.timestamp);
+  const fechaLegado = legado && marcaMs !== null ? new Date(marcaMs) : null;
   const creditoAplicado = Math.max(0, numero(data.creditoAplicado) ?? 0);
   const total = numero(data.total) ?? subtotalDe(items);
   return {
@@ -37,9 +43,9 @@ export function normalizarVenta(id: string, data: Record<string, unknown>): Vent
     creditoAplicado,
     total,
     medioPago: typeof data.medioPago === 'string' && MEDIOS_VALIDOS.includes(data.medioPago) ? (data.medioPago as MedioPago) : null,
-    fecha: typeof data.fecha === 'string' ? data.fecha : '',
-    hora: typeof data.hora === 'string' ? data.hora : '',
-    creadoEnMs: aMilis(data.creadoEn),
+    fecha: fechaLegado ? fechaDeNegocio(turnos, fechaLegado) : typeof data.fecha === 'string' ? data.fecha : '',
+    hora: fechaLegado ? horaLocal(fechaLegado) : typeof data.hora === 'string' ? data.hora : '',
+    creadoEnMs: marcaMs,
   };
 }
 
@@ -88,7 +94,17 @@ function porcentaje(parte: number, total: number): number {
   return total > 0 ? Math.round((parte / total) * 100) : 0;
 }
 
-export function resumirCaja(ventas: readonly VentaCaja[], hoy: Date): ResumenCaja {
+interface OpcionesResumen {
+  turnos?: readonly HorarioTurno[];
+  /**
+   * Con el día en curso, minuto de la jornada hasta el que se compara: la semana pasada se
+   * cuenta hasta la misma hora (si no, lo cobrado a media tarde parece una caída contra un día completo).
+   */
+  hastaMinuto?: number | null;
+}
+
+export function resumirCaja(ventas: readonly VentaCaja[], hoy: Date, opciones: OpcionesResumen = {}): ResumenCaja {
+  const { turnos = [], hastaMinuto = null } = opciones;
   const fechaHoy = fechaLocal(hoy);
   const totales = new Map<string, number>();
   for (const v of ventas) totales.set(v.fecha, (totales.get(v.fecha) ?? 0) + v.total);
@@ -99,7 +115,15 @@ export function resumirCaja(ventas: readonly VentaCaja[], hoy: Date): ResumenCaj
   const consumo = deHoy.reduce((acc, v) => acc + v.subtotal, 0);
   const creditoAplicado = deHoy.reduce((acc, v) => acc + v.creditoAplicado, 0);
 
-  const semanaPasada = totales.get(fechaLocal(sumarDias(hoy, -7))) ?? 0;
+  const fechaSemanaPasada = fechaLocal(sumarDias(hoy, -7));
+  const semanaPasada = ventas
+    .filter((v) => v.fecha === fechaSemanaPasada)
+    .filter((v) => {
+      if (hastaMinuto === null) return true;
+      const m = minutoDeJornada(v.hora, turnos);
+      return m === null || m <= hastaMinuto;
+    })
+    .reduce((acc, v) => acc + v.total, 0);
   const variacionPct = semanaPasada > 0 ? Math.round(((totalHoy - semanaPasada) / semanaPasada) * 100) : null;
 
   const barras: BarraDia[] = [];
@@ -154,41 +178,66 @@ function fechaDesdeISO(iso: string): Date {
   return new Date(y, m - 1, d);
 }
 
-interface UseCajaResult {
-  resumen: ResumenCaja;
-  hoy: Date;
-  cargando: boolean;
-  error: unknown;
+export interface InscripcionesDia {
+  total: number;
+  pagas: number;
+  torneos: number;
 }
 
-// Una semana y un día hacia atrás: el gráfico de 7 días más el mismo día de la semana pasada para la variación.
-export function useCaja(): UseCajaResult {
-  const [fechaHoy, setFechaHoy] = useState(() => fechaLocal());
+interface UseCajaResult {
+  resumen: ResumenCaja;
+  /** Día que se está mirando (jornada). */
+  hoy: Date;
+  /** true si es la jornada en curso. */
+  esHoy: boolean;
+  /** YYYY-MM-DD de la jornada en curso. */
+  fechaHoy: string;
+  /** Inscripciones de torneo marcadas como pagas ese día: las cobra el juez y no son ventas. */
+  inscripciones: InscripcionesDia;
+  cargando: boolean;
+  error: unknown;
+  reintentar: () => void;
+}
+
+/**
+ * Cierre de una jornada (por defecto la actual) con una semana hacia atrás: el gráfico de 7 días
+ * más el mismo día de la semana pasada para la variación.
+ */
+export function useCaja(turnos: readonly HorarioTurno[], fechaElegida: string | null = null): UseCajaResult {
+  const [fechaHoy, setFechaHoy] = useState(() => fechaDeNegocio(turnos));
   const [ventas, setVentas] = useState<VentaCaja[]>([]);
+  const [inscripciones, setInscripciones] = useState<InscripcionesDia>({ total: 0, pagas: 0, torneos: 0 });
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  const [intento, setIntento] = useState(0);
+  const [ahora, setAhora] = useState(() => new Date());
 
-  // Si la pantalla queda abierta pasada la medianoche, el cierre tiene que pasar al día nuevo.
+  // Si la pantalla queda abierta al terminar la jornada, el cierre pasa al día nuevo.
   useEffect(() => {
-    const id = setInterval(() => {
-      const actual = fechaLocal();
+    const tick = () => {
+      const actual = fechaDeNegocio(turnos);
       setFechaHoy((prev) => (prev === actual ? prev : actual));
-    }, 60_000);
+      setAhora(new Date());
+    };
+    tick();
+    const id = setInterval(tick, 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [turnos]);
+
+  const dia = fechaElegida ?? fechaHoy;
 
   useEffect(() => {
-    const hoy = fechaDesdeISO(fechaHoy);
+    const d = fechaDesdeISO(dia);
     setCargando(true);
     const q = query(
       collection(db, 'ventas'),
-      where('fecha', '>=', fechaLocal(sumarDias(hoy, -7))),
-      where('fecha', '<=', fechaHoy)
+      where('fecha', '>=', fechaLocal(sumarDias(d, -7))),
+      where('fecha', '<=', dia)
     );
     const unsub = onSnapshot(
       q,
       (snap) => {
-        setVentas(snap.docs.map((d) => normalizarVenta(d.id, d.data())));
+        setVentas(snap.docs.map((doc) => normalizarVenta(doc.id, doc.data(), turnos)));
         setError(null);
         setCargando(false);
       },
@@ -198,10 +247,30 @@ export function useCaja(): UseCajaResult {
       }
     );
     return unsub;
-  }, [fechaHoy]);
+  }, [dia, turnos, intento]);
 
-  const hoy = useMemo(() => fechaDesdeISO(fechaHoy), [fechaHoy]);
-  const resumen = useMemo(() => resumirCaja(ventas, hoy), [ventas, hoy]);
+  // Las inscripciones que el juez marcó como pagas ese día: entran a la caja aunque no sean ventas.
+  useEffect(() => {
+    const q = query(collection(db, 'torneos'), where('fecha', '==', dia));
+    return onSnapshot(
+      q,
+      (snap) => {
+        const torneos = snap.docs.map((doc) => normalizarTorneo(doc.id, doc.data()));
+        setInscripciones({
+          total: torneos.reduce((acc, t) => acc + pozoCobrado(t), 0),
+          pagas: torneos.reduce((acc, t) => acc + t.jugadores.filter((j) => j.pagado).length, 0),
+          torneos: torneos.length,
+        });
+      },
+      () => setInscripciones({ total: 0, pagas: 0, torneos: 0 })
+    );
+  }, [dia, intento]);
 
-  return { resumen, hoy, cargando, error };
+  const esHoy = dia === fechaHoy;
+  const hoy = useMemo(() => fechaDesdeISO(dia), [dia]);
+  const hastaMinuto = esHoy ? minutoDeJornada(horaLocal(ahora), turnos) : null;
+  const resumen = useMemo(() => resumirCaja(ventas, hoy, { turnos, hastaMinuto }), [ventas, hoy, turnos, hastaMinuto]);
+  const reintentar = useCallback(() => setIntento((n) => n + 1), []);
+
+  return { resumen, hoy, esHoy, fechaHoy, inscripciones, cargando, error, reintentar };
 }

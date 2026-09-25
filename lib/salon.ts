@@ -230,8 +230,12 @@ export function creditoAplicable(credito: number, subtotal: number): number {
   return Math.max(0, Math.min(Math.floor(credito), Math.floor(subtotal)));
 }
 
-export function medioDePagoFinal(total: number, elegido: MedioPago | null): MedioPago | null {
-  if (total <= 0) return 'credito_torneo';
+/**
+ * Medio que se registra en la venta. 'credito_torneo' solo cuando el crédito cubrió todo;
+ * una cuenta de $0 sin crédito (algo sin cargo) queda como efectivo, que no mueve plata.
+ */
+export function medioDePagoFinal(total: number, elegido: MedioPago | null, creditoAplicado = 0): MedioPago | null {
+  if (total <= 0) return creditoAplicado > 0 ? 'credito_torneo' : 'efectivo';
   return elegido === 'credito_torneo' ? null : elegido;
 }
 
@@ -245,31 +249,5 @@ export function coincideBusqueda(nombre: string, busqueda: string): boolean {
   return !b || normalizarBusqueda(nombre).includes(b);
 }
 
-// Sin conexión, Firestore aplica la escritura localmente pero no resuelve la promesa hasta reconectar: no se deja al mozo esperando.
-export async function esperarConfirmacion(
-  escritura: Promise<unknown>,
-  ms: number,
-  onErrorTardio: (error: unknown) => void
-): Promise<'confirmado' | 'pendiente'> {
-  let vencido = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const tope = new Promise<'pendiente'>((resolve) => {
-    timer = setTimeout(() => {
-      vencido = true;
-      resolve('pendiente');
-    }, ms);
-  });
-  const confirmada = escritura.then(
-    () => 'confirmado' as const,
-    (error: unknown) => {
-      if (!vencido) throw error;
-      onErrorTardio(error);
-      return 'pendiente' as const;
-    }
-  );
-  try {
-    return await Promise.race([confirmada, tope]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
+// Vive en lib/escritura (la usan también Ajustes, Equipo y Cuenta); se reexporta por compatibilidad.
+export { esperarConfirmacion } from './escritura';

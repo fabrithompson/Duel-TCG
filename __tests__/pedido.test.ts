@@ -297,7 +297,7 @@ describe('validarProducto', () => {
 
   it('alerta vacía = la del local; con valor, la propia', () => {
     const vacia = validarProducto({ nombre: 'Espresso', precio: '2200', alerta: '', activo: true, controlStock: true }, ctx);
-    expect(vacia).toEqual({ ok: true, valor: { nombre: 'Espresso', precio: 2200, alerta: null, activo: true, controlStock: true } });
+    expect(vacia).toEqual({ ok: true, valor: { nombre: 'Espresso', precio: 2200, alerta: null, activo: true, controlStock: true, rubro: ctx.rubro } });
     const propia = validarProducto({ nombre: 'Espresso', precio: '2200', alerta: '8', activo: false, controlStock: true }, ctx);
     expect(propia.ok && propia.valor.alerta).toBe(8);
   });
@@ -398,6 +398,24 @@ describe('caja del día', () => {
       ['Crédito de torneo', 4000, 33, 'gold'],
     ]);
     expect(r.ultimos.map((v) => v.id)).toEqual(['2', '1']);
+  });
+
+  it('con el día en curso compara contra la semana pasada hasta la misma hora', () => {
+    const ventas = [
+      venta({ id: '1', fecha: '2026-09-24', hora: '18:00', subtotal: 5000, total: 5000 }),
+      venta({ id: '2', fecha: '2026-09-17', hora: '17:00', subtotal: 5000, total: 5000 }),
+      venta({ id: '3', fecha: '2026-09-17', hora: '22:00', subtotal: 20000, total: 20000 }),
+    ];
+    // A las 18:30 de hoy: la semana pasada a esa hora llevaba .000, no los 5.000 del día completo.
+    expect(resumirCaja(ventas, hoy, { hastaMinuto: 18 * 60 + 30 }).variacionPct).toBe(0);
+    expect(resumirCaja(ventas, hoy).variacionPct).toBe(-80);
+  });
+
+  it('una venta vieja (sin medio de pago) toma fecha y hora locales de su marca de tiempo, no la fecha UTC', () => {
+    const marca = new Date(2026, 8, 24, 22, 15);
+    const v = normalizarVenta('v1', { total: 3000, fecha: '2026-09-25', items: [], creadoEn: { toMillis: () => marca.getTime() } });
+    expect(v.fecha).toBe('2026-09-24');
+    expect(v.hora).toBe('22:15');
   });
 
   it('sin ventas el mismo día de la semana pasada no inventa una variación', () => {
@@ -591,7 +609,17 @@ describe('pantalla Stock', () => {
       alerta: 'BORRAR',
       activo: true,
       controlStock: true,
+      rubro: 'Café',
     });
+    await desmontar(r);
+  });
+
+  it('un producto de cafetería puede cambiar de rubro', async () => {
+    const r = await montar(React.createElement(StockScreen));
+    await tocarControl(r, /^Café en grano, /);
+    await tocarControl(r, 'Rubro Pastelería');
+    await tocarControl(r, 'Guardar cambios');
+    expect(mockUpdateDoc).toHaveBeenCalledWith('productos/grano', expect.objectContaining({ rubro: 'Pastelería' }));
     await desmontar(r);
   });
 

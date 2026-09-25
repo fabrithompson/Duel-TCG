@@ -9,8 +9,8 @@ import Chip from '../../../components/Chip';
 import FormField from '../../../components/FormField';
 import Stepper from '../../../components/Stepper';
 import { Badge, Card, EmptyState, ErrorBanner, SectionLabel, SmallButton } from '../../../components/ui';
-import { BRAND_COLORS, BrandColor, Radii, Typography, tabularNums } from '../../../constants/theme';
-import { useConfig } from '../../../contexts/ConfigContext';
+import { BRAND_COLORS, BrandColor, Radii, Typography, getTheme, tabularNums } from '../../../constants/theme';
+import { CambiosConfig, useConfig } from '../../../contexts/ConfigContext';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useUserProfileContext } from '../../../contexts/UserProfileContext';
@@ -29,12 +29,14 @@ import {
   pasoSiguiente,
   validarTurnos,
 } from '../../../lib/ajustes';
-import { ConfigLocal, DefaultsTorneo, LIMITES, Turno } from '../../../lib/config';
+import { DefaultsTorneo, LARGO_MAX_JUEGO, LIMITES, MAX_JUEGOS, MEDIOS_COBRO, MedioCobro, Turno } from '../../../lib/config';
 import { mensajeError } from '../../../lib/errores';
-import { fechaLocal } from '../../../lib/fecha';
+import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS, esperarConfirmacion } from '../../../lib/escritura';
+import { fechaDeNegocio, horaLocal } from '../../../lib/fecha';
+import { ahoraServidor } from '../../../lib/reloj';
 import { advertencia, tocar } from '../../../lib/haptics';
 import { borrarLogo, mensajeErrorLogo, subirLogo } from '../../../lib/logo';
-import { formatARS } from '../../../lib/pedido';
+import { MEDIOS_PAGO, formatARS } from '../../../lib/pedido';
 
 const MARCA_DIA = require('../../../assets/brand/duel-mark.png');
 const MARCA_NOCHE = require('../../../assets/brand/duel-mark-dark.png');
@@ -46,7 +48,7 @@ const ESPERA_STEPPER_MS = 600;
 
 const NOMBRE_COLOR: Record<BrandColor, string> = {
   '#C2703A': 'terracota',
-  '#B68235': 'mostaza',
+  '#4A5A80': 'azul pizarra',
   '#7A5C3E': 'café',
   '#3F6B58': 'verde',
   '#8A3B4C': 'bordó',
@@ -109,10 +111,12 @@ function useGuardarConfig() {
   const { guardarConfig } = useConfig();
   const { mostrar } = useToast();
   return useCallback(
-    async (cambios: Partial<ConfigLocal>, aviso = 'Guardado'): Promise<boolean> => {
+    async (cambios: CambiosConfig, aviso = 'Guardado'): Promise<boolean> => {
       try {
-        await guardarConfig(cambios);
-        mostrar(aviso, 'ok');
+        const r = await esperarConfirmacion(guardarConfig(cambios), ESPERA_ESCRITURA_MS, (e) =>
+          mostrar(mensajeError(e, 'No se pudo guardar. Probá de nuevo.'), 'error')
+        );
+        mostrar(r === 'pendiente' ? `${aviso}. ${AVISO_SIN_SENAL}` : aviso, r === 'pendiente' ? 'info' : 'ok');
         return true;
       } catch (e) {
         mostrar(mensajeError(e, 'No se pudo guardar. Probá de nuevo.'), 'error');
@@ -516,7 +520,7 @@ function ColorMarca() {
               accessibilityLabel={`Color ${NOMBRE_COLOR[color]}`}
               accessibilityState={{ checked: elegido, selected: elegido }}
             >
-              {elegido ? <Text style={styles.tilde}>✓</Text> : null}
+              {elegido ? <Text style={[styles.tilde, { color: getTheme('day', color).onBr }]}>✓</Text> : null}
             </TouchableOpacity>
           );
         })}
@@ -526,9 +530,9 @@ function ColorMarca() {
           label="Por defecto"
           active={actual === null}
           onPress={() => elegir(null)}
-          accessibilityHint="Vuelve al color original de Duel, que se aclara solo en modo noche"
+          accessibilityHint="Vuelve al color original de Duel"
         />
-        <Text style={[styles.ayuda, styles.flex1, { color: colors.dim }]}>El color de Duel, que se aclara solo de noche.</Text>
+        <Text style={[styles.ayuda, styles.flex1, { color: colors.dim }]}>El color de Duel. Cualquier color se ajusta solo, de día y de noche, para que los textos se lean bien.</Text>
       </View>
     </View>
   );
@@ -726,7 +730,8 @@ const enMinutos = (n: number) => `${n} min`;
 function Torneos() {
   const { config } = useConfig();
   const guardar = useGuardarConfig();
-  const guardarCampo = (campo: keyof DefaultsTorneo) => (n: number) => guardar({ torneo: { ...config.torneo, [campo]: n } });
+  // Solo el campo que cambió: con el resto copiado de la config vieja, dos cambios seguidos se pisaban.
+  const guardarCampo = (campo: keyof DefaultsTorneo) => (n: number) => guardar({ torneo: { [campo]: n } as Partial<DefaultsTorneo> });
 
   return (
     <Grupo titulo="Torneos" sub="El juez arranca cada torneo con estos valores ya cargados.">
@@ -770,7 +775,72 @@ function Torneos() {
         value={config.creditoPremio}
         onChange={(v) => void guardar({ creditoPremio: v })}
       />
+      <Juegos />
     </Grupo>
+  );
+}
+
+function Juegos() {
+  const { config } = useConfig();
+  const { colors } = useTheme();
+  const { mostrar } = useToast();
+  const guardar = useGuardarConfig();
+  const [nuevo, setNuevo] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const lleno = config.juegos.length >= MAX_JUEGOS;
+
+  const agregar = async () => {
+    const limpio = limpiarTexto(nuevo).slice(0, LARGO_MAX_JUEGO);
+    if (!limpio || guardando) return;
+    if (config.juegos.some((j) => j.toLowerCase() === limpio.toLowerCase())) {
+      mostrar(`${limpio} ya está en la lista`, 'info');
+      return;
+    }
+    setGuardando(true);
+    const ok = await guardar({ juegos: [...config.juegos, limpio] }, `${limpio} agregado`);
+    setGuardando(false);
+    if (ok) setNuevo('');
+  };
+
+  const quitar = (juego: string) => {
+    if (config.juegos.length <= 1) {
+      mostrar('Tiene que quedar al menos un juego', 'info');
+      return;
+    }
+    Alert.alert(`Quitar ${juego}`, 'Deja de aparecer al crear torneos. Los torneos ya jugados no cambian.', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Quitar', style: 'destructive', onPress: () => void guardar({ juegos: config.juegos.filter((j) => j !== juego) }, `${juego} quitado`) },
+    ]);
+  };
+
+  return (
+    <View style={[styles.bloque, { borderTopColor: colors.line }]}>
+      <Text style={[styles.filaLabel, { color: colors.ink }]}>Juegos</Text>
+      <Text style={[styles.ayuda, { color: colors.dim }]}>Los que se eligen al crear un torneo. Mantené apretado uno para quitarlo.</Text>
+      <View style={styles.chipsJuegos}>
+        {config.juegos.map((j) => (
+          <Chip key={j} label={j} active={false} onPress={() => quitar(j)} onLongPress={() => quitar(j)} accessibilityHint="Tocá para quitarlo de la lista" />
+        ))}
+      </View>
+      {lleno ? (
+        <Text style={[styles.ayuda, { color: colors.dim }]}>Hasta {MAX_JUEGOS} juegos.</Text>
+      ) : (
+        <View style={styles.agregarJuego}>
+          <FormField
+            label="Agregar juego"
+            placeholder="Ej.: Lorcana"
+            value={nuevo}
+            onChangeText={setNuevo}
+            maxLength={LARGO_MAX_JUEGO}
+            returnKeyType="done"
+            onSubmitEditing={() => void agregar()}
+            containerStyle={styles.flex1}
+            editable={!guardando}
+          />
+          <SmallButton label={guardando ? 'Guardando…' : 'Agregar'} onPress={() => void agregar()} disabled={!limpiarTexto(nuevo) || guardando} />
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -778,7 +848,19 @@ function Torneos() {
 
 function Cobro() {
   const { config } = useConfig();
+  const { colors } = useTheme();
+  const { mostrar } = useToast();
   const guardar = useGuardarConfig();
+
+  const alternarMedio = (id: MedioCobro) => {
+    const activo = config.mediosPago.includes(id);
+    if (activo && config.mediosPago.length <= 1) {
+      mostrar('Tiene que quedar al menos un medio de pago', 'info');
+      return;
+    }
+    const nuevos = activo ? config.mediosPago.filter((m) => m !== id) : MEDIOS_COBRO.filter((m) => m === id || config.mediosPago.includes(m));
+    void guardar({ mediosPago: nuevos }, 'Medios de pago guardados');
+  };
   return (
     <Grupo titulo="Cobro" sub="Qué pasa cuando se cobra una mesa.">
       <FilaToggle
@@ -787,6 +869,17 @@ function Cobro() {
         value={config.descontarStock}
         onChange={(v) => void guardar({ descontarStock: v })}
       />
+      <View style={[styles.bloque, { borderTopColor: colors.line }]}>
+        <Text style={[styles.filaLabel, { color: colors.ink }]}>Medios de pago</Text>
+        <Text style={[styles.ayuda, { color: colors.dim }]}>Los que el mozo ve al cobrar. El crédito de torneo se aplica aparte.</Text>
+        <View style={styles.chipsJuegos}>
+          {MEDIOS_COBRO.map((id) => {
+            const activo = config.mediosPago.includes(id);
+            const nombre = MEDIOS_PAGO.find((m) => m.id === id)?.nombre ?? id;
+            return <Chip key={id} label={nombre} active={activo} onPress={() => alternarMedio(id)} />;
+          })}
+        </View>
+      </View>
     </Grupo>
   );
 }
@@ -821,7 +914,7 @@ function Temporada() {
       return;
     }
     setGuardando(true);
-    const ok = await guardar({ temporada: { ...config.temporada, nombre: limpio } }, 'Nombre de la temporada guardado');
+    const ok = await guardar({ temporada: { nombre: limpio } }, 'Nombre de la temporada guardado');
     setGuardando(false);
     if (ok) setEditado(false);
   };
@@ -831,7 +924,8 @@ function Temporada() {
     const escrito = limpiarTexto(nombre);
     const nombreNuevo = editado && escrito && escrito.length <= LARGO_NOMBRE_TEMPORADA ? escrito : config.temporada.nombre;
     setEmpezando(true);
-    const ok = await guardar({ temporada: { nombre: nombreNuevo, inicio: fechaLocal() } }, `${nombreNuevo} arrancó hoy`);
+    // Con la hora exacta: los torneos que ya se jugaron hoy quedan en la temporada anterior.
+    const ok = await guardar({ temporada: { nombre: nombreNuevo, inicio: fechaDeNegocio(config.turnos), inicioMs: ahoraServidor() } }, `${nombreNuevo} arrancó`);
     setEmpezando(false);
     if (ok) {
       setEditado(false);
@@ -842,7 +936,7 @@ function Temporada() {
   const confirmarInicio = () => {
     Alert.alert(
       '¿Empezar temporada nueva hoy?',
-      'El ranking va a contar solo los torneos desde hoy. Los anteriores siguen en el historial.',
+      'El ranking va a contar los torneos que se creen desde ahora. Los de hoy que ya se jugaron quedan en la temporada anterior y todo sigue en el historial.',
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Empezar hoy', onPress: () => void empezarHoy() },
@@ -851,7 +945,8 @@ function Temporada() {
   };
 
   const inicio = config.temporada.inicio;
-  const empezoHoy = inicio === fechaLocal();
+  const empezoHoy = inicio === fechaDeNegocio(config.turnos);
+  const horaInicio = config.temporada.inicioMs !== null ? horaLocal(new Date(config.temporada.inicioMs)) : null;
 
   return (
     <Grupo titulo="Temporada" sub="El ranking suma los torneos desde que empieza la temporada.">
@@ -880,9 +975,9 @@ function Temporada() {
           />
         ) : null}
       </View>
-      <Fila label="Inicio" sub={inicio ? 'Cuentan los torneos desde esta fecha' : undefined}>
+      <Fila label="Inicio" sub={inicio ? 'Cuentan los torneos desde ese momento' : undefined}>
         <Text style={[styles.valorTexto, { color: colors.gold }, tabularNums(12.5)]}>
-          {inicio ? fechaConAnio(inicio) : 'Cuentan todos los torneos'}
+          {inicio ? `${fechaConAnio(inicio)}${horaInicio ? ` · ${horaInicio}` : ''}` : 'Cuentan todos los torneos'}
         </Text>
       </Fila>
       <View style={[styles.bloque, { borderTopColor: colors.line }]}>
@@ -942,6 +1037,8 @@ const styles = StyleSheet.create({
   valorTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5, textAlign: 'right', maxWidth: '55%' },
 
   bloque: { borderTopWidth: 1, paddingVertical: 12, gap: 8 },
+  chipsJuegos: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  agregarJuego: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
   botones: { flexDirection: 'row', gap: 8 },
   botonChico: { flex: 1 },
   botonGrande: { flex: 1.6 },
@@ -971,7 +1068,7 @@ const styles = StyleSheet.create({
 
   swatches: { flexDirection: 'row', gap: 9 },
   swatch: { flex: 1, height: 44, borderRadius: 12, borderWidth: 2.5, alignItems: 'center', justifyContent: 'center' },
-  tilde: { color: '#FFFFFF', fontFamily: Typography.fontFamily.bold, fontSize: 15 },
+  tilde: { fontFamily: Typography.fontFamily.bold, fontSize: 15 },
   porDefecto: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
 
   turno: { borderTopWidth: 1, paddingVertical: 12, gap: 8 },

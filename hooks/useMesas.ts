@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import type { ItemPedido } from '../lib/pedido';
@@ -48,6 +48,7 @@ interface UseMesasResult {
   mesas: Mesa[];
   cargando: boolean;
   error: unknown;
+  reintentar: () => void;
 }
 
 /** Mesas de una sala, o de todas si `salaId` es 'todas'. */
@@ -55,6 +56,8 @@ export function useMesas(salaId: string | null | 'todas'): UseMesasResult {
   const [mesas, setMesas] = useState<Mesa[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  // La pestaña no se desmonta: sin reintento, un corte dejaba el salón roto hasta reiniciar la app.
+  const [intento, setIntento] = useState(0);
 
   useEffect(() => {
     if (!salaId) {
@@ -78,7 +81,8 @@ export function useMesas(salaId: string | null | 'todas'): UseMesasResult {
       }
     );
     return unsub;
-  }, [salaId]);
+  }, [salaId, intento]);
 
-  return { mesas, cargando, error };
+  const reintentar = useCallback(() => setIntento((n) => n + 1), []);
+  return { mesas, cargando, error, reintentar };
 }

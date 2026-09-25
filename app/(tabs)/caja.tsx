@@ -1,15 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useConfig } from '../../contexts/ConfigContext';
 import { useUserProfileContext } from '../../contexts/UserProfileContext';
 import { Typography, tabularNums } from '../../constants/theme';
 import { FilaDesglose, nombreMedio, useCaja } from '../../hooks/useCaja';
 import Screen, { LoadingScreen } from '../../components/Screen';
 import MetricTile from '../../components/MetricTile';
-import { EmptyState, ErrorBanner, SectionLabel } from '../../components/ui';
+import { EmptyState, ErrorBanner, SectionLabel, SmallButton } from '../../components/ui';
 import { mensajeError } from '../../lib/errores';
-import { fechaCorta } from '../../lib/fecha';
+import { fechaCorta, fechaLocal, sumarDias } from '../../lib/fecha';
 import { formatARS } from '../../lib/pedido';
 import { numeroMesaTexto } from '../../lib/salon';
 
@@ -48,16 +49,30 @@ function Desglose({ filas }: { readonly filas: readonly FilaDesglose[] }) {
 function CajaAdmin() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { resumen, hoy, cargando, error } = useCaja();
-
-  if (cargando) return <LoadingScreen />;
+  const { config } = useConfig();
+  // null = la jornada en curso; si no, un día anterior elegido con las flechas.
+  const [fechaElegida, setFechaElegida] = useState<string | null>(null);
+  const { resumen, hoy, esHoy, fechaHoy, inscripciones, cargando, error, reintentar } = useCaja(config.turnos, fechaElegida);
 
   const volver = () => router.navigate('/(tabs)/hoy');
+  const moverDia = (dias: number) => {
+    const destino = fechaLocal(sumarDias(hoy, dias));
+    // Hacia adelante no se pasa de la jornada en curso.
+    setFechaElegida(destino >= fechaHoy ? null : destino);
+  };
+  const navegacion = (
+    <View style={styles.navDias}>
+      <SmallButton label="‹ Anterior" onPress={() => moverDia(-1)} disabled={cargando} />
+      {esHoy ? null : <SmallButton label="Siguiente ›" onPress={() => moverDia(1)} disabled={cargando} />}
+    </View>
+  );
+
+  if (cargando && resumen.cobros === 0) return <LoadingScreen />;
 
   if (error) {
     return (
-      <Screen back="Hoy" onBack={volver} title="Cierre del día" subtitle={fechaLarga(hoy)}>
-        <ErrorBanner mensaje={mensajeError(error, 'No se pudieron cargar las ventas.')} />
+      <Screen back="Hoy" onBack={volver} title="Cierre del día" subtitle={fechaLarga(hoy)} right={navegacion}>
+        <ErrorBanner mensaje={mensajeError(error, 'No se pudieron cargar las ventas.')} onRetry={reintentar} />
       </Screen>
     );
   }
@@ -67,14 +82,14 @@ function CajaAdmin() {
   const variacion = resumen.variacionPct;
 
   return (
-    <Screen back="Hoy" onBack={volver} title="Cierre del día" subtitle={fechaLarga(hoy)}>
+    <Screen back="Hoy" onBack={volver} title="Cierre del día" subtitle={esHoy ? `${fechaLarga(hoy)} · jornada en curso` : fechaLarga(hoy)} right={navegacion}>
       <View style={styles.totalBloque}>
         <View style={styles.totalFila}>
           <Text
             style={[styles.total, { color: colors.ink }, tabularNums(40)]}
             numberOfLines={1}
             adjustsFontSizeToFit
-            accessibilityLabel={`Total cobrado hoy: ${formatARS(resumen.totalHoy)}`}
+            accessibilityLabel={`Total cobrado ${esHoy ? 'hoy' : 'ese día'}: ${formatARS(resumen.totalHoy)}`}
           >
             {formatARS(resumen.totalHoy)}
           </Text>
@@ -89,8 +104,19 @@ function CajaAdmin() {
           ) : null}
         </View>
         <Text style={[styles.totalSub, { color: colors.dim }]}>
-          {variacion !== null ? `Cobrado hoy · comparado con el ${diaSemanaPasada} pasado` : 'Cobrado hoy'}
+          {variacion !== null
+            ? esHoy
+              ? `Cobrado hoy · contra el ${diaSemanaPasada} pasado a esta misma hora`
+              : `Cobrado ese día · contra el ${diaSemanaPasada} anterior`
+            : esHoy
+              ? 'Cobrado hoy'
+              : 'Cobrado ese día'}
         </Text>
+        {inscripciones.total > 0 ? (
+          <Text style={[styles.totalSub, { color: colors.gold }, tabularNums(11.5)]}>
+            + {formatARS(inscripciones.total)} de inscripciones de torneo ({inscripciones.pagas} {inscripciones.pagas === 1 ? 'paga' : 'pagas'}), que cobra el juez y no están en las ventas
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.metricas}>
@@ -113,7 +139,10 @@ function CajaAdmin() {
 
       {resumen.cobros === 0 ? (
         <View style={styles.seccion}>
-          <EmptyState title="Todavía no se cobró nada hoy" body="Cuando se cobre una mesa desde el Salón, el cierre se arma solo acá." />
+          <EmptyState
+            title={esHoy ? 'Todavía no se cobró nada hoy' : 'Ese día no hubo cobros'}
+            body={esHoy ? 'Cuando se cobre una mesa desde el Salón, el cierre se arma solo acá.' : 'Mirá otro día con las flechas de arriba.'}
+          />
         </View>
       ) : (
         <>
@@ -162,6 +191,7 @@ export default function CajaScreen() {
 
 const styles = StyleSheet.create({
   totalBloque: { marginBottom: 16 },
+  navDias: { flexDirection: 'row', gap: 8, paddingTop: 4 },
   totalFila: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
   total: { flexShrink: 1, fontFamily: Typography.fontFamily.bold, fontSize: 40 },
   variacion: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5 },

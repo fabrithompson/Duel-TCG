@@ -31,7 +31,7 @@ const torneoBase: TorneoHoy = {
 };
 
 function entrada(parcial: Partial<EntradaPendientes>): EntradaPendientes {
-  return { role: 'admin', mesas: [], torneo: null, stockBajo: [], staffPendiente: [], ahoraMs: 0, ...parcial };
+  return { role: 'admin', mesas: [], torneos: [], stockBajo: [], staffPendiente: [], ahoraMs: 0, ...parcial };
 }
 
 describe('normalizarTorneoHoy', () => {
@@ -43,13 +43,13 @@ describe('normalizarTorneoHoy', () => {
       totalRondas: 4,
       jugadores: [{ uid: 'a' }, { uid: 'b' }, { uid: 'c' }, { uid: 'd' }, { uid: 'e' }],
       rondas: [
-        { numero: 1, partidas: [{ jugador1: {}, jugador2: {}, resultado: null }] },
+        { numero: 1, partidas: [{ jugador1: { uid: 'a' }, jugador2: { uid: 'b' }, resultado: null }] },
         {
           numero: 2,
           partidas: [
-            { jugador1: {}, jugador2: {}, resultado: null, mesaSalonId: 'm4' },
-            { jugador1: {}, jugador2: {}, resultado: '2-1', mesaSalonId: 'm5' },
-            { jugador1: {}, jugador2: null, resultado: '2-0' },
+            { jugador1: { uid: 'a' }, jugador2: { uid: 'c' }, resultado: null, mesaSalonId: 'm4' },
+            { jugador1: { uid: 'b' }, jugador2: { uid: 'd' }, resultado: '2-1', mesaSalonId: 'm5' },
+            { jugador1: { uid: 'e' }, jugador2: null, resultado: '2-0' },
             { jugador1: 'Ana', jugador2: 'Beto', ganador: 'Ana' },
           ],
         },
@@ -62,11 +62,11 @@ describe('normalizarTorneoHoy', () => {
     expect(t.totalRondas).toBe(4);
   });
 
-  it('cuenta premios asignados y sin entregar', () => {
+  it('cuenta premios asignados y sin entregar (la misma regla que Premios)', () => {
     const t = normalizarTorneoHoy('t2', {
       estado: 'finalizado',
       premios: [
-        { puesto: 1, jugadorUid: 'a', cantidadProducto: 4, creditoCafeteria: 0, entregado: false },
+        { puesto: 1, jugadorUid: 'a', productoId: 'sobre', cantidadProducto: 4, creditoCafeteria: 0, entregado: false },
         { puesto: 2, jugadorUid: 'b', cantidadProducto: 0, creditoCafeteria: 5000, entregado: true },
         { puesto: 3, jugadorUid: null, cantidadProducto: 2, creditoCafeteria: 0, entregado: false },
         { puesto: 4, jugadorUid: 'd', cantidadProducto: 0, creditoCafeteria: 0, entregado: false },
@@ -74,6 +74,9 @@ describe('normalizarTorneoHoy', () => {
     });
     expect(t.premiosSinEntregar).toBe(1);
     expect(t.nombre).toBe('Torneo');
+    // Con el crédito de premios apagado, un puesto que solo tenía crédito no queda pendiente.
+    const soloCredito = normalizarTorneoHoy('t4', { estado: 'finalizado', premios: [{ puesto: 1, jugadorUid: 'a', creditoCafeteria: 3000 }] }, false);
+    expect(soloCredito.premiosSinEntregar).toBe(0);
   });
 
   it('no rompe con datos basura', () => {
@@ -93,7 +96,7 @@ describe('armarPendientes', () => {
           mesa({ id: 'm1', numero: 4, estado: 'consumo', pedido: [{ itemId: 'i', nombre: 'Flat white', precio: 3200, cantidad: 2, rubro: 'Café', origen: 'productos' }] }),
           mesa({ id: 'm2', numero: 2, estado: 'libre' }),
         ],
-        torneo: torneoBase,
+        torneos: [torneoBase],
         staffPendiente: [{ id: 'u1', role: 'mozo' }],
       })
     );
@@ -106,21 +109,21 @@ describe('armarPendientes', () => {
 
   it('juez: resultados sin cargar en dorado y sin mesas del café', () => {
     const p = armarPendientes(
-      entrada({ role: 'juez', torneo: torneoBase, mesas: [mesa({ id: 'm1', numero: 1, estado: 'consumo' })], ahoraMs: 0 })
+      entrada({ role: 'juez', torneos: [torneoBase], mesas: [mesa({ id: 'm1', numero: 1, estado: 'consumo' })], ahoraMs: 0 })
     );
     expect(p).toHaveLength(1);
     expect(p[0]).toMatchObject({ tono: 'gold', destino: '/(tabs)/torneo', titulo: '2 resultados sin cargar' });
   });
 
   it('se terminó el tiempo de la ronda: el pendiente pasa a urgente', () => {
-    const p = armarPendientes(entrada({ role: 'juez', torneo: torneoBase, ahoraMs: 20_000_000 }));
+    const p = armarPendientes(entrada({ role: 'juez', torneos: [torneoBase], ahoraMs: 20_000_000 }));
     expect(p[0].tono).toBe('dg');
     expect(p[0].subtitulo).toContain('se terminó el tiempo');
   });
 
   it('ronda pausada no se considera vencida', () => {
     const p = armarPendientes(
-      entrada({ role: 'juez', torneo: { ...torneoBase, rondaPausada: true, rondaRestanteMs: 0 }, ahoraMs: 20_000_000 })
+      entrada({ role: 'juez', torneos: [{ ...torneoBase, rondaPausada: true, rondaRestanteMs: 0 }], ahoraMs: 20_000_000 })
     );
     expect(p[0].tono).toBe('gold');
   });
@@ -167,11 +170,25 @@ describe('armarPendientes', () => {
     expect(p[0].subtitulo).toBe('Medialuna, Brownie y 1 más · 1 sin stock');
   });
 
-  it('premios sin entregar del último torneo finalizado', () => {
+  it('premios sin entregar del último torneo finalizado llevan a ese torneo en Premios', () => {
     const p = armarPendientes(
-      entrada({ role: 'juez', torneo: { ...torneoBase, estado: 'finalizado', resultadosPendientes: 0, premiosSinEntregar: 2 } })
+      entrada({ role: 'juez', torneos: [{ ...torneoBase, estado: 'finalizado', resultadosPendientes: 0, premiosSinEntregar: 2 }] })
     );
-    expect(p).toEqual([expect.objectContaining({ titulo: '2 premios sin entregar', destino: '/(tabs)/premios', tono: 'gold' })]);
+    expect(p).toEqual([
+      expect.objectContaining({ titulo: '2 premios sin entregar', destino: { pathname: '/(tabs)/premios', params: { torneoId: 't1' } }, tono: 'gold' }),
+    ]);
+  });
+
+  it('los premios de un torneo anterior no se pierden cuando ya se creó el siguiente', () => {
+    const anterior: TorneoHoy = { ...torneoBase, id: 't0', nombre: 'Copa de julio', estado: 'finalizado', resultadosPendientes: 0, premiosSinEntregar: 1 };
+    const p = armarPendientes(entrada({ role: 'juez', torneos: [torneoBase, anterior] }));
+    expect(p.map((x) => x.id)).toEqual(['resultados-t1', 'premios-t0']);
+    expect(p[1]).toMatchObject({ titulo: '1 premio sin entregar', subtitulo: 'Copa de julio' });
+  });
+
+  it('el mozo no ve premios ni resultados aunque reciba los torneos', () => {
+    const anterior: TorneoHoy = { ...torneoBase, id: 't0', estado: 'finalizado', resultadosPendientes: 0, premiosSinEntregar: 1 };
+    expect(armarPendientes(entrada({ role: 'mozo', torneos: [torneoBase, anterior] }))).toEqual([]);
   });
 });
 
@@ -204,10 +221,9 @@ describe('normalizarPerfil', () => {
     });
   });
 
-  it('crédito inválido se descarta', () => {
-    expect(normalizarPerfil('u', { role: 'jugador', estadoAprobacion: 'aprobado', email: 'a@b.com', creditoCafeteria: 'x' })).toMatchObject({
-      nombre: 'a',
-      creditoCafeteria: undefined,
-    });
+  it('el perfil no lleva crédito: vive en el directorio de jugadores', () => {
+    const perfil = normalizarPerfil('u', { role: 'jugador', estadoAprobacion: 'aprobado', email: 'a@b.com', creditoCafeteria: 5000 });
+    expect(perfil).toMatchObject({ nombre: 'a' });
+    expect(perfil).not.toHaveProperty('creditoCafeteria');
   });
 });

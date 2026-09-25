@@ -551,8 +551,12 @@ describe('crédito de torneo al cobrar', () => {
   });
 
   it('si el crédito cubre todo el medio es crédito de torneo', () => {
-    expect(medioDePagoFinal(0, null)).toBe('credito_torneo');
-    expect(medioDePagoFinal(0, 'efectivo')).toBe('credito_torneo');
+    expect(medioDePagoFinal(0, null, 2200)).toBe('credito_torneo');
+    expect(medioDePagoFinal(0, 'efectivo', 2200)).toBe('credito_torneo');
+  });
+
+  it('una cuenta de $0 sin crédito no se registra como crédito de torneo', () => {
+    expect(medioDePagoFinal(0, null, 0)).toBe('efectivo');
   });
 
   it('si queda saldo exige un medio real', () => {

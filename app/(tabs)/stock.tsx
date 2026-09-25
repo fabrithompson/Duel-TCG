@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConfig } from '../../contexts/ConfigContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -7,13 +8,16 @@ import { useUserProfileContext } from '../../contexts/UserProfileContext';
 import { Typography, tabularNums } from '../../constants/theme';
 import { useCatalogo } from '../../hooks/useCatalogo';
 import Screen, { LoadingScreen } from '../../components/Screen';
+import SoloParaRoles from '../../components/SoloParaRoles';
 import { Badge, EmptyState, ErrorBanner, SectionLabel, SmallButton, ToggleRow } from '../../components/ui';
 import Button from '../../components/Button';
 import Chip from '../../components/Chip';
 import FormField from '../../components/FormField';
 import { mensajeError } from '../../lib/errores';
+import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS } from '../../lib/escritura';
+import { fechaDeNegocio } from '../../lib/fecha';
 import { tocar } from '../../lib/haptics';
-import { CatalogoItem, Rubro, UNIDADES, Unidad, formatARS, formatCantidad, stockBajo } from '../../lib/pedido';
+import { CatalogoItem, Rubro, UNIDADES, Unidad, formatARS, formatCantidad, rubrosDeStock, stockBajo } from '../../lib/pedido';
 import { coincideBusqueda, esperarConfirmacion } from '../../lib/salon';
 import {
   FormIngreso,
@@ -31,7 +35,6 @@ import {
 
 type Filtro = 'Todo' | RubroMercaderia | 'Servicios';
 
-const ESPERA_ESCRITURA_MS = 4000;
 const MAX_RESULTADOS = 6;
 
 interface VistaRol {
@@ -44,19 +47,19 @@ interface VistaRol {
 const VISTA_ADMIN: VistaRol = {
   titulo: 'Depósito',
   sub: 'Todo lo que entra y sale del local',
-  rubros: ['Café', 'Pastelería', 'TCG', 'Mesa'],
+  rubros: rubrosDeStock('admin'),
   filtros: ['Todo', 'Café', 'Pastelería', 'TCG', 'Servicios'],
 };
 const VISTA_MOZO: VistaRol = {
   titulo: 'Stock cafetería',
   sub: 'Solo consulta: el ingreso lo carga el admin',
-  rubros: ['Café', 'Pastelería'],
+  rubros: rubrosDeStock('mozo'),
   filtros: ['Todo', 'Café', 'Pastelería'],
 };
 const VISTA_JUEZ: VistaRol = {
   titulo: 'Stock TCG',
   sub: 'Sellado y accesorios del torneo',
-  rubros: ['TCG'],
+  rubros: rubrosDeStock('juez'),
   filtros: ['TCG'],
 };
 
@@ -65,6 +68,9 @@ function pasaFiltro(item: CatalogoItem, filtro: Filtro): boolean {
   if (filtro === 'Todo') return item.rubro !== 'Mesa';
   return item.rubro === filtro;
 }
+
+// Los productos de cafetería pueden pasar de un rubro a otro; los TCG viven en su propia colección.
+const RUBROS_CAFETERIA: readonly Rubro[] = ['Café', 'Pastelería', 'Mesa'];
 
 function nombreRubro(r: Rubro): string {
   return r === 'Mesa' ? 'Servicio' : r;
@@ -161,6 +167,7 @@ const FORM_INGRESO_VACIO: FormIngreso = {
 
 function PanelIngreso({ catalogo, uid }: PanelIngresoProps) {
   const { colors } = useTheme();
+  const { config } = useConfig();
   const toast = useToast();
   const [form, setForm] = useState<FormIngreso>(FORM_INGRESO_VACIO);
   const [busqueda, setBusqueda] = useState('');
@@ -196,11 +203,11 @@ function PanelIngreso({ catalogo, uid }: PanelIngresoProps) {
     const nombre = v.tipo === 'existente' ? v.producto.nombre : v.nombre;
     const unidadFinal = v.tipo === 'existente' ? v.producto.unidad : v.unidad;
     try {
-      const resultado = await esperarConfirmacion(registrarIngreso(v, uid), ESPERA_ESCRITURA_MS, (e) =>
+      const resultado = await esperarConfirmacion(registrarIngreso(v, uid, fechaDeNegocio(config.turnos)), ESPERA_ESCRITURA_MS, (e) =>
         toast.mostrar(`El ingreso de ${nombre} no se guardó: ${mensajeError(e)}`, 'error')
       );
       const texto = `Ingresaron ${formatCantidad(v.cantidad, unidadFinal)} de ${nombre}`;
-      toast.mostrar(resultado === 'pendiente' ? `${texto}. Se sincroniza cuando vuelva la conexión.` : texto, resultado === 'pendiente' ? 'info' : 'ok');
+      toast.mostrar(resultado === 'pendiente' ? `${texto}. ${AVISO_SIN_SENAL}` : texto, resultado === 'pendiente' ? 'info' : 'ok');
       setForm({ ...FORM_INGRESO_VACIO, modo: form.modo, rubro: form.rubro });
       setBusqueda('');
     } catch (e) {
@@ -350,6 +357,7 @@ interface ProductoModalProps {
 
 function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalProps) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const toast = useToast();
   const item = modo?.tipo === 'editar' ? modo.item : null;
   const [nombre, setNombre] = useState('');
@@ -357,6 +365,7 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
   const [alerta, setAlerta] = useState('');
   const [activo, setActivo] = useState(true);
   const [controlStock, setControlStock] = useState(false);
+  const [rubroElegido, setRubroElegido] = useState<Rubro>('Mesa');
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const inicial = useRef(item);
@@ -374,14 +383,15 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
     setAlerta(i?.alerta !== null && i?.alerta !== undefined ? String(i.alerta).replace('.', ',') : '');
     setActivo(i?.activo ?? true);
     setControlStock(i ? i.stock !== null : false);
+    setRubroElegido(i?.rubro ?? 'Mesa');
     setError(null);
   }, [clave]);
 
   if (!modo) return null;
 
-  const rubro: Rubro = item?.rubro ?? 'Mesa';
-  const unidad: Unidad = item?.unidad ?? 'u';
   const esTcg = item?.origen === 'tcg';
+  const rubro: Rubro = item && !esTcg ? rubroElegido : item?.rubro ?? 'Mesa';
+  const unidad: Unidad = item?.unidad ?? 'u';
   const muestraAlerta = esTcg || controlStock;
 
   const guardar = async () => {
@@ -401,7 +411,7 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
         toast.mostrar(`${validado.valor.nombre} no se guardó: ${mensajeError(e)}`, 'error')
       );
       const texto = item ? `${validado.valor.nombre} actualizado` : `Servicio ${validado.valor.nombre} creado`;
-      toast.mostrar(resultado === 'pendiente' ? `${texto}. Se sincroniza cuando vuelva la conexión.` : texto, resultado === 'pendiente' ? 'info' : 'ok');
+      toast.mostrar(resultado === 'pendiente' ? `${texto}. ${AVISO_SIN_SENAL}` : texto, resultado === 'pendiente' ? 'info' : 'ok');
       onCerrar();
     } catch (e) {
       setError(mensajeError(e, 'No se pudo guardar el producto.'));
@@ -432,12 +442,12 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
   };
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={enviando ? () => undefined : onCerrar}>
+    <Modal visible transparent animationType="slide" onRequestClose={enviando ? () => undefined : onCerrar} navigationBarTranslucent statusBarTranslucent>
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={enviando ? undefined : onCerrar} accessibilityRole="button" accessibilityLabel="Cerrar" />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetWrap}>
+        <KeyboardAvoidingView behavior="padding" style={styles.sheetWrap}>
           <View style={[styles.sheet, { backgroundColor: colors.bg, borderColor: colors.line }]}>
-            <ScrollView contentContainerStyle={styles.sheetScroll} keyboardShouldPersistTaps="handled">
+            <ScrollView contentContainerStyle={[styles.sheetScroll, { paddingBottom: 32 + insets.bottom }]} keyboardShouldPersistTaps="handled">
               <View style={styles.sheetHeader}>
                 <Text style={[styles.sheetTitulo, { color: colors.ink }]} accessibilityRole="header" numberOfLines={2}>
                   {item ? item.nombre : 'Nuevo servicio'}
@@ -464,6 +474,13 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
                 }}
                 maxLength={LIMITES_STOCK.nombre}
               />
+              {item && !esTcg ? (
+                <View style={styles.rubros} accessibilityRole="radiogroup" accessibilityLabel="Rubro">
+                  {RUBROS_CAFETERIA.map((r) => (
+                    <Chip key={r} label={nombreRubro(r)} accessibilityLabel={`Rubro ${nombreRubro(r)}`} active={rubro === r} onPress={() => setRubroElegido(r)} />
+                  ))}
+                </View>
+              ) : null}
               <FormField
                 label="Precio ($)"
                 value={precio}
@@ -510,9 +527,17 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
 }
 
 export default function StockScreen() {
+  return (
+    <SoloParaRoles roles={['admin', 'mozo', 'juez']} titulo="Stock">
+      <StockPantalla />
+    </SoloParaRoles>
+  );
+}
+
+function StockPantalla() {
   const { config } = useConfig();
   const { user, profile } = useUserProfileContext();
-  const { items, loading, error } = useCatalogo();
+  const { items, loading, error, reintentar } = useCatalogo();
   const esAdmin = profile?.role === 'admin';
   const vista = profile?.role === 'juez' ? VISTA_JUEZ : profile?.role === 'mozo' ? VISTA_MOZO : VISTA_ADMIN;
 
@@ -546,7 +571,7 @@ export default function StockScreen() {
       keyboard
       right={esAdmin ? <SmallButton label={panelAbierto ? 'Cerrar' : '+ Ingreso'} onPress={() => setPanelAbierto((p) => !p)} /> : undefined}
     >
-      {error ? <ErrorBanner mensaje={mensajeError(error, 'No se pudo cargar el stock.')} /> : null}
+      {error ? <ErrorBanner mensaje={mensajeError(error, 'No se pudo cargar el stock.')} onRetry={reintentar} /> : null}
       {esAdmin && panelAbierto ? <PanelIngreso catalogo={items} uid={user?.uid ?? null} /> : null}
 
       {vista.filtros.length > 1 ? (
@@ -624,6 +649,7 @@ const styles = StyleSheet.create({
   sheetWrap: { maxHeight: '90%' },
   sheet: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, borderBottomWidth: 0, overflow: 'hidden' },
   sheetScroll: { padding: 20, paddingBottom: 32, gap: 12 },
+  rubros: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   sheetTitulo: { flex: 1, fontFamily: Typography.fontFamily.bold, fontSize: 21, letterSpacing: -0.5 },
   cerrar: { minHeight: 44, justifyContent: 'center' },

@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { CONFIG_DEFAULT, ConfigLocal, normalizarConfig } from '../lib/config';
+import { CONFIG_DEFAULT, ConfigLocal, DefaultsTorneo, Temporada, normalizarConfig } from '../lib/config';
 
 interface ConfigContextValue {
   config: ConfigLocal;
@@ -11,8 +11,17 @@ interface ConfigContextValue {
   error: unknown;
   reintentar: () => void;
   /** Merge parcial sobre `config/publico`. Solo admin (lo hacen cumplir las reglas). */
-  guardarConfig: (cambios: Partial<ConfigLocal>) => Promise<void>;
+  guardarConfig: (cambios: CambiosConfig) => Promise<void>;
 }
+
+/**
+ * Cambios parciales, también dentro de torneo y temporada: setDoc con merge mezcla los
+ * mapas campo por campo, así dos valores guardados casi a la vez no se pisan entre sí.
+ */
+export type CambiosConfig = Partial<Omit<ConfigLocal, 'torneo' | 'temporada'>> & {
+  torneo?: Partial<DefaultsTorneo>;
+  temporada?: Partial<Temporada>;
+};
 
 const ConfigContext = createContext<ConfigContextValue | null>(null);
 
@@ -45,7 +54,7 @@ export function ConfigProvider({ children }: { readonly children: React.ReactNod
     setIntento((n) => n + 1);
   }, []);
 
-  const guardarConfig = useCallback(async (cambios: Partial<ConfigLocal>) => {
+  const guardarConfig = useCallback(async (cambios: CambiosConfig) => {
     await setDoc(CONFIG_PUBLICO_REF, cambios, { merge: true });
   }, []);
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
-import { Redirect, useRouter } from 'expo-router';
+import { Redirect } from 'expo-router';
 import Constants from 'expo-constants';
 import {
   EmailAuthProvider,
@@ -23,6 +23,7 @@ import { useUserProfileContext } from '../contexts/UserProfileContext';
 import { Typography, tabularNums } from '../constants/theme';
 import { ROLE_LABEL } from '../constants/roles';
 import { codigoError, mensajeError } from '../lib/errores';
+import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS, esperarConfirmacion } from '../lib/escritura';
 import { advertencia, fallo } from '../lib/haptics';
 import { formatARS } from '../lib/pedido';
 import type { UserProfile } from '../lib/users';
@@ -61,7 +62,6 @@ interface CuentaProps {
 }
 
 function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
-  const router = useRouter();
   const reiniciar = useReiniciarNavegacion();
   const { colors, preferencia, setPreferencia } = useTheme();
   const { mostrar } = useToast();
@@ -102,10 +102,12 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
       const batch = writeBatch(db);
       batch.update(doc(db, 'users', profile.uid), { nombre: nombreLimpio });
       if (esJugador) batch.update(doc(db, 'jugadores', profile.uid), { nombre: nombreLimpio, nombreBusqueda: normalizarBusqueda(nombreLimpio) });
-      await batch.commit();
+      const r = await esperarConfirmacion(batch.commit(), ESPERA_ESCRITURA_MS, (e) =>
+        mostrar(mensajeError(e, 'No se pudo guardar el nombre.'), 'error')
+      );
       // El displayName de Auth es secundario: el nombre que ve la app es el de users/{uid}.
-      await updateProfile(user, { displayName: nombreLimpio }).catch(() => undefined);
-      mostrar('Nombre actualizado.', 'ok');
+      void updateProfile(user, { displayName: nombreLimpio }).catch(() => undefined);
+      mostrar(r === 'pendiente' ? `Nombre actualizado. ${AVISO_SIN_SENAL}` : 'Nombre actualizado.', r === 'pendiente' ? 'info' : 'ok');
     } catch (e) {
       mostrar(mensajeError(e, 'No se pudo guardar el nombre. Probá de nuevo.'), 'error');
     } finally {

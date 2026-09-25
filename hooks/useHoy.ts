@@ -12,9 +12,10 @@ import {
 import type { Href } from 'expo-router';
 import { db } from '../config/firebase';
 import type { Role } from '../constants/roles';
-import { aMilis, fechaLocal } from '../lib/fecha';
-import { CatalogoItem, formatARS, formatCantidad, MEDIOS_PAGO, stockBajo } from '../lib/pedido';
-import { segundosRestantes } from '../lib/torneo';
+import { aMilis, fechaDeNegocio, type HorarioTurno } from '../lib/fecha';
+import { ahoraServidor } from '../lib/reloj';
+import { CatalogoItem, formatARS, formatCantidad, MEDIOS_PAGO, rubrosDeStock, stockBajo } from '../lib/pedido';
+import { mesasSalonEnDuelo, normalizarTorneo, premiosPorEntregar, segundosRestantes, type Torneo } from '../lib/torneo';
 import { normalizarProducto, normalizarProductoTcg } from './useCatalogo';
 import { estadoVisual, Mesa, normalizarMesa } from './useMesas';
 
@@ -71,6 +72,8 @@ export interface HoyData {
   cuentasAbiertas: number;
   /** Último torneo creado, solo si sigue en curso. */
   torneo: TorneoHoy | null;
+  /** Mesas del Salón con un duelo en juego (cuentan como ocupadas aunque no tengan cuenta). */
+  mesasEnDuelo: number;
   stockBajo: CatalogoItem[];
   pendientes: Pendiente[];
   cobrosRecientes: CobroHoy[];
@@ -79,6 +82,8 @@ export interface HoyData {
 const TICK_MS = 60_000;
 const MAX_MESAS_PENDIENTES = 5;
 const MAX_COBROS = 5;
+// Premios olvidados de torneos anteriores: se miran los últimos, no toda la historia.
+const TORNEOS_RECIENTES = 12;
 
 const NOMBRE_MEDIO: Record<string, string> = {
   ...Object.fromEntries(MEDIOS_PAGO.map((m) => [m.id, m.nombre])),
@@ -87,10 +92,6 @@ const NOMBRE_MEDIO: Record<string, string> = {
 
 function numeroFinito(valor: unknown, fallback = 0): number {
   return typeof valor === 'number' && Number.isFinite(valor) ? valor : fallback;
-}
-
-function registro(valor: unknown): Record<string, unknown> {
-  return valor && typeof valor === 'object' ? (valor as Record<string, unknown>) : {};
 }
 
 export function pad2(n: number): string {
@@ -113,36 +114,29 @@ export function normalizarCobro(id: string, data: Record<string, unknown>): Cobr
   };
 }
 
-// Tolera docs viejos (partidas con `ganador`, jugadores como texto) para no inventar pendientes.
-export function normalizarTorneoHoy(id: string, data: Record<string, unknown>): TorneoHoy {
-  const rondaActual = numeroFinito(data.rondaActual, 1);
-  const rondas = Array.isArray(data.rondas) ? data.rondas.map(registro) : [];
-  const ronda = rondas.find((r) => r.numero === rondaActual) ?? rondas[rondaActual - 1] ?? {};
-  const partidas = Array.isArray(ronda.partidas) ? ronda.partidas.map(registro) : [];
-  const sinResultado = partidas.filter((p) => !!p.jugador2 && p.resultado == null && p.ganador == null);
-  const premios = Array.isArray(data.premios) ? data.premios.map(registro) : [];
-
+/** Resumen de un torneo para Hoy, derivado del mismo normalizador que usan Torneo y Premios. */
+export function torneoHoyDe(t: Torneo, conCredito = true): TorneoHoy {
+  const ronda = t.rondas.find((r) => r.numero === t.rondaActual);
+  const sinResultado = ronda?.partidas.filter((p) => p.jugador2 !== null && p.resultado === null) ?? [];
   return {
-    id,
-    nombre: typeof data.nombre === 'string' && data.nombre.trim() ? data.nombre.trim() : 'Torneo',
-    estado: typeof data.estado === 'string' ? data.estado : '',
-    rondaActual,
-    totalRondas: numeroFinito(data.totalRondas, rondaActual),
-    jugadores: Array.isArray(data.jugadores) ? data.jugadores.length : 0,
-    resultadosPendientes: sinResultado.length,
-    mesasEnDuelo: sinResultado
-      .map((p) => p.mesaSalonId)
-      .filter((m): m is string => typeof m === 'string' && m.length > 0),
-    premiosSinEntregar: premios.filter(
-      (p) =>
-        typeof p.jugadorUid === 'string' &&
-        p.entregado !== true &&
-        (numeroFinito(p.cantidadProducto) > 0 || numeroFinito(p.creditoCafeteria) > 0)
-    ).length,
-    rondaFinEn: typeof data.rondaFinEn === 'number' ? data.rondaFinEn : null,
-    rondaRestanteMs: typeof data.rondaRestanteMs === 'number' ? data.rondaRestanteMs : null,
-    rondaPausada: data.rondaPausada === true,
+    id: t.id,
+    nombre: t.nombre,
+    estado: t.estado,
+    rondaActual: t.rondaActual,
+    totalRondas: t.totalRondas,
+    jugadores: t.jugadores.length,
+    resultadosPendientes: t.estado === 'en_curso' ? sinResultado.length : 0,
+    mesasEnDuelo: [...mesasSalonEnDuelo(t)],
+    premiosSinEntregar: premiosPorEntregar(t, conCredito),
+    rondaFinEn: t.rondaFinEn,
+    rondaRestanteMs: t.rondaRestanteMs,
+    rondaPausada: t.rondaPausada,
   };
+}
+
+// Tolera docs viejos (partidas con `ganador`, jugadores como texto) igual que el resto de la app.
+export function normalizarTorneoHoy(id: string, data: Record<string, unknown>, conCredito = true): TorneoHoy {
+  return torneoHoyDe(normalizarTorneo(id, data), conCredito);
 }
 
 function totalPedido(mesa: Mesa): { total: number; unidades: number } {
@@ -192,14 +186,16 @@ const PRIORIDAD: Record<TonoPendiente, number> = { dg: 0, gold: 1, br: 2 };
 export interface EntradaPendientes {
   role: Role;
   mesas: readonly Mesa[];
-  torneo: TorneoHoy | null;
+  /** Los últimos torneos, del más nuevo al más viejo: el primero manda para resultados; todos, para premios. */
+  torneos: readonly TorneoHoy[];
   stockBajo: readonly CatalogoItem[];
   staffPendiente: readonly StaffPendiente[];
   ahoraMs: number;
 }
 
 /** Lo que hay que resolver ahora, de lo más urgente a lo menos; cada uno lleva adonde se resuelve. */
-export function armarPendientes({ role, mesas, torneo, stockBajo: bajos, staffPendiente, ahoraMs }: EntradaPendientes): Pendiente[] {
+export function armarPendientes({ role, mesas, torneos, stockBajo: bajos, staffPendiente, ahoraMs }: EntradaPendientes): Pendiente[] {
+  const torneo = torneos[0] ?? null;
   const pendientes: Pendiente[] = [];
   const operaCafe = role === 'admin' || role === 'mozo';
   const operaTorneo = role === 'admin' || role === 'juez';
@@ -217,16 +213,21 @@ export function armarPendientes({ role, mesas, torneo, stockBajo: bajos, staffPe
     });
   }
 
-  if (operaTorneo && torneo?.estado === 'finalizado' && torneo.premiosSinEntregar > 0) {
-    const n = torneo.premiosSinEntregar;
-    pendientes.push({
-      id: `premios-${torneo.id}`,
-      titulo: `${n} ${plural(n, 'premio sin entregar', 'premios sin entregar')}`,
-      subtitulo: torneo.nombre,
-      tono: 'gold',
-      destino: '/(tabs)/premios',
-      hint: 'Abre Premios para entregarlos',
-    });
+  // Cada torneo cerrado con premios sin entregar, aunque ya se haya creado otro después.
+  if (operaTorneo) {
+    torneos
+      .filter((t) => t.estado === 'finalizado' && t.premiosSinEntregar > 0)
+      .forEach((t) => {
+        const n = t.premiosSinEntregar;
+        pendientes.push({
+          id: `premios-${t.id}`,
+          titulo: `${n} ${plural(n, 'premio sin entregar', 'premios sin entregar')}`,
+          subtitulo: t.nombre,
+          tono: 'gold',
+          destino: { pathname: '/(tabs)/premios', params: { torneoId: t.id } },
+          hint: 'Abre Premios para entregarlos',
+        });
+      });
   }
 
   if (bajos.length > 0) {
@@ -317,17 +318,18 @@ function useColeccion<T>(clave: string | null, crear: () => Query, mapear: (d: Q
   };
 }
 
-/** Datos de la pantalla Hoy, suscribiéndose solo a lo que el rol puede leer según las reglas. */
-export function useHoy(role: Role, alertaStock: number): HoyData {
-  const [ahora, setAhora] = useState(() => Date.now());
+/** Datos de la pantalla Hoy, suscribiéndose solo a lo que el rol necesita (y las reglas le dejan leer). */
+export function useHoy(role: Role, alertaStock: number, conCredito = true, turnos: readonly HorarioTurno[] = []): HoyData {
+  const [ahora, setAhora] = useState(() => ahoraServidor());
   const [intento, setIntento] = useState(0);
 
   useEffect(() => {
-    const id = setInterval(() => setAhora(Date.now()), TICK_MS);
+    const id = setInterval(() => setAhora(ahoraServidor()), TICK_MS);
     return () => clearInterval(id);
   }, []);
 
-  const fecha = fechaLocal(new Date(ahora));
+  // Día de caja: pasada la medianoche de un turno nocturno, lo cobrado sigue sumando al día que empezó.
+  const fecha = fechaDeNegocio(turnos, new Date(ahora));
   const operaCafe = role === 'admin' || role === 'mozo';
   const operaTorneo = role === 'admin' || role === 'juez';
   const esStaff = operaCafe || operaTorneo;
@@ -352,10 +354,11 @@ export function useHoy(role: Role, alertaStock: number): HoyData {
     () => collection(db, 'tcg_productos'),
     (d) => normalizarProductoTcg(d.id, d.data())
   );
+  // El mozo también: las mesas en duelo cuentan como ocupadas en su métrica, igual que en el Salón.
   const torneos = useColeccion(
-    operaTorneo ? `torneo:${intento}` : null,
-    () => query(collection(db, 'torneos'), orderBy('creadoEn', 'desc'), limit(1)),
-    (d) => normalizarTorneoHoy(d.id, d.data())
+    esStaff ? `torneos:${conCredito}:${intento}` : null,
+    () => query(collection(db, 'torneos'), orderBy('creadoEn', 'desc'), limit(TORNEOS_RECIENTES)),
+    (d) => normalizarTorneoHoy(d.id, d.data(), conCredito)
   );
   const staff = useColeccion<StaffPendiente>(
     role === 'admin' ? `staff:${intento}` : null,
@@ -372,9 +375,10 @@ export function useHoy(role: Role, alertaStock: number): HoyData {
   const torneoEnCurso = ultimoTorneo?.estado === 'en_curso' ? ultimoTorneo : null;
   const enDuelo = new Set(torneoEnCurso?.mesasEnDuelo ?? []);
 
+  const rubros = rubrosDeStock(role);
   const catalogo = [...productos.datos, ...tcg.datos].filter((i) => i.activo);
   const bajos = catalogo
-    .filter((i) => (role === 'juez' ? i.rubro === 'TCG' : true))
+    .filter((i) => rubros.includes(i.rubro))
     .filter((i) => stockBajo(i, alertaStock))
     .sort((a, b) => (a.stock ?? 0) - (b.stock ?? 0) || a.nombre.localeCompare(b.nombre, 'es'));
 
@@ -389,6 +393,7 @@ export function useHoy(role: Role, alertaStock: number): HoyData {
     ahora,
     totalDia: ventas.datos.reduce((acc, v) => acc + v.total, 0),
     mesasOcupadas: mesas.datos.filter((m) => estadoVisual(m.estado, enDuelo.has(m.id)) !== 'libre').length,
+    mesasEnDuelo: mesas.datos.filter((m) => enDuelo.has(m.id)).length,
     mesasTotal: mesas.datos.length,
     cuentasAbiertas: mesas.datos.filter(mesaConCuenta).length,
     torneo: torneoEnCurso,
@@ -396,7 +401,7 @@ export function useHoy(role: Role, alertaStock: number): HoyData {
     pendientes: armarPendientes({
       role,
       mesas: mesas.datos,
-      torneo: ultimoTorneo,
+      torneos: torneos.datos,
       stockBajo: bajos,
       staffPendiente: staff.datos.filter((s) => s.role === 'mozo' || s.role === 'juez'),
       ahoraMs: ahora,

@@ -19,7 +19,7 @@ describe('normalizarConfig', () => {
     expect(c.marca).toBe('#3F6B58');
     expect(c.alertaStock).toBe(12);
     expect(c.torneo).toEqual({ rondas: 6, minutos: 45, extra: 5, inscripcion: 7000, cupo: 32 });
-    expect(c.temporada).toEqual({ nombre: 'T2', inicio: '2026-07-01' });
+    expect(c.temporada).toEqual({ nombre: 'T2', inicio: '2026-07-01', inicioMs: null });
     expect(c.reporteJugador).toBe(false);
   });
 

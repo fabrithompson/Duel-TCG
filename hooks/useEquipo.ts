@@ -5,6 +5,7 @@ import { ROLE_LABEL, Role } from '../constants/roles';
 import { TonoToast, useToast } from '../contexts/ToastContext';
 import { useUserProfileContext } from '../contexts/UserProfileContext';
 import { mensajeError } from '../lib/errores';
+import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS, esperarConfirmacion } from '../lib/escritura';
 import { aMilis } from '../lib/fecha';
 import type { EstadoAprobacion } from '../lib/users';
 
@@ -157,8 +158,10 @@ export function useEquipo(opciones: { readonly soloPendientes?: boolean } = {}):
       ocupadosRef.current.add(m.uid);
       setOcupados(new Set(ocupadosRef.current));
       try {
-        await updateDoc(doc(db, 'users', m.uid), cambio);
-        mostrar(ok, tono);
+        const r = await esperarConfirmacion(updateDoc(doc(db, 'users', m.uid), cambio), ESPERA_ESCRITURA_MS, (e) =>
+          mostrar(mensajeError(e, 'No se pudo guardar el cambio.'), 'error')
+        );
+        mostrar(r === 'pendiente' ? `${ok}. ${AVISO_SIN_SENAL}` : ok, r === 'pendiente' ? 'info' : tono);
         return true;
       } catch (e) {
         mostrar(mensajeError(e, 'No se pudo guardar el cambio. Probá de nuevo.'), 'error');

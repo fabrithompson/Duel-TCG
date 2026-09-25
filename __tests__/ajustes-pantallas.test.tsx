@@ -221,7 +221,8 @@ describe('Ajustes', () => {
         jest.advanceTimersByTime(700);
       });
       expect(mockGuardarConfig).toHaveBeenCalledTimes(1);
-      expect(mockGuardarConfig).toHaveBeenCalledWith({ torneo: { ...CONFIG_DEFAULT.torneo, rondas: CONFIG_DEFAULT.torneo.rondas + 3 } });
+      // Solo el campo que cambió: si se copiara el resto, dos cambios casi simultáneos se pisarían.
+      expect(mockGuardarConfig).toHaveBeenCalledWith({ torneo: { rondas: CONFIG_DEFAULT.torneo.rondas + 3 } });
       await desmontar(r);
     } finally {
       jest.useRealTimers();
