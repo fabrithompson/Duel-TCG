@@ -118,11 +118,13 @@ export function normalizarLineas(raw: unknown): ItemPedido[] {
   for (const l of raw) {
     if (!l || typeof l !== 'object') continue;
     const r = l as Record<string, unknown>;
-    if (typeof r.itemId !== 'string' || !r.itemId) continue;
+    // Las cuentas abiertas con la versión anterior guardaban productoId en vez de itemId.
+    const itemId = typeof r.itemId === 'string' && r.itemId ? r.itemId : typeof r.productoId === 'string' && r.productoId ? r.productoId : null;
+    if (!itemId) continue;
     const cantidad = typeof r.cantidad === 'number' && Number.isFinite(r.cantidad) ? Math.round(r.cantidad) : 0;
     if (cantidad < 1) continue;
     lineas.push({
-      itemId: r.itemId,
+      itemId,
       nombre: typeof r.nombre === 'string' && r.nombre ? r.nombre : 'Sin nombre',
       precio: typeof r.precio === 'number' && Number.isFinite(r.precio) ? r.precio : 0,
       cantidad,
@@ -144,6 +146,23 @@ export function mismoPedido(a: readonly ItemPedido[], b: readonly ItemPedido[]):
   const fa = a.map(firma).sort();
   const fb = b.map(firma).sort();
   return fa.every((f, i) => f === fb[i]);
+}
+
+/**
+ * Lo que la cuenta local tiene de más respecto de la base (lo que el mozo
+ * agregó sin guardar). Sirve para rescatarlo si otro dispositivo cobró la mesa.
+ */
+export function lineasAgregadas(local: readonly ItemPedido[], base: readonly ItemPedido[]): ItemPedido[] {
+  const enBase = new Map<string, number>();
+  for (const l of base) enBase.set(claveLinea(l), (enBase.get(claveLinea(l)) ?? 0) + l.cantidad);
+  const extra: ItemPedido[] = [];
+  for (const l of local) {
+    const previa = enBase.get(claveLinea(l)) ?? 0;
+    const cantidad = l.cantidad - previa;
+    if (cantidad > 0) extra.push({ ...l, cantidad });
+    enBase.set(claveLinea(l), Math.max(0, previa - l.cantidad));
+  }
+  return extra;
 }
 
 export function cantidadEnCuenta(cuenta: readonly ItemPedido[], item: Pick<CatalogoItem, 'id' | 'origen'>): number {

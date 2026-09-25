@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,8 +11,10 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { collection, doc, increment, onSnapshot, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
+import { NavigationAction, useNavigation, usePreventRemove } from '@react-navigation/native';
+import { collection, doc, increment, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
 import { useConfig } from '../../../contexts/ConfigContext';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -20,17 +22,19 @@ import { useToast } from '../../../contexts/ToastContext';
 import { useUserProfileContext } from '../../../contexts/UserProfileContext';
 import { Typography, tabularNums } from '../../../constants/theme';
 import { useCatalogo } from '../../../hooks/useCatalogo';
-import { JugadorCredito, useCreditoJugadores } from '../../../hooks/useCreditoJugadores';
+import { useBuscarJugadores, useJugadoresPorUid } from '../../../hooks/useDirectorioJugadores';
 import { useUltimoTorneo } from '../../../hooks/useUltimoTorneo';
+import { useVolverA } from '../../../hooks/useVolverA';
 import Screen, { LoadingScreen } from '../../../components/Screen';
 import { EmptyState, ErrorBanner, SectionLabel } from '../../../components/ui';
 import Button from '../../../components/Button';
 import Chip from '../../../components/Chip';
 import FormField from '../../../components/FormField';
 import Stepper from '../../../components/Stepper';
-import { mensajeError } from '../../../lib/errores';
+import { codigoError, mensajeError } from '../../../lib/errores';
 import { fechaLocal, horaLocal } from '../../../lib/fecha';
 import { tocar } from '../../../lib/haptics';
+import { etiquetasDesambiguadas, normalizarBusqueda, normalizarJugadorDirectorio } from '../../../lib/jugadores';
 import {
   CatalogoItem,
   ItemPedido,
@@ -50,12 +54,11 @@ import {
   buscarEnCatalogo,
   cambiarCantidad,
   cantidadEnCuenta,
-  coincideBusqueda,
   creditoAplicable,
   descuentosDeStock,
   duelosPorMesa,
-  esperarConfirmacion,
   etiquetaDuelo,
+  lineasAgregadas,
   medioDePagoFinal,
   mismoPedido,
   normalizarLineas,
@@ -64,8 +67,9 @@ import {
 } from '../../../lib/salon';
 import { segundosRestantes } from '../../../lib/torneo';
 
-const ESPERA_ESCRITURA_MS = 4000;
 const MAX_RESULTADOS_JUGADOR = 6;
+const SIN_CONEXION_COBRO = 'Sin conexión: el cobro NO se registró. Reintentá cuando vuelva la señal.';
+const SIN_CONEXION_GUARDAR = 'Sin conexión: la mesa NO se guardó. Tus cambios siguen en pantalla.';
 
 interface MesaPedido {
   numero: number;
@@ -73,7 +77,30 @@ interface MesaPedido {
   pedido: ItemPedido[];
 }
 
+interface JugadorCredito {
+  uid: string;
+  nombre: string;
+  credito: number;
+}
+
+interface Conflicto {
+  lineas: ItemPedido[];
+  /** Otro dispositivo dejó la mesa vacía y libre: se cobró (o se liberó). */
+  cobrada: boolean;
+}
+
 type EstadoCarga = 'cargando' | 'ok' | 'no_existe' | 'error';
+
+/** A dónde ir cuando termine de guardar o cobrar: al salón, o a donde iba el mozo cuando saltó el aviso. */
+type Salida = { tipo: 'salon' } | { tipo: 'accion'; accion: NavigationAction };
+
+/** Error con mensaje para el mozo: se muestra tal cual, sin traducir códigos. */
+class AvisoMesa extends Error {}
+
+function esSinConexion(e: unknown): boolean {
+  const c = codigoError(e)?.replace(/^firestore\//, '');
+  return c === 'unavailable' || c === 'deadline-exceeded';
+}
 
 function useAhora(activo: boolean): number {
   const [ahora, setAhora] = useState(() => Date.now());
@@ -86,9 +113,9 @@ function useAhora(activo: boolean): number {
   return ahora;
 }
 
-function textoQuedan(stock: number, unidad: Unidad): string {
-  if (stock <= 0) return 'sin stock';
-  return `quedan ${formatCantidad(stock, unidad).replace(/ u$/, '')}`;
+function textoQuedan(restante: number, unidad: Unidad, enCuenta: number): string {
+  if (restante <= 0) return enCuenta > 0 ? 'no queda más' : 'sin stock';
+  return `quedan ${formatCantidad(restante, unidad).replace(/ u$/, '')}`;
 }
 
 function limpiarLinea(l: ItemPedido): ItemPedido {
@@ -107,7 +134,9 @@ function ProductoCard({ item, enCuenta, alertaLocal, onAgregar }: ProductoCardPr
   const sinStock = item.stock !== null && item.stock <= 0;
   const bajo = stockBajo(item, alertaLocal);
   const tope = !sinStock && !puedeAgregar(item, enCuenta);
-  const meta = item.stock === null ? formatARS(item.precio) : `${formatARS(item.precio)} · ${textoQuedan(item.stock, item.unidad)}`;
+  // "quedan" descuenta lo que ya está en esta cuenta: es lo que el mozo todavía puede sumar.
+  const restante = item.stock === null ? null : item.stock - enCuenta;
+  const meta = restante === null ? formatARS(item.precio) : `${formatARS(item.precio)} · ${textoQuedan(restante, item.unidad, enCuenta)}`;
   return (
     <Pressable
       onPress={() => {
@@ -117,17 +146,27 @@ function ProductoCard({ item, enCuenta, alertaLocal, onAgregar }: ProductoCardPr
       disabled={sinStock}
       style={({ pressed }) => [
         styles.producto,
-        { borderColor: enCuenta > 0 ? colors.br : colors.line, backgroundColor: colors.sf, opacity: sinStock ? 0.45 : pressed ? 0.7 : 1 },
+        {
+          borderColor: enCuenta > 0 ? colors.br : colors.line,
+          borderWidth: enCuenta > 0 ? 1.5 : 1,
+          backgroundColor: colors.sf,
+          opacity: sinStock ? 0.45 : pressed ? 0.7 : 1,
+        },
       ]}
       accessibilityRole="button"
       accessibilityLabel={`${item.nombre}, ${meta}${enCuenta > 0 ? `, ${enCuenta} en la cuenta` : ''}`}
       accessibilityHint={sinStock ? undefined : tope ? 'No queda más stock para sumar.' : 'Suma uno a la cuenta.'}
       accessibilityState={{ disabled: sinStock }}
     >
+      {enCuenta > 0 ? (
+        <View style={[styles.contador, { backgroundColor: colors.br }]} importantForAccessibility="no-hide-descendants">
+          <Text style={[styles.contadorTexto, tabularNums(11)]}>{enCuenta}</Text>
+        </View>
+      ) : null}
       <Text style={[styles.productoNombre, { color: colors.ink }]} numberOfLines={2}>
         {item.nombre}
       </Text>
-      <Text style={[styles.productoMeta, { color: bajo ? colors.dg : colors.dim }, tabularNums(11)]} numberOfLines={1}>
+      <Text style={[styles.productoMeta, { color: bajo || tope ? colors.dg : colors.dim }, tabularNums(11)]} numberOfLines={1}>
         {meta}
       </Text>
     </Pressable>
@@ -136,11 +175,12 @@ function ProductoCard({ item, enCuenta, alertaLocal, onAgregar }: ProductoCardPr
 
 interface FilaJugadorProps {
   readonly jugador: JugadorCredito;
+  readonly etiqueta: string;
   readonly elegido: boolean;
   readonly onPress: () => void;
 }
 
-function FilaJugador({ jugador, elegido, onPress }: FilaJugadorProps) {
+function FilaJugador({ jugador, etiqueta, elegido, onPress }: FilaJugadorProps) {
   const { colors } = useTheme();
   const sinCredito = jugador.credito <= 0;
   return (
@@ -160,11 +200,11 @@ function FilaJugador({ jugador, elegido, onPress }: FilaJugadorProps) {
         },
       ]}
       accessibilityRole="radio"
-      accessibilityLabel={`${jugador.nombre}, ${sinCredito ? 'sin crédito' : `${formatARS(jugador.credito)} de crédito`}`}
+      accessibilityLabel={`${etiqueta}, ${sinCredito ? 'sin crédito' : `${formatARS(jugador.credito)} de crédito`}`}
       accessibilityState={{ selected: elegido, checked: elegido, disabled: sinCredito }}
     >
       <Text style={[styles.filaJugadorNombre, { color: colors.ink }]} numberOfLines={1}>
-        {jugador.nombre}
+        {etiqueta}
       </Text>
       <Text style={[styles.filaJugadorCredito, { color: sinCredito ? colors.dim : colors.gold }, tabularNums(12.5)]}>
         {sinCredito ? 'sin crédito' : formatARS(jugador.credito)}
@@ -178,26 +218,24 @@ interface CobroSheetProps {
   readonly mesaId: string;
   readonly mesaNumero: number;
   readonly cuenta: readonly ItemPedido[];
+  /** Lo último que confirmó el servidor para esta mesa: el cobro exige que siga igual. */
+  readonly base: readonly ItemPedido[];
   readonly catalogo: readonly CatalogoItem[];
-  readonly duelo: DueloEnMesa | undefined;
-  readonly jugadores: readonly JugadorCredito[];
-  readonly porUid: ReadonlyMap<string, JugadorCredito>;
-  readonly cargandoJugadores: boolean;
-  readonly errorJugadores: unknown;
+  readonly sentados: readonly JugadorCredito[];
   readonly bloqueo: string | null;
   readonly onCerrar: () => void;
-  readonly onCobrado: (total: number, pendiente: boolean) => void;
+  readonly onCobrado: (total: number) => void;
 }
 
 function CobroSheet(props: CobroSheetProps) {
-  const { visible, mesaId, mesaNumero, cuenta, catalogo, duelo, jugadores, porUid, cargandoJugadores, errorJugadores, bloqueo, onCerrar, onCobrado } = props;
+  const { visible, mesaId, mesaNumero, cuenta, base, catalogo, sentados, bloqueo, onCerrar, onCobrado } = props;
   const { colors } = useTheme();
-  const toast = useToast();
   const { config } = useConfig();
   const { user } = useUserProfileContext();
+  const insets = useSafeAreaInsets();
 
   const [medio, setMedio] = useState<MedioPago | null>(null);
-  const [jugadorUid, setJugadorUid] = useState<string | null>(null);
+  const [elegido, setElegido] = useState<JugadorCredito | null>(null);
   const [aplicar, setAplicar] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -206,34 +244,28 @@ function CobroSheet(props: CobroSheetProps) {
   useEffect(() => {
     if (!visible) return;
     setMedio(null);
-    setJugadorUid(null);
+    setElegido(null);
     setAplicar(false);
     setBusqueda('');
     setError(null);
   }, [visible]);
 
+  const buscados = useBuscarJugadores({ activo: visible && sentados.length === 0, busqueda, limite: MAX_RESULTADOS_JUGADOR, conCreditoPrimero: true });
+  const candidatos: JugadorCredito[] = useMemo(
+    () => (sentados.length > 0 ? [...sentados] : buscados.jugadores.map((j) => ({ uid: j.uid, nombre: j.nombre, credito: j.credito }))),
+    [sentados, buscados.jugadores]
+  );
+  const etiquetas = useMemo(
+    () => etiquetasDesambiguadas(candidatos.map((j) => ({ uid: j.uid, nombre: j.nombre, nombreBusqueda: normalizarBusqueda(j.nombre) }))),
+    [candidatos]
+  );
+
+  // El saldo que se ve es el más nuevo que llegó; igual la transacción lo vuelve a leer antes de descontar.
+  const elegidoVigente = elegido ? candidatos.find((j) => j.uid === elegido.uid) ?? elegido : null;
   const subtotal = subtotalDe(cuenta);
-  const sentados = useMemo(() => {
-    if (!duelo) return [];
-    const p = duelo.partida;
-    return [p.jugador1, p.jugador2]
-      .filter((j): j is NonNullable<typeof j> => !!j && typeof j.uid === 'string')
-      .map((j) => porUid.get(j.uid) ?? { uid: j.uid, nombre: j.nombre, credito: 0 });
-  }, [duelo, porUid]);
-
-  const candidatos = useMemo(() => {
-    if (sentados.length > 0) return sentados;
-    if (busqueda.trim()) return jugadores.filter((j) => coincideBusqueda(j.nombre, busqueda)).slice(0, MAX_RESULTADOS_JUGADOR);
-    return jugadores
-      .filter((j) => j.credito > 0)
-      .sort((a, b) => b.credito - a.credito)
-      .slice(0, MAX_RESULTADOS_JUGADOR);
-  }, [sentados, busqueda, jugadores]);
-
-  const elegido = jugadorUid ? porUid.get(jugadorUid) ?? sentados.find((j) => j.uid === jugadorUid) : undefined;
-  const credito = elegido?.credito ?? 0;
+  const credito = elegidoVigente?.credito ?? 0;
   const aplicable = creditoAplicable(credito, subtotal);
-  const creditoAplicado = aplicar && elegido ? aplicable : 0;
+  const creditoAplicado = aplicar && elegidoVigente ? aplicable : 0;
   const total = subtotal - creditoAplicado;
   const medioFinal = medioDePagoFinal(total, medio);
   const { descuentos, huerfanas } = useMemo(() => descuentosDeStock(cuenta, catalogo), [cuenta, catalogo]);
@@ -244,57 +276,67 @@ function CobroSheet(props: CobroSheetProps) {
     if (!puedeConfirmar || !uid || medioFinal === null) return;
     setEnviando(true);
     setError(null);
+    const jugador = creditoAplicado > 0 ? elegidoVigente : null;
     try {
-      const batch = writeBatch(db);
-      batch.set(doc(collection(db, 'ventas')), {
-        mesaId,
-        mesaNum: mesaNumero,
-        items: cuenta.map(limpiarLinea),
-        subtotal,
-        creditoAplicado,
-        creditoUid: creditoAplicado > 0 && elegido ? elegido.uid : null,
-        total,
-        medioPago: medioFinal,
-        fecha: fechaLocal(),
-        hora: horaLocal(),
-        creadoPor: uid,
-        creadoEn: serverTimestamp(),
+      // Transacción y no batch: sin conexión falla en el acto (un batch quedaría en una cola en memoria que
+      // se pierde si Android cierra la app) y si otro mozo tocó la mesa, no se cobra dos veces ni se pisa nada.
+      await runTransaction(db, async (tx) => {
+        const refMesa = doc(db, 'mesas', mesaId);
+        const snapMesa = await tx.get(refMesa);
+        if (!snapMesa.exists()) throw new AvisoMesa('Esta mesa ya no existe.');
+        if (!mismoPedido(normalizarLineas(snapMesa.data().pedido), base)) {
+          throw new AvisoMesa('Otro dispositivo cambió esta mesa mientras cobrabas. Cerrá el cobro y revisá la cuenta.');
+        }
+        if (jugador) {
+          const snapJugador = await tx.get(doc(db, 'jugadores', jugador.uid));
+          const saldo = snapJugador.exists() ? normalizarJugadorDirectorio(jugador.uid, snapJugador.data()).credito : 0;
+          if (saldo < creditoAplicado) throw new AvisoMesa(`${jugador.nombre} ya no tiene ese crédito: le quedan ${formatARS(saldo)}.`);
+        }
+        tx.set(doc(collection(db, 'ventas')), {
+          mesaId,
+          mesaNum: mesaNumero,
+          items: cuenta.map(limpiarLinea),
+          subtotal,
+          creditoAplicado,
+          creditoUid: jugador ? jugador.uid : null,
+          total,
+          medioPago: medioFinal,
+          fecha: fechaLocal(),
+          hora: horaLocal(),
+          creadoPor: uid,
+          creadoEn: serverTimestamp(),
+        });
+        if (config.descontarStock) {
+          for (const d of descuentos) tx.update(doc(db, d.coleccion, d.id), { stock: increment(-d.cantidad) });
+        }
+        if (jugador) tx.update(doc(db, 'jugadores', jugador.uid), { creditoCafeteria: increment(-creditoAplicado) });
+        tx.update(refMesa, { pedido: [], estado: 'libre' });
       });
-      if (config.descontarStock) {
-        for (const d of descuentos) batch.update(doc(db, d.coleccion, d.id), { stock: increment(-d.cantidad) });
-      }
-      if (creditoAplicado > 0 && elegido) {
-        batch.update(doc(db, 'users', elegido.uid), { creditoCafeteria: increment(-creditoAplicado) });
-      }
-      batch.update(doc(db, 'mesas', mesaId), { pedido: [], estado: 'libre' });
-      const resultado = await esperarConfirmacion(batch.commit(), ESPERA_ESCRITURA_MS, (e) =>
-        toast.mostrar(`El cobro de la mesa ${numeroMesaTexto(mesaNumero)} no se registró: ${mensajeError(e)}`, 'error')
-      );
-      onCobrado(total, resultado === 'pendiente');
+      onCobrado(total);
     } catch (e) {
-      // El batch es atómico: si el saldo de crédito cambió en otro dispositivo, las reglas rechazan todo el cobro.
-      const extra = creditoAplicado > 0 ? ' Si aplicaste crédito, revisá que el jugador todavía lo tenga.' : '';
-      setError(`${mensajeError(e, 'No se pudo registrar el cobro.')}${extra}`);
+      if (e instanceof AvisoMesa) setError(e.message);
+      else if (esSinConexion(e)) setError(SIN_CONEXION_COBRO);
+      else setError(mensajeError(e, 'No se pudo registrar el cobro.'));
     } finally {
       setEnviando(false);
     }
   };
 
   const elegirJugador = (j: JugadorCredito) => {
-    if (jugadorUid === j.uid) {
-      setJugadorUid(null);
+    if (elegido?.uid === j.uid) {
+      setElegido(null);
       setAplicar(false);
       return;
     }
-    setJugadorUid(j.uid);
+    setElegido(j);
     setAplicar(j.credito > 0);
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={enviando ? () => undefined : onCerrar}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={enviando ? () => undefined : onCerrar} navigationBarTranslucent statusBarTranslucent>
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={enviando ? undefined : onCerrar} accessibilityRole="button" accessibilityLabel="Cerrar cobro" />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetWrap}>
+        <KeyboardAvoidingView behavior="padding" style={styles.sheetWrap}>
           <View style={[styles.sheet, { backgroundColor: colors.bg, borderColor: colors.line }]}>
             <View style={[styles.handle, { backgroundColor: colors.line }]} />
             <ScrollView contentContainerStyle={styles.sheetScroll} keyboardShouldPersistTaps="handled">
@@ -353,64 +395,60 @@ function CobroSheet(props: CobroSheetProps) {
 
               <View style={styles.bloqueCredito}>
                 <SectionLabel tone="gold">Crédito de torneo</SectionLabel>
-                {errorJugadores ? (
-                  <ErrorBanner mensaje={mensajeError(errorJugadores, 'No se pudo cargar el crédito de los jugadores.')} />
-                ) : cargandoJugadores ? (
-                  <ActivityIndicator color={colors.gold} accessibilityLabel="Cargando jugadores" />
+                {sentados.length === 0 ? (
+                  <FormField
+                    label="Buscar jugador"
+                    placeholder="Nombre del jugador"
+                    value={busqueda}
+                    onChangeText={setBusqueda}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                    maxLength={40}
+                  />
                 ) : (
-                  <>
-                    {sentados.length === 0 ? (
-                      <FormField
-                        label="Buscar jugador"
-                        placeholder="Nombre del jugador"
-                        value={busqueda}
-                        onChangeText={setBusqueda}
-                        autoCapitalize="words"
-                        autoCorrect={false}
-                        returnKeyType="search"
-                        maxLength={40}
-                      />
-                    ) : (
-                      <Text style={[styles.nota, { color: colors.dim }]}>Jugadores sentados en esta mesa de duelo:</Text>
-                    )}
-                    {candidatos.length === 0 ? (
-                      <Text style={[styles.nota, { color: colors.dim }]}>
-                        {busqueda.trim() ? 'No hay jugadores con ese nombre.' : 'Ningún jugador tiene crédito para usar.'}
-                      </Text>
-                    ) : (
-                      <View style={styles.listaJugadores} accessibilityRole="radiogroup">
-                        {candidatos.map((j) => (
-                          <FilaJugador key={j.uid} jugador={j} elegido={jugadorUid === j.uid} onPress={() => elegirJugador(j)} />
-                        ))}
-                      </View>
-                    )}
-                    {elegido && aplicable > 0 ? (
-                      <View style={[styles.toggleOro, { borderColor: colors.line, backgroundColor: colors.sf }]}>
-                        <View style={styles.flex1}>
-                          <Text style={[styles.toggleLabel, { color: colors.ink }]}>Aplicar {formatARS(aplicable)}</Text>
-                          <Text style={[styles.toggleSub, { color: colors.dim }]}>
-                            {elegido.nombre} tiene {formatARS(credito)} de crédito
-                          </Text>
-                        </View>
-                        <Switch
-                          value={aplicar}
-                          onValueChange={(v) => {
-                            tocar();
-                            setAplicar(v);
-                          }}
-                          trackColor={{ false: colors.line, true: colors.gold }}
-                          thumbColor="#FFFFFF"
-                          ios_backgroundColor={colors.line}
-                          accessibilityLabel={`Aplicar ${formatARS(aplicable)} de crédito de ${elegido.nombre}`}
-                        />
-                      </View>
-                    ) : null}
-                  </>
+                  <Text style={[styles.nota, { color: colors.dim }]}>Jugadores sentados en esta mesa de duelo:</Text>
                 )}
+                {buscados.error ? (
+                  <ErrorBanner mensaje={mensajeError(buscados.error, 'No se pudo cargar el crédito de los jugadores.')} onRetry={buscados.reintentar} />
+                ) : buscados.cargando && sentados.length === 0 ? (
+                  <ActivityIndicator color={colors.gold} accessibilityLabel="Buscando jugadores" />
+                ) : candidatos.length === 0 ? (
+                  <Text style={[styles.nota, { color: colors.dim }]}>
+                    {busqueda.trim() ? 'No hay jugadores con ese nombre.' : 'Ningún jugador tiene crédito para usar.'}
+                  </Text>
+                ) : (
+                  <View style={styles.listaJugadores} accessibilityRole="radiogroup">
+                    {candidatos.map((j) => (
+                      <FilaJugador key={j.uid} jugador={j} etiqueta={etiquetas.get(j.uid) ?? j.nombre} elegido={elegido?.uid === j.uid} onPress={() => elegirJugador(j)} />
+                    ))}
+                  </View>
+                )}
+                {elegidoVigente && aplicable > 0 ? (
+                  <View style={[styles.toggleOro, { borderColor: colors.line, backgroundColor: colors.sf }]}>
+                    <View style={styles.flex1}>
+                      <Text style={[styles.toggleLabel, { color: colors.ink }]}>Aplicar {formatARS(aplicable)}</Text>
+                      <Text style={[styles.toggleSub, { color: colors.dim }]}>
+                        {elegidoVigente.nombre} tiene {formatARS(credito)} de crédito
+                      </Text>
+                    </View>
+                    <Switch
+                      value={aplicar}
+                      onValueChange={(v) => {
+                        tocar();
+                        setAplicar(v);
+                      }}
+                      trackColor={{ false: colors.line, true: colors.gold }}
+                      thumbColor="#FFFFFF"
+                      ios_backgroundColor={colors.line}
+                      accessibilityLabel={`Aplicar ${formatARS(aplicable)} de crédito de ${elegidoVigente.nombre}`}
+                    />
+                  </View>
+                ) : null}
               </View>
             </ScrollView>
 
-            <View style={[styles.sheetFooter, { borderTopColor: colors.line }]}>
+            <View style={[styles.sheetFooter, { borderTopColor: colors.line, paddingBottom: 14 + insets.bottom }]}>
               {error ? (
                 <Text style={[styles.aviso, { color: colors.dg }]} accessibilityRole="alert">
                   {error}
@@ -430,7 +468,8 @@ function CobroSheet(props: CobroSheetProps) {
 }
 
 export default function PedidoScreen() {
-  const router = useRouter();
+  const navigation = useNavigation();
+  const volverAlSalon = useVolverA('/(tabs)/salon');
   const { colors } = useTheme();
   const toast = useToast();
   const { config } = useConfig();
@@ -446,10 +485,11 @@ export default function PedidoScreen() {
   const [estadoCarga, setEstadoCarga] = useState<EstadoCarga>('cargando');
   const [errorMesa, setErrorMesa] = useState<unknown>(null);
   const [cuenta, setCuenta] = useState<ItemPedido[]>([]);
-  const [conflicto, setConflicto] = useState<ItemPedido[] | null>(null);
+  const [conflicto, setConflicto] = useState<Conflicto | null>(null);
   const [rubroElegido, setRubroElegido] = useState<Rubro | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [cobroAbierto, setCobroAbierto] = useState(false);
+  const [salida, setSalida] = useState<Salida | null>(null);
 
   const [baseVista, setBaseVista] = useState<ItemPedido[] | null>(null);
   const base = useRef<ItemPedido[] | null>(null);
@@ -475,16 +515,13 @@ export default function PedidoScreen() {
       (snap) => {
         if (!snap.exists()) {
           setMesa(null);
-          setEstadoCarga('no_existe');
+          setEstadoCarga(snap.metadata.fromCache ? 'error' : 'no_existe');
           return;
         }
         const data = snap.data();
         const pedido = normalizarLineas(data.pedido);
-        setMesa({
-          numero: typeof data.numero === 'number' ? data.numero : 0,
-          estado: typeof data.estado === 'string' ? data.estado : 'libre',
-          pedido,
-        });
+        const estado = typeof data.estado === 'string' ? data.estado : 'libre';
+        setMesa({ numero: typeof data.numero === 'number' ? data.numero : 0, estado, pedido });
         setErrorMesa(null);
         setEstadoCarga('ok');
 
@@ -501,7 +538,7 @@ export default function PedidoScreen() {
           setConflicto(null);
         } else {
           // Cambios locales sin guardar y otro dispositivo tocó la mesa: nunca se pisa en silencio.
-          setConflicto(pedido);
+          setConflicto({ lineas: pedido, cobrada: pedido.length === 0 && estado === 'libre' });
         }
       },
       (e) => {
@@ -514,7 +551,20 @@ export default function PedidoScreen() {
 
   const duelo = useMemo(() => (mesaId ? duelosPorMesa(torneo).get(mesaId) : undefined), [torneo, mesaId]);
   const ahora = useAhora(!!duelo && torneo?.rondaPausada !== true);
-  const creditos = useCreditoJugadores(puedeOperar && (!!duelo || cobroAbierto));
+  const uidsSentados = useMemo(
+    () => (duelo ? [duelo.partida.jugador1.uid, duelo.partida.jugador2?.uid].filter((u): u is string => !!u) : []),
+    [duelo]
+  );
+  const directorioSentados = useJugadoresPorUid(uidsSentados);
+  const sentados: JugadorCredito[] = useMemo(
+    () =>
+      duelo
+        ? [duelo.partida.jugador1, duelo.partida.jugador2]
+            .filter((j): j is NonNullable<typeof j> => !!j)
+            .map((j) => ({ uid: j.uid, nombre: j.nombre, credito: directorioSentados.get(j.uid)?.credito ?? 0 }))
+        : [],
+    [duelo, directorioSentados]
+  );
 
   const activos = useMemo(() => catalogo.filter((i) => i.activo), [catalogo]);
   const rubros = useMemo(() => RUBROS.filter((r) => activos.some((i) => i.rubro === r)), [activos]);
@@ -528,6 +578,15 @@ export default function PedidoScreen() {
 
   const subtotal = subtotalDe(cuenta);
   const sucio = baseVista !== null && !mismoPedido(cuenta, baseVista);
+  const numero = mesa ? numeroMesaTexto(mesa.numero) : '';
+
+  // Se navega recién cuando la cuenta ya coincide con lo guardado: así el aviso de "cambios sin guardar" no salta.
+  useEffect(() => {
+    if (!salida || sucio) return;
+    setSalida(null);
+    if (salida.tipo === 'accion') navigation.dispatch(salida.accion);
+    else volverAlSalon();
+  }, [salida, sucio, navigation, volverAlSalon]);
 
   const agregar = useCallback(
     (item: CatalogoItem) => {
@@ -544,52 +603,82 @@ export default function PedidoScreen() {
 
   const recargar = () => {
     if (!conflicto) return;
-    fijarBase(conflicto);
-    setCuenta(conflicto);
+    fijarBase(conflicto.lineas);
+    setCuenta(conflicto.lineas);
     setConflicto(null);
-    toast.mostrar('Cuenta actualizada con la versión del otro dispositivo', 'info');
+    toast.mostrar(conflicto.cobrada ? `La mesa ${numero} quedó libre` : 'Cuenta actualizada con la versión del otro dispositivo', 'info');
   };
 
   const mantenerMia = () => {
     if (!conflicto) return;
-    fijarBase(conflicto);
+    fijarBase(conflicto.lineas);
     setConflicto(null);
   };
 
-  const guardar = async () => {
+  // La mesa se cobró en otro lado: se abre una cuenta nueva solo con lo que este mozo agregó y no llegó a guardar.
+  const abrirConLoAgregado = () => {
+    if (!conflicto) return;
+    const extra = lineasAgregadas(cuentaActual.current, base.current ?? []);
+    fijarBase(conflicto.lineas);
+    setCuenta(extra);
+    setConflicto(null);
+  };
+
+  const guardar = async (despues: Salida = { tipo: 'salon' }) => {
     if (!mesaId || !mesa || guardando || conflicto) return;
     setGuardando(true);
-    const numero = numeroMesaTexto(mesa.numero);
+    const lineas = cuenta.map(limpiarLinea);
+    const baseLeida = base.current ?? [];
     try {
-      const lineas = cuenta.map(limpiarLinea);
-      const resultado = await esperarConfirmacion(
-        updateDoc(doc(db, 'mesas', mesaId), { pedido: lineas, estado: lineas.length > 0 ? 'consumo' : 'libre' }),
-        ESPERA_ESCRITURA_MS,
-        (e) => toast.mostrar(`La mesa ${numero} no se guardó: ${mensajeError(e)}`, 'error')
-      );
+      await runTransaction(db, async (tx) => {
+        const ref = doc(db, 'mesas', mesaId);
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new AvisoMesa('Esta mesa ya no existe.');
+        if (!mismoPedido(normalizarLineas(snap.data().pedido), baseLeida)) {
+          throw new AvisoMesa('Otro dispositivo cambió esta mesa. Revisá el aviso de arriba antes de guardar.');
+        }
+        tx.update(ref, { pedido: lineas, estado: lineas.length > 0 ? 'consumo' : 'libre' });
+      });
       fijarBase(lineas);
-      const texto = lineas.length > 0 ? `Mesa ${numero} guardada` : `Mesa ${numero} libre`;
-      toast.mostrar(resultado === 'pendiente' ? `${texto}. Se sincroniza cuando vuelva la conexión.` : texto, resultado === 'pendiente' ? 'info' : 'ok');
-      router.back();
+      toast.mostrar(lineas.length > 0 ? `Mesa ${numero} guardada` : `Mesa ${numero} libre`, 'ok');
+      setSalida(despues);
     } catch (e) {
-      toast.mostrar(mensajeError(e, 'No se pudo guardar la mesa.'), 'error');
+      if (e instanceof AvisoMesa) toast.mostrar(e.message, 'error');
+      else toast.mostrar(esSinConexion(e) ? SIN_CONEXION_GUARDAR : mensajeError(e, 'No se pudo guardar la mesa.'), 'error');
     } finally {
       setGuardando(false);
     }
   };
 
-  const onCobrado = (total: number, pendiente: boolean) => {
+  const onCobrado = (total: number) => {
     setCobroAbierto(false);
     fijarBase([]);
     setCuenta([]);
-    const texto = total > 0 ? `Cobrado ${formatARS(total)}` : 'Cobrado con crédito de torneo';
-    toast.mostrar(pendiente ? `${texto}. Se sincroniza cuando vuelva la conexión.` : texto, pendiente ? 'info' : 'ok');
-    router.back();
+    // El listener pudo ver la mesa vacía antes de que termine la transacción y marcarla como conflicto.
+    setConflicto(null);
+    toast.mostrar(total > 0 ? `Cobrado ${formatARS(total)}` : 'Cobrado con crédito de torneo', 'ok');
+    setSalida({ tipo: 'salon' });
   };
+
+  // Atrás de Android, "← Salón" o tocar la pestaña con cambios sin guardar: se pregunta antes de perderlos.
+  usePreventRemove(puedeOperar && sucio && !guardando, ({ data }) => {
+    const descartar = { text: 'Descartar', style: 'destructive' as const, onPress: () => navigation.dispatch(data.action) };
+    const seguir = { text: 'Seguir editando', style: 'cancel' as const };
+    if (conflicto) {
+      // Con conflicto no se puede guardar a ciegas: primero hay que resolver el aviso.
+      Alert.alert('Cambios sin guardar', `Otro dispositivo cambió la mesa ${numero}. Resolvé el aviso antes de guardar o descartá lo tuyo.`, [seguir, descartar]);
+      return;
+    }
+    Alert.alert('Cambios sin guardar', `La mesa ${numero} tiene cambios que no guardaste.`, [
+      seguir,
+      descartar,
+      { text: 'Guardar', onPress: () => void guardar({ tipo: 'accion', accion: data.action }) },
+    ]);
+  });
 
   if (!puedeOperar) {
     return (
-      <Screen back="Salón" title="Pedido">
+      <Screen back="Salón" onBack={volverAlSalon} title="Pedido">
         <EmptyState title="Solo mozos y admin toman pedidos" body="Con tu perfil no podés cargar ni cobrar cuentas." />
       </Screen>
     );
@@ -597,11 +686,11 @@ export default function PedidoScreen() {
 
   if (!mesaId || estadoCarga === 'no_existe') {
     return (
-      <Screen back="Salón" title="Mesa">
+      <Screen back="Salón" onBack={volverAlSalon} title="Mesa">
         <EmptyState
           title="Esta mesa ya no existe"
           body="Puede que el admin la haya eliminado del plano."
-          action={<Button label="Volver al salón" variant="secondary" onPress={() => router.back()} />}
+          action={<Button label="Volver al salón" variant="secondary" onPress={volverAlSalon} />}
         />
       </Screen>
     );
@@ -611,37 +700,41 @@ export default function PedidoScreen() {
 
   if (estadoCarga === 'error' || !mesa) {
     return (
-      <Screen back="Salón" title="Mesa">
-        <ErrorBanner mensaje={mensajeError(errorMesa, 'No se pudo abrir la mesa.')} />
+      <Screen back="Salón" onBack={volverAlSalon} title="Mesa">
+        <ErrorBanner mensaje={errorMesa ? mensajeError(errorMesa, 'No se pudo abrir la mesa.') : 'Sin conexión: no se pudo abrir la mesa.'} />
       </Screen>
     );
   }
 
-  const numero = numeroMesaTexto(mesa.numero);
   const segundos = duelo && torneo ? segundosRestantes(torneo, ahora) : 0;
   const estadoTexto = duelo ? `Duelo · ${etiquetaDuelo(duelo.ronda, segundos)}` : mesa.estado !== 'libre' || mesa.pedido.length > 0 ? 'Consumo' : 'Libre';
   const estadoColor = duelo ? colors.gold : estadoTexto === 'Consumo' ? colors.br : colors.dim;
   // Sin el catálogo completo no se sabe qué productos controlan stock: cobrar igual dejaría el stock mal.
   const catalogoIncompleto = config.descontarStock && (cargandoCatalogo || !!errorCatalogo);
-  const sentadosConCredito = duelo
-    ? [duelo.partida.jugador1, duelo.partida.jugador2]
-        .filter((j): j is NonNullable<typeof j> => !!j)
-        .map((j) => creditos.porUid.get(j.uid))
-        .filter((j): j is JugadorCredito => !!j && j.credito > 0)
-    : [];
+  const sentadosConCredito = sentados.filter((j) => j.credito > 0);
 
   const footer = (
     <View style={[styles.footer, { borderTopColor: colors.line, backgroundColor: colors.bg }]}>
       {conflicto ? (
         <View style={[styles.conflicto, { borderColor: colors.dg }]} accessibilityRole="alert">
-          <Text style={[styles.conflictoTexto, { color: colors.dg }]}>Otro dispositivo actualizó esta mesa. Tus cambios todavía no se guardaron.</Text>
+          <Text style={[styles.conflictoTexto, { color: colors.dg }]}>
+            {conflicto.cobrada
+              ? 'Esta mesa se cobró (o se liberó) en otro dispositivo. Lo que agregaste todavía no se guardó.'
+              : 'Otro dispositivo actualizó esta mesa. Tus cambios todavía no se guardaron.'}
+          </Text>
           <View style={styles.conflictoAcciones}>
             <Pressable onPress={recargar} hitSlop={8} style={styles.conflictoBoton} accessibilityRole="button" accessibilityLabel="Recargar la cuenta del otro dispositivo">
               <Text style={[styles.conflictoAccion, { color: colors.dg }]}>Recargar</Text>
             </Pressable>
-            <Pressable onPress={mantenerMia} hitSlop={8} style={styles.conflictoBoton} accessibilityRole="button" accessibilityLabel="Mantener mi versión">
-              <Text style={[styles.conflictoAccion, { color: colors.dim }]}>Mantener la mía</Text>
-            </Pressable>
+            {conflicto.cobrada ? (
+              <Pressable onPress={abrirConLoAgregado} hitSlop={8} style={styles.conflictoBoton} accessibilityRole="button" accessibilityLabel="Abrir una cuenta nueva con lo que agregaste">
+                <Text style={[styles.conflictoAccion, { color: colors.dim }]}>Cuenta nueva con lo agregado</Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={mantenerMia} hitSlop={8} style={styles.conflictoBoton} accessibilityRole="button" accessibilityLabel="Mantener mi versión">
+                <Text style={[styles.conflictoAccion, { color: colors.dim }]}>Mantener la mía</Text>
+              </Pressable>
+            )}
           </View>
         </View>
       ) : null}
@@ -674,6 +767,7 @@ export default function PedidoScreen() {
   return (
     <Screen
       back="Salón"
+      onBack={volverAlSalon}
       title={`Mesa ${numero}`}
       right={
         <Text style={[styles.estado, { color: estadoColor }, tabularNums(11.5)]} accessibilityLabel={`Estado: ${estadoTexto}`}>
@@ -756,12 +850,9 @@ export default function PedidoScreen() {
         mesaId={mesaId}
         mesaNumero={mesa.numero}
         cuenta={cuenta}
+        base={baseVista ?? []}
         catalogo={catalogo}
-        duelo={duelo}
-        jugadores={creditos.jugadores}
-        porUid={creditos.porUid}
-        cargandoJugadores={creditos.cargando}
-        errorJugadores={creditos.error}
+        sentados={sentados}
         bloqueo={
           conflicto
             ? 'Otro dispositivo cambió esta mesa. Cerrá y recargala antes de cobrar.'
@@ -784,9 +875,11 @@ const styles = StyleSheet.create({
   chips: { gap: 7 },
   grilla: { gap: 8 },
   grillaFila: { flexDirection: 'row', gap: 8 },
-  producto: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 12, minHeight: 68, justifyContent: 'center' },
-  productoNombre: { fontFamily: Typography.fontFamily.semibold, fontSize: 14, lineHeight: 17 },
+  producto: { flex: 1, borderRadius: 12, padding: 12, minHeight: 68, justifyContent: 'center' },
+  productoNombre: { fontFamily: Typography.fontFamily.semibold, fontSize: 14, lineHeight: 17, paddingRight: 18 },
   productoMeta: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 5 },
+  contador: { position: 'absolute', top: 8, right: 8, minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
+  contadorTexto: { color: '#FFFFFF', fontFamily: Typography.fontFamily.bold, fontSize: 11 },
   cuentaHeader: { marginTop: 22 },
   linea: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, borderBottomWidth: 1 },
   lineaTextos: { flex: 1 },
@@ -800,8 +893,8 @@ const styles = StyleSheet.create({
   footer: { borderTopWidth: 1, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 14, gap: 10 },
   conflicto: { borderWidth: 1, borderRadius: 12, padding: 11, gap: 6 },
   conflictoTexto: { fontFamily: Typography.fontFamily.medium, fontSize: 12, lineHeight: 17 },
-  conflictoAcciones: { flexDirection: 'row', gap: 18 },
-  conflictoBoton: { minHeight: 32, justifyContent: 'center' },
+  conflictoAcciones: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 18 },
+  conflictoBoton: { minHeight: 44, justifyContent: 'center' },
   conflictoAccion: { fontFamily: Typography.fontFamily.bold, fontSize: 12.5, textDecorationLine: 'underline' },
   totalFila: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   totalLabel: { fontFamily: Typography.fontFamily.bold, fontSize: 10, letterSpacing: 1.6 },
@@ -831,5 +924,5 @@ const styles = StyleSheet.create({
   toggleOro: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 11, minHeight: 56 },
   toggleLabel: { fontFamily: Typography.fontFamily.semibold, fontSize: 13 },
   toggleSub: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 2 },
-  sheetFooter: { borderTopWidth: 1, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 24, gap: 8 },
+  sheetFooter: { borderTopWidth: 1, paddingHorizontal: 20, paddingTop: 12, gap: 8 },
 });

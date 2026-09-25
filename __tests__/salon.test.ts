@@ -1,4 +1,5 @@
 import React, { act } from 'react';
+import { Alert } from 'react-native';
 import { CONFIG_DEFAULT, ConfigLocal } from '../lib/config';
 import { fechaLocal } from '../lib/fecha';
 import type { CatalogoItem, ItemPedido } from '../lib/pedido';
@@ -23,6 +24,7 @@ import {
   medioDePagoFinal,
   mismoPedido,
   normalizarLineas,
+  lineasAgregadas,
   numeroMesaTexto,
   posicionLibre,
   puedeAgregar,
@@ -50,7 +52,8 @@ const renderer: { create(el: React.ReactElement): RenderPrueba } = require('reac
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-type RefFalsa = { tipo: 'doc'; path: string } | { tipo: 'col'; nombre: string } | { tipo: 'query'; nombre: string; filtros: unknown[] };
+type Filtro = { campo: string; op: string; valor: unknown } | { tipo: 'orden'; campo: string; dir?: string } | { tipo: 'limite'; n: number };
+type RefFalsa = { tipo: 'doc'; path: string } | { tipo: 'col'; nombre: string } | { tipo: 'query'; nombre: string; filtros: Filtro[] };
 type DocFalso = { id: string } & Record<string, unknown>;
 interface OpBatch {
   op: 'set' | 'update' | 'delete';
@@ -61,7 +64,12 @@ interface OpBatch {
 const mockColecciones: Record<string, DocFalso[]> = {};
 const mockDocs: Record<string, Record<string, unknown> | null> = {};
 const mockEscuchas = new Map<string, (snap: unknown) => void>();
+// Cada batch o transacción confirmada deja acá sus escrituras, en orden.
 const mockBatches: OpBatch[][] = [];
+// Error con el que falla la próxima transacción (p. ej. sin conexión).
+let mockFallaTransaccion: unknown = null;
+const mockDispatch = jest.fn();
+const mockPrevenir: { activo: boolean; alSalir: ((e: { data: { action: unknown } }) => void) | null } = { activo: false, alSalir: null };
 const mockUpdateDoc = jest.fn((_path: string, _datos: Record<string, unknown>) => Promise.resolve());
 const mockMostrar = jest.fn();
 const mockPush = jest.fn();
@@ -74,11 +82,30 @@ let mockTorneo: Torneo | null = null;
 
 function mockSnapDoc(path: string) {
   const datos = mockDocs[path] ?? null;
-  return { id: path.split('/')[1], exists: () => datos !== null, data: () => datos ?? undefined };
+  return { id: path.split('/')[1], exists: () => datos !== null, data: () => datos ?? undefined, metadata: { fromCache: false } };
 }
 
-function mockSnapCol(nombre: string) {
-  const lista = mockColecciones[nombre] ?? [];
+function mockCumple(d: Record<string, unknown>, f: { campo: string; op: string; valor: unknown }): boolean {
+  const v = d[f.campo] as number | string | undefined;
+  const w = f.valor as number | string;
+  if (v === undefined) return false;
+  if (f.op === '==') return v === w;
+  if (f.op === '>') return v > w;
+  if (f.op === '>=') return v >= w;
+  if (f.op === '<=') return v <= w;
+  if (f.op === '<') return v < w;
+  return true;
+}
+
+function mockSnapCol(nombre: string, filtros: Filtro[] = []) {
+  let lista = mockColecciones[nombre] ?? [];
+  for (const f of filtros) {
+    if ('op' in f) lista = lista.filter((d) => mockCumple(d, f));
+    else if (f.tipo === 'orden') {
+      const signo = f.dir === 'desc' ? -1 : 1;
+      lista = [...lista].sort((a, b) => ((a[f.campo] as number) > (b[f.campo] as number) ? signo : -signo));
+    } else lista = lista.slice(0, f.n);
+  }
   return { docs: lista.map(({ id, ...datos }) => ({ id, ref: { tipo: 'doc', path: `${nombre}/${id}` }, data: () => datos })) };
 }
 
@@ -95,10 +122,12 @@ jest.mock('firebase/firestore', () => ({
   collection: (_db: unknown, nombre: string) => ({ tipo: 'col', nombre }),
   query: (col: { nombre: string }, ...filtros: unknown[]) => ({ tipo: 'query', nombre: col.nombre, filtros }),
   where: (campo: string, op: string, valor: unknown) => ({ campo, op, valor }),
+  orderBy: (campo: string, dir?: string) => ({ tipo: 'orden', campo, dir }),
+  limit: (n: number) => ({ tipo: 'limite', n }),
   onSnapshot: (ref: RefFalsa, next: (snap: unknown) => void) => {
     const clave = ref.tipo === 'doc' ? ref.path : ref.nombre;
     mockEscuchas.set(clave, next);
-    next(ref.tipo === 'doc' ? mockSnapDoc(ref.path) : mockSnapCol(ref.nombre));
+    next(ref.tipo === 'doc' ? mockSnapDoc(ref.path) : mockSnapCol(ref.nombre, ref.tipo === 'query' ? ref.filtros : []));
     return () => {
       if (mockEscuchas.get(clave) === next) mockEscuchas.delete(clave);
     };
@@ -117,13 +146,43 @@ jest.mock('firebase/firestore', () => ({
       commit: () => Promise.resolve(),
     };
   },
+  runTransaction: async (_db: unknown, fn: (tx: unknown) => Promise<unknown>) => {
+    if (mockFallaTransaccion) throw mockFallaTransaccion;
+    const ops: OpBatch[] = [];
+    const tx = {
+      get: (ref: { path: string }) => Promise.resolve(mockSnapDoc(ref.path)),
+      set: (ref: { path: string }, datos: Record<string, unknown>) => (ops.push({ op: 'set', path: ref.path, datos }), tx),
+      update: (ref: { path: string }, datos: Record<string, unknown>) => (ops.push({ op: 'update', path: ref.path, datos }), tx),
+      delete: (ref: { path: string }) => (ops.push({ op: 'delete', path: ref.path }), tx),
+    };
+    const resultado = await fn(tx);
+    mockBatches.push(ops);
+    return resultado;
+  },
   increment: (n: number) => ({ incremento: n }),
   serverTimestamp: () => 'TS',
 }));
 
+// Estable entre renders, como el router real.
+const mockRouter = {
+  push: (...a: unknown[]) => mockPush(...a),
+  back: () => mockBack(),
+  navigate: () => undefined,
+  canDismiss: () => true,
+  dismissTo: () => undefined,
+};
+
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, back: mockBack, navigate: jest.fn() }),
+  useRouter: () => mockRouter,
   useLocalSearchParams: () => mockParams,
+}));
+
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ dispatch: mockDispatch }),
+  usePreventRemove: (activo: boolean, alSalir: (e: { data: { action: unknown } }) => void) => {
+    mockPrevenir.activo = activo;
+    mockPrevenir.alSalir = alSalir;
+  },
 }));
 
 jest.mock('expo-haptics', () => ({
@@ -387,6 +446,23 @@ describe('normalizarLineas', () => {
     expect(normalizarLineas(undefined)).toEqual([]);
     expect(normalizarLineas({ itemId: 'a' })).toEqual([]);
   });
+
+  it('lee las cuentas abiertas con la versión anterior (productoId en vez de itemId)', () => {
+    const lineas = normalizarLineas([{ productoId: 'p9', nombre: 'Medialuna', precio: 1400, emoji: 'x', cantidad: 3 }]);
+    expect(lineas).toEqual([{ itemId: 'p9', nombre: 'Medialuna', precio: 1400, cantidad: 3, rubro: 'Café', origen: 'productos' }]);
+  });
+});
+
+describe('lineasAgregadas', () => {
+  it('devuelve solo lo que la cuenta local suma sobre la base', () => {
+    const base = [linea({ itemId: 'a', cantidad: 2 }), linea({ itemId: 'b', cantidad: 1 })];
+    const local = [linea({ itemId: 'a', cantidad: 3 }), linea({ itemId: 'b', cantidad: 1 }), linea({ itemId: 'c', cantidad: 2 })];
+    expect(lineasAgregadas(local, base).map((l) => [l.itemId, l.cantidad])).toEqual([['a', 1], ['c', 2]]);
+  });
+
+  it('si la local tiene menos que la base no rescata nada', () => {
+    expect(lineasAgregadas([linea({ itemId: 'a', cantidad: 1 })], [linea({ itemId: 'a', cantidad: 2 })])).toEqual([]);
+  });
 });
 
 describe('mismoPedido', () => {
@@ -626,6 +702,9 @@ function reiniciarDatos(): void {
   for (const k of Object.keys(mockDocs)) delete mockDocs[k];
   mockEscuchas.clear();
   mockBatches.length = 0;
+  mockFallaTransaccion = null;
+  mockPrevenir.activo = false;
+  mockPrevenir.alSalir = null;
   mockAuto = 0;
   mockParams = { mesaId: 'm1' };
   mockConfig = CONFIG_DEFAULT;
@@ -638,10 +717,14 @@ function reiniciarDatos(): void {
     { id: 'viejo', nombre: 'Tostado', precio: 3000, rubro: 'Café', controlStock: false, activo: false },
   ];
   mockColecciones.tcg_productos = [{ id: 'sobre', nombre: 'Sobre Surging Sparks', valor: 7500, stock: 0 }];
-  mockColecciones.users = [
-    { id: 'j1', nombre: 'Nahuel', role: 'jugador', creditoCafeteria: 4000 },
-    { id: 'j2', nombre: 'Sofía', role: 'jugador' },
+  const j1 = { nombre: 'Nahuel', nombreBusqueda: 'nahuel', creditoCafeteria: 4000 };
+  const j2 = { nombre: 'Sofía', nombreBusqueda: 'sofia', creditoCafeteria: 0 };
+  mockColecciones.jugadores = [
+    { id: 'j1', ...j1 },
+    { id: 'j2', ...j2 },
   ];
+  mockDocs['jugadores/j1'] = j1;
+  mockDocs['jugadores/j2'] = j2;
   mockDocs['mesas/m1'] = { numero: 4, tipo: 'cafe', estado: 'consumo', salaId: 's1', pedido: [lineaEspresso(1)] };
 }
 
@@ -655,7 +738,8 @@ describe('pantalla Pedido', () => {
     expect(texto).toContain('Consumo');
     expect(texto).toContain('Espresso');
     expect(texto).not.toContain('Tostado');
-    expect(control(r, /^Espresso, \$2\.200 · quedan 40/)).toBeTruthy();
+    // "quedan" descuenta lo que ya está en la cuenta y la tarjeta muestra cuántos van.
+    expect(control(r, 'Espresso, $2.200 · quedan 39, 1 en la cuenta')).toBeTruthy();
     await tocarControl(r, 'TCG');
     expect(deshabilitado(control(r, /^Sobre Surging Sparks, \$7\.500 · sin stock/))).toBe(true);
     await desmontar(r);
@@ -670,17 +754,28 @@ describe('pantalla Pedido', () => {
     await tocarControl(r, /^Medialuna, /);
     await tocarControl(r, /^Medialuna, /);
     expect(mockMostrar).toHaveBeenCalledWith('No hay más Medialuna en stock', 'info');
+    expect(control(r, 'Medialuna, $1.400 · no queda más, 1 en la cuenta')).toBeTruthy();
+    expect(mockPrevenir.activo).toBe(true);
     await tocarControl(r, 'Guardar');
-    expect(mockUpdateDoc).toHaveBeenCalledWith('mesas/m1', {
-      pedido: [lineaEspresso(2), { itemId: 'med', nombre: 'Medialuna', precio: 1400, cantidad: 1, rubro: 'Pastelería', origen: 'productos' }],
-      estado: 'consumo',
-    });
+    expect(mockBatches).toEqual([
+      [
+        {
+          op: 'update',
+          path: 'mesas/m1',
+          datos: {
+            pedido: [lineaEspresso(2), { itemId: 'med', nombre: 'Medialuna', precio: 1400, cantidad: 1, rubro: 'Pastelería', origen: 'productos' }],
+            estado: 'consumo',
+          },
+        },
+      ],
+    ]);
     expect(mockMostrar).toHaveBeenCalledWith('Mesa 04 guardada', 'ok');
+    expect(mockPrevenir.activo).toBe(false);
     expect(mockBack).toHaveBeenCalled();
     await desmontar(r);
   });
 
-  it('cobra en un solo batch: venta, stock, mesa libre', async () => {
+  it('cobra en una sola transacción: venta, stock, mesa libre', async () => {
     const r = await montar(React.createElement(PedidoScreen));
     await tocarControl(r, 'Cobrar $2.200');
     expect(deshabilitado(control(r, 'Confirmar cobro $2.200'))).toBe(true);
@@ -736,7 +831,7 @@ describe('pantalla Pedido', () => {
     await tocarControl(r, 'Confirmar cobro $0');
     const ops = mockBatches[0];
     expect(ops[0].datos).toMatchObject({ subtotal: 2200, creditoAplicado: 2200, creditoUid: 'j1', total: 0, medioPago: 'credito_torneo' });
-    expect(ops).toContainEqual({ op: 'update', path: 'users/j1', datos: { creditoCafeteria: { incremento: -2200 } } });
+    expect(ops).toContainEqual({ op: 'update', path: 'jugadores/j1', datos: { creditoCafeteria: { incremento: -2200 } } });
     expect(mockMostrar).toHaveBeenCalledWith('Cobrado con crédito de torneo', 'ok');
     await desmontar(r);
   });
@@ -765,7 +860,77 @@ describe('pantalla Pedido', () => {
     const texto = textoDe(r);
     expect(texto).not.toContain('Otro dispositivo actualizó esta mesa');
     expect(texto).toContain('Cobrar $1.400');
-    expect(mockUpdateDoc).not.toHaveBeenCalled();
+    expect(mockBatches).toHaveLength(0);
+    await desmontar(r);
+  });
+
+  it('si otro dispositivo cobró la mesa, ofrece abrir una cuenta nueva solo con lo agregado', async () => {
+    const r = await montar(React.createElement(PedidoScreen));
+    await tocarControl(r, /^Espresso, /);
+    await emitirDoc('mesas/m1', { numero: 4, tipo: 'cafe', estado: 'libre', salaId: 's1', pedido: [] });
+    const texto = textoDe(r);
+    expect(texto).toContain('Esta mesa se cobró (o se liberó) en otro dispositivo');
+    expect(texto).not.toContain('Mantener la mía');
+    await tocarControl(r, 'Abrir una cuenta nueva con lo que agregaste');
+    // Solo el espresso que sumó este mozo: el que ya estaba se cobró en el otro dispositivo.
+    expect(textoDe(r)).toContain('Cobrar $2.200');
+    await tocarControl(r, 'Guardar');
+    expect(mockBatches[0]).toEqual([{ op: 'update', path: 'mesas/m1', datos: { pedido: [lineaEspresso(1)], estado: 'consumo' } }]);
+    await desmontar(r);
+  });
+
+  it('no cobra si la mesa cambió en el servidor mientras la hoja estaba abierta', async () => {
+    const r = await montar(React.createElement(PedidoScreen));
+    await tocarControl(r, 'Cobrar $2.200');
+    await tocarControl(r, 'Efectivo');
+    // Otro mozo ya la cobró y el aviso todavía no llegó a este teléfono.
+    mockDocs['mesas/m1'] = { numero: 4, tipo: 'cafe', estado: 'libre', salaId: 's1', pedido: [] };
+    await tocarControl(r, 'Confirmar cobro $2.200');
+    expect(mockBatches).toHaveLength(0);
+    expect(textoDe(r)).toContain('Otro dispositivo cambió esta mesa mientras cobrabas');
+    expect(mockBack).not.toHaveBeenCalled();
+    await desmontar(r);
+  });
+
+  it('sin conexión el cobro no se registra, lo dice y deja la hoja abierta', async () => {
+    const r = await montar(React.createElement(PedidoScreen));
+    await tocarControl(r, 'Cobrar $2.200');
+    await tocarControl(r, 'Efectivo');
+    mockFallaTransaccion = { code: 'unavailable' };
+    await tocarControl(r, 'Confirmar cobro $2.200');
+    expect(textoDe(r)).toContain('el cobro NO se registró');
+    expect(mockMostrar).not.toHaveBeenCalledWith('Cobrado $2.200', 'ok');
+    expect(control(r, 'Confirmar cobro $2.200')).toBeTruthy();
+    await desmontar(r);
+  });
+
+  it('no descuenta más crédito del que el jugador tiene en el servidor', async () => {
+    mockTorneo = torneoConDuelo();
+    const r = await montar(React.createElement(PedidoScreen));
+    await tocarControl(r, 'Cobrar $2.200');
+    await tocarControl(r, 'Nahuel, $4.000 de crédito');
+    // Lo gastó en otra mesa hace un segundo.
+    mockDocs['jugadores/j1'] = { nombre: 'Nahuel', nombreBusqueda: 'nahuel', creditoCafeteria: 1000 };
+    await tocarControl(r, 'Confirmar cobro $0');
+    expect(mockBatches).toHaveLength(0);
+    expect(textoDe(r)).toContain('Nahuel ya no tiene ese crédito: le quedan $1.000.');
+    await desmontar(r);
+  });
+
+  it('salir con cambios sin guardar pregunta y Descartar sigue la navegación', async () => {
+    const alerta = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    const r = await montar(React.createElement(PedidoScreen));
+    expect(mockPrevenir.activo).toBe(false);
+    await tocarControl(r, /^Espresso, /);
+    expect(mockPrevenir.activo).toBe(true);
+    const accion = { type: 'GO_BACK' };
+    act(() => mockPrevenir.alSalir?.({ data: { action: accion } }));
+    expect(alerta).toHaveBeenCalledTimes(1);
+    const botones = alerta.mock.calls[0][2] as { text: string; onPress?: () => void }[];
+    expect(botones.map((b) => b.text)).toEqual(['Seguir editando', 'Descartar', 'Guardar']);
+    botones[1].onPress?.();
+    expect(mockDispatch).toHaveBeenCalledWith(accion);
+    alerta.mockRestore();
     await desmontar(r);
   });
 

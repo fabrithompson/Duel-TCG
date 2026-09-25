@@ -2,7 +2,7 @@
 
 const MENSAJES: Record<string, string> = {
   'permission-denied': 'No tenés permiso para hacer esto con tu perfil.',
-  unavailable: 'Sin conexión. Los cambios se guardan cuando vuelva internet.',
+  unavailable: 'Sin conexión: no se pudo completar. Probá de nuevo cuando vuelva la señal.',
   'deadline-exceeded': 'La conexión está muy lenta. Probá de nuevo.',
   'not-found': 'Eso ya no existe — puede que alguien lo haya borrado.',
   'failed-precondition': 'Falta configurar algo en la base de datos (índice o reglas).',

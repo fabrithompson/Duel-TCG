@@ -2,7 +2,6 @@ import React from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform,
   RefreshControlProps,
   ScrollView,
   StyleProp,
@@ -114,7 +113,7 @@ export default function Screen({
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.bg }]} edges={['top']}>
       {keyboard ? (
-        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView style={styles.flex} behavior="padding">
           {body}
           {footer}
         </KeyboardAvoidingView>

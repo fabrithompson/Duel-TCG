@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { useTheme } from '../../../contexts/ThemeContext';
 
-// Si se entra directo a Equipo (desde Hoy), "← Ajustes" tiene que volver a Ajustes y no a otra pestaña.
+// Si se entra directo a Equipo (desde Hoy, con withAnchor), debajo queda Ajustes: "← Ajustes" vuelve ahí y no a otra pestaña.
 export const unstable_settings = { initialRouteName: 'index' };
 
 export default function AjustesLayout() {

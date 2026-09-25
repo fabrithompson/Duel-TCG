@@ -1,6 +1,9 @@
 import { Stack } from 'expo-router';
 import { useTheme } from '../../../contexts/ThemeContext';
 
+// Al entrar directo a una pantalla interna (Pedido desde Hoy, con withAnchor), debajo queda la raíz de la pestaña.
+export const unstable_settings = { initialRouteName: 'index' };
+
 export default function TorneoLayout() {
   const { colors } = useTheme();
   return (

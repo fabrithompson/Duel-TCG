@@ -6,7 +6,6 @@ import {
   LayoutChangeEvent,
   Modal,
   PanResponder,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -53,7 +52,7 @@ const PASO_PUNTOS = 16;
 const UMBRAL_ARRASTRE = 6;
 const BORDE_LIENZO = 1;
 const ESPERA_ESCRITURA_MS = 4000;
-const SIN_CONEXION = ' Se sincroniza cuando vuelva la conexión.';
+const SIN_CONEXION = ' Sin señal: se envía cuando vuelva, si no cerrás la app.';
 
 interface Medidas {
   ancho: number;
@@ -280,7 +279,7 @@ function SalaModal({ visible, sala, salas, onCerrar, onGuardada }: SalaModalProp
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCerrar}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.overlayCentro}>
+      <KeyboardAvoidingView behavior="padding" style={styles.overlayCentro}>
         <View style={[styles.modalCard, { backgroundColor: colors.sf, borderColor: colors.line }]}>
           <Text style={[styles.modalTitulo, { color: colors.ink }]} accessibilityRole="header">
             {sala ? 'Renombrar sala' : 'Nueva sala'}

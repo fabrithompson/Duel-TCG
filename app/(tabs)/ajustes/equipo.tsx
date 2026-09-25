@@ -12,6 +12,7 @@ import { useToast } from '../../../contexts/ToastContext';
 import { useUserProfileContext } from '../../../contexts/UserProfileContext';
 import { useConfigPrivada } from '../../../hooks/useConfigPrivada';
 import { MiembroEquipo, ROLES_STAFF, RolStaff, rolEnTexto, useEquipo } from '../../../hooks/useEquipo';
+import { useVolverA } from '../../../hooks/useVolverA';
 import { haceCuanto, inicialDe } from '../../../lib/ajustes';
 import { mensajeError } from '../../../lib/errores';
 import { tocar } from '../../../lib/haptics';
@@ -25,12 +26,13 @@ function tonoDeRol(rol: Role): TonoRol {
 
 export default function EquipoScreen() {
   const { profile, loading } = useUserProfileContext();
+  const volver = useVolverA('/(tabs)/ajustes');
 
   if (loading) return <LoadingScreen />;
 
   if (profile?.role !== 'admin' || profile.estadoAprobacion !== 'aprobado') {
     return (
-      <Screen back="Ajustes" title="Equipo">
+      <Screen back="Ajustes" onBack={volver} title="Equipo">
         <EmptyState
           title="Solo el admin entra acá"
           body="Las aprobaciones de cuentas y los cambios de rol los hace la cuenta de administración."
@@ -44,6 +46,7 @@ export default function EquipoScreen() {
 
 function EquipoAdmin() {
   const { colors } = useTheme();
+  const volver = useVolverA('/(tabs)/ajustes');
   const equipo = useEquipo();
   const [verSinAcceso, setVerSinAcceso] = useState(false);
   const { pendientes, activos, rechazados, miUid, estaOcupado } = equipo;
@@ -99,7 +102,7 @@ function EquipoAdmin() {
   const sinNadieMas = !equipo.cargando && pendientes.length === 0 && rechazados.length === 0 && activos.every((m) => m.uid === miUid);
 
   return (
-    <Screen back="Ajustes" title="Equipo" subtitle="Quién entra, con qué perfil y qué puede tocar.">
+    <Screen back="Ajustes" onBack={volver} title="Equipo" subtitle="Quién entra, con qué perfil y qué puede tocar.">
       <View style={styles.contenido}>
         <CodigoInvitacion />
 
