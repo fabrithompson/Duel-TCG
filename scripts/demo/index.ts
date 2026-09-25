@@ -4,9 +4,10 @@
 // Argumentos extra van a `expo start` (por ejemplo `pnpm demo --web`).
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { existsSync, readdirSync } from 'node:fs';
 import { connect } from 'node:net';
 import { networkInterfaces } from 'node:os';
-import { resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { CLAVE_DEMO, CUENTAS_DEMO, PROYECTO_DEMO, PUERTOS_DEMO } from '../../lib/demo';
 import { CODIGO_DEMO, sembrarDemo } from './datos';
 
@@ -31,8 +32,22 @@ function ipLocal(): string {
   return ip;
 }
 
-function hayJava(): boolean {
-  return spawnSync('java', ['-version'], { stdio: 'ignore' }).status === 0;
+const funciona = (java: string) => spawnSync(java, ['-version'], { stdio: 'ignore' }).status === 0;
+
+// Carpeta bin de un Java que funcione: "" si ya está en el PATH, null si no hay.
+// Se buscan las instalaciones habituales porque la terminal de VS Code no ve el PATH nuevo
+// hasta reiniciarlo, y así `pnpm demo` anda apenas se instala Java.
+function buscarJava(): string | null {
+  if (funciona('java')) return '';
+  const carpetas: string[] = [];
+  if (process.env.JAVA_HOME) carpetas.push(join(process.env.JAVA_HOME, 'bin'));
+  const programas = [process.env.ProgramFiles, process.env['ProgramFiles(x86)']].filter((p): p is string => !!p);
+  for (const base of programas.flatMap((p) => ['Eclipse Adoptium', 'Java', 'Microsoft', 'Zulu', 'Amazon Corretto'].map((v) => join(p, v)))) {
+    if (!existsSync(base)) continue;
+    // La versión más nueva primero.
+    for (const d of readdirSync(base).sort().reverse()) carpetas.push(join(base, d, 'bin'));
+  }
+  return carpetas.find((bin) => funciona(join(bin, esWindows ? 'java.exe' : 'java'))) ?? null;
 }
 
 // En Windows pnpm es un .cmd y necesita la consola: se arma la línea entera (los argumentos no llevan espacios).
@@ -83,8 +98,11 @@ async function esperarEmuladores(limiteMs: number): Promise<boolean> {
 }
 
 async function main(): Promise<void> {
-  if (!hayJava()) {
-    console.error('Los emuladores de Firebase necesitan Java 21 o superior: https://adoptium.net/es/temurin/releases/');
+  const binJava = buscarJava();
+  if (binJava === null) {
+    console.error('Los emuladores de Firebase necesitan Java 21 o superior. En Windows:');
+    console.error('  winget install --id EclipseAdoptium.Temurin.21.JRE -e');
+    console.error('O descargalo de https://adoptium.net/es/temurin/releases/ y volvé a correr pnpm demo.');
     process.exit(1);
   }
   const ip = ipLocal();
@@ -99,7 +117,7 @@ async function main(): Promise<void> {
   const emuladores = lanzar(
     'pnpm',
     ['dlx', 'firebase-tools@15', 'emulators:start', '--config', 'firebase.demo.json', '--only', 'auth,firestore,storage', '--project', PROYECTO_DEMO],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
+    { stdio: ['ignore', 'pipe', 'pipe'], env: binJava ? { ...process.env, PATH: `${binJava}${delimiter}${process.env.PATH ?? ''}` } : process.env }
   );
   const guardar = (chunk: Buffer) => {
     ultimas.push(...chunk.toString().split(/\r?\n/).filter(Boolean));

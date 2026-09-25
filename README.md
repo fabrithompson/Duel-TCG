@@ -67,6 +67,8 @@ Para ver la app con datos sin tocar el proyecto de Firebase real:
 pnpm demo
 ```
 
+Necesita Java 21 o superior. En Windows: `winget install --id EclipseAdoptium.Temurin.21.JRE -e`. El script lo encuentra solo aunque la terminal todavía no tenga el `PATH` nuevo.
+
 Levanta los emuladores de Firebase en la PC (Authentication, Firestore y Storage, con las mismas reglas del repo), carga un local de prueba y arranca Expo con la app apuntando a ellos. No hace falta el `.env`. Los datos incluyen dos salas con mesas de café y de duelo, pedidos abiertos, carta y stock (con productos en alerta y sin stock), ventas de la última semana, un torneo en curso en la ronda 2 con el reloj corriendo, un torneo de ayer con premios por entregar y una solicitud de mozo pendiente.
 
 Cuentas de prueba (contraseña `duel1234` para todas). En la pantalla de entrada, el recuadro "Modo demo" las completa con un toque:
@@ -92,10 +94,12 @@ Las reglas y los índices viven en el repo y se despliegan con Firebase CLI. Hac
 
 ```
 pnpm firebase login
-pnpm firebase deploy --only firestore:rules,firestore:indexes,storage --project <id-del-proyecto>
+pnpm desplegar
 ```
 
-`pnpm firebase` es un atajo a Firebase CLI 15 (`pnpm dlx firebase-tools@15`), sin instalarla global.
+`pnpm desplegar` sube reglas, índices y reglas de Storage al proyecto del `.env` (el mismo que usa la app), sin escribir el ID. Para una sola parte: `pnpm desplegar firestore:rules`. `pnpm firebase` es un atajo a Firebase CLI 15 (`pnpm dlx firebase-tools@15`), sin instalarla global.
+
+Si Storage no está habilitado en el proyecto, el despliegue de sus reglas falla: desplegá `pnpm desplegar firestore:rules,firestore:indexes` y habilitalo cuando quieras cargar el logo.
 
 - `firestore.rules`: permisos de Firestore (ver Seguridad).
 - `firestore.indexes.json`: índices compuestos que necesitan las consultas de torneos. Tardan unos minutos en construirse después del primer despliegue. Mientras tanto, Historial, Tabla y Mi duelo muestran "esta pantalla todavía se está preparando"; si sigue así, falta `pnpm firebase deploy --only firestore:indexes`.
@@ -103,7 +107,7 @@ pnpm firebase deploy --only firestore:rules,firestore:indexes,storage --project 
 
 Las reglas de Storage leen el perfil del usuario en Firestore para saber si es admin. La primera vez que las despliegues, la CLI pide permiso para que Storage consulte Firestore: aceptalo, si no, subir el logo falla con permiso denegado.
 
-Si querés dejar el proyecto fijo, creá un `.firebaserc` con `{ "projects": { "default": "<id-del-proyecto>" } }` y omití `--project`.
+Para usar `pnpm firebase deploy` directo, pasale `--project <id-del-proyecto>` o creá un `.firebaserc` con `{ "projects": { "default": "<id-del-proyecto>" } }`.
 
 ## Primera cuenta de admin
 
@@ -203,6 +207,7 @@ Nadie puede crearse como admin, aprobarse solo, cambiarse el rol, inflar un cré
 | --- | --- |
 | `pnpm start` | Levanta Expo (`expo start`). |
 | `pnpm demo` | Emuladores de Firebase con datos de prueba y Expo apuntando a ellos (ver Modo demo). |
+| `pnpm desplegar [partes]` | Sube reglas e índices al proyecto del `.env`. |
 | `pnpm firebase <comando>` | Firebase CLI 15 sin instalarla global (login, deploy). |
 | `pnpm typecheck` | Chequeo de tipos con `tsc --noEmit`. |
 | `pnpm test` | Tests unitarios con Jest (preset `jest-expo`). |
