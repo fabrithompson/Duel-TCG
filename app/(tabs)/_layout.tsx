@@ -197,6 +197,8 @@ function RoleTabs({ role }: { readonly role: Role }) {
   const esJuez = role === 'juez';
   const esJugador = role === 'jugador';
   const visibleSi = (condicion: boolean) => (condicion ? undefined : null);
+  // El alto suma el relleno real de abajo: sin zona segura (web, Android con botones) el nombre de la pestaña quedaba cortado.
+  const rellenoInferior = Math.max(insets.bottom, 8);
 
   return (
     <Tabs
@@ -211,9 +213,9 @@ function RoleTabs({ role }: { readonly role: Role }) {
           backgroundColor: colors.sf,
           borderTopColor: colors.line,
           borderTopWidth: 1,
-          height: 58 + insets.bottom,
+          height: 58 + rellenoInferior,
           paddingTop: 6,
-          paddingBottom: Math.max(insets.bottom, 8),
+          paddingBottom: rellenoInferior,
           elevation: 0,
           shadowOpacity: 0,
         },
