@@ -199,7 +199,8 @@ function PremiosTorneo({ torneo, otros, onElegir }: PremiosTorneoProps) {
             tx.update(refProducto, { stock: increment(-actual.cantidadProducto) });
             descontoStock = true;
           }
-          if (credito > 0) tx.update(refJugador, { creditoCafeteria: increment(credito) });
+          // ultimoPremio ata la acreditación a este premio: las reglas no aceptan crédito sin un premio que se entrega.
+          if (credito > 0) tx.update(refJugador, { creditoCafeteria: increment(credito), ultimoPremio: { torneoId: t.id, puesto: actual.puesto } });
         }
       );
       const sinStock = p.productoId && p.cantidadProducto > 0 && !descontoStock ? ' (el producto no controla stock: no se descontó nada)' : '';

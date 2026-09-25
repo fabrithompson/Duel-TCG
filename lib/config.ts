@@ -61,8 +61,13 @@ export interface ConfigLocal {
   mediosPago: MedioCobro[];
 }
 
+/** Un código filtrado deja de servir solo: el admin lo renueva cuando suma a alguien. */
+export const VIGENCIA_CODIGO_DIAS = 7;
+
 export interface ConfigPrivada {
   codigoInvitacion: string | null;
+  /** Hasta cuándo sirve el código (ms); null = códigos viejos, sin vencimiento. */
+  codigoVenceMs: number | null;
 }
 
 export const LIMITES = {

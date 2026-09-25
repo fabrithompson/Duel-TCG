@@ -103,11 +103,11 @@ Nada del negocio está fijo en el código: todo sale de Firestore y se edita des
 
 ### Código de invitación para el equipo
 
-1. Con la cuenta de admin, andá a Ajustes > Equipo y generá el código de invitación. Se guarda en `config/privado`, que solo el admin puede leer.
+1. Con la cuenta de admin, andá a Ajustes > Equipo y generá el código de invitación. Se guarda en `config/privado`, que solo el admin puede leer, y sirve por 7 días.
 2. Pasáselo a quien se vaya a sumar como mozo o juez. Al registrarse elige el rol y escribe el código; las reglas de Firestore lo validan contra `config/privado`.
 3. La cuenta queda pendiente y aparece en Ajustes > Equipo para aprobarla o rechazarla.
 
-Si el código se filtra, generá otro: el anterior deja de servir para registros nuevos. Si nunca se generó, nadie puede registrarse como mozo o juez.
+Si el código se filtra, generá otro: el anterior deja de servir para registros nuevos. Pasados los 7 días vence solo y Equipo avisa que hay que generar uno nuevo. Si nunca se generó, nadie puede registrarse como mozo o juez.
 
 ## Modelo de datos
 
@@ -116,9 +116,9 @@ Colecciones de Firestore (contrato completo en `lib/pedido.ts`, `lib/torneo.ts`,
 | Colección | Campos | Notas |
 | --- | --- | --- |
 | `config/publico` | `nombreLocal`, `logoUrl`, `marca`, `oscuroPorDefecto`, `turnos`, `alertaStock`, `torneo`, `temporada` (`nombre`, `inicio`, `inicioMs`), `reporteJugador`, `creditoPremio`, `descontarStock`, `juegos`, `mediosPago` | Lectura pública (el splash la usa antes del login). |
-| `config/privado` | `codigoInvitacion` | Solo admin. |
+| `config/privado` | `codigoInvitacion`, `codigoVenceEn` | Solo admin. |
 | `users/{uid}` | `uid`, `nombre`, `email`, `role` (`admin`, `mozo`, `juez`, `jugador`), `estadoAprobacion` (`pendiente`, `aprobado`, `rechazado`), `codigoInvitacion?`, `creadoEn` | Privado: el propio usuario y el admin. El ID es el UID de Authentication. |
-| `jugadores/{uid}` | `uid`, `nombre`, `nombreBusqueda` (minúsculas, sin tildes), `creditoCafeteria`, `creadoEn` | Directorio público para el staff: buscar jugadores y mover crédito sin ver emails. Se crea con el alta del jugador (o solo, al abrir la app, si faltaba). |
+| `jugadores/{uid}` | `uid`, `nombre`, `nombreBusqueda` (minúsculas, sin tildes), `creditoCafeteria`, `ultimaVenta?`, `ultimoPremio?`, `creadoEn` | Directorio público para el staff: buscar jugadores y mover crédito sin ver emails. Se crea con el alta del jugador (o solo, al abrir la app, si faltaba). |
 | `salas/{id}` | `nombre`, `orden`, `creadoEn` | |
 | `mesas/{id}` | `numero`, `x`, `y`, `salaId`, `tipo` (`cafe`, `duelo`), `estado` (`libre`, `consumo`), `pedido` (ítems), `creadoEn` | "Duelo en curso" no se guarda: se deriva del torneo en curso. |
 | `productos/{id}` | `nombre`, `precio`, `rubro` (`Café`, `Pastelería`, `TCG`, `Mesa`), `controlStock`, `stock?`, `unidad?`, `alerta?`, `activo?`, `creadoEn` | Los servicios de mesa van con `controlStock: false`. |
@@ -145,19 +145,19 @@ Storage: `logos/` guarda el logo del local.
 | `config/publico` | Todos, incluso sin sesión | Admin |
 | `config/privado` | Admin | Admin |
 | `users` | Cada uno el suyo; admin todos | Alta: el propio usuario (jugador aprobado, o mozo/juez pendiente con código válido). Edición: el usuario solo su nombre (o pasar su cuenta vieja a jugador); admin rol, aprobación y nombre. Baja: admin |
-| `jugadores` | Cada jugador el suyo; staff todos | Alta: el propio jugador aprobado, con crédito 0, en el mismo batch que su perfil. Edición: el jugador solo su nombre; juez o admin solo suben crédito (con tope por vez); mozo o admin solo lo bajan, sin quedar en negativo. Baja: admin |
+| `jugadores` | Cada jugador el suyo; staff todos | Alta: el propio jugador aprobado, con crédito 0, en el mismo batch que su perfil. Edición: el jugador solo su nombre; el juez acredita solo junto con el premio que entrega (mismo monto, una sola vez, `ultimoPremio`); el mozo descuenta solo junto con la venta que aplica ese crédito (`ultimaVenta`); el admin puede corregir a mano, con tope; nunca queda en negativo. Baja: admin |
 | `salas` | Staff | Admin |
 | `mesas` | Staff | Admin; el mozo solo cambia `pedido` y `estado` |
 | `productos`, `tcg_productos` | Staff | Admin; mozo y juez solo bajan `stock`, hasta 1.000 por vez y sin pasar de -1.000 |
-| `ventas` | Admin y mozo | Alta: admin y mozo, a su nombre. Nunca se editan ni se borran |
-| `ingresos` | Admin | Alta: admin. Nunca se editan ni se borran |
+| `ventas` | Admin y mozo | Alta: admin y mozo, a su nombre, con la fecha de hoy (o la jornada abierta); si aplica crédito, descuenta ese mismo monto al jugador en la misma escritura. Nunca se editan ni se borran |
+| `ingresos` | Admin | Alta: admin, con la fecha de hoy. Nunca se editan ni se borran |
 | `torneos` | Cualquier usuario aprobado | Admin y juez, con la fecha de hoy y sin posiciones al crear (no se cargan torneos retroactivos); borrar solo admin. Cerrado el torneo, el juez solo actualiza premios |
 | `reportes` | Cualquier usuario aprobado | El jugador sentado en esa mesa de la ronda actual del torneo en curso, si el local permite que los jugadores reporten; borrar admin y juez |
 | `bloqueos/torneo` | Admin y juez | Admin y juez, con la hora del servidor |
 | `relojes/{uid}` | El propio usuario | El propio usuario, solo con la hora del servidor |
 | Storage `logos/` | Todos | Admin, imágenes de menos de 2 MB |
 
-Nadie puede crearse como admin, aprobarse solo, cambiarse el rol, inflar su crédito, editar o borrar ventas, leer el código de invitación, leer los emails de otros, cargar un torneo retroactivo ni reportar resultados en nombre de otro jugador. Los tests de `firestore-tests/` cubren cada uno de esos casos.
+Nadie puede crearse como admin, aprobarse solo, cambiarse el rol, inflar un crédito o vaciarlo sin un premio o una venta que lo respalde, editar o borrar ventas, leer el código de invitación, leer los emails de otros, cargar un torneo retroactivo ni reportar resultados en nombre de otro jugador. Los tests de `firestore-tests/` cubren cada uno de esos casos.
 
 ## Scripts
 

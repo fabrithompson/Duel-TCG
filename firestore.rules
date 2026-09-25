@@ -163,9 +163,13 @@ service cloud.firestore {
     }
 
     function configPrivadaValida(d) {
-      return d.keys().hasOnly(['codigoInvitacion'])
+      return d.keys().hasOnly(['codigoInvitacion', 'codigoVenceEn'])
         && (!('codigoInvitacion' in d) || d.codigoInvitacion == null
-            || (d.codigoInvitacion is string && d.codigoInvitacion.matches('^[A-Z0-9]{6,32}$')));
+            || (d.codigoInvitacion is string && d.codigoInvitacion.matches('^[A-Z0-9]{6,32}$')))
+        // Vence entre ahora y un mes: un código filtrado no sirve para siempre.
+        && (!('codigoVenceEn' in d) || d.codigoVenceEn == null
+            || (d.codigoVenceEn is timestamp && d.codigoVenceEn > request.time
+                && d.codigoVenceEn <= request.time + duration.value(31, 'd')));
     }
 
     match /config/publico {
@@ -188,7 +192,8 @@ service cloud.firestore {
       return codigo is string
         && exists(ruta)
         && get(ruta).data.get('codigoInvitacion', null) is string
-        && codigo == get(ruta).data.codigoInvitacion;
+        && codigo == get(ruta).data.codigoInvitacion
+        && (get(ruta).data.get('codigoVenceEn', null) == null || request.time < get(ruta).data.codigoVenceEn);
     }
 
     function altaUsuarioValida(userId) {
@@ -255,28 +260,63 @@ service cloud.firestore {
       return resource.data.get('creditoCafeteria', 0);
     }
 
-    function soloCambiaCredito() {
-      return cambios().hasOnly(['creditoCafeteria'])
-        && request.resource.data.creditoCafeteria is number;
+    // El premio que respalda una acreditación: en esta misma escritura pasa de pendiente a
+    // entregado, es de este jugador y trae este monto. Los premios están en orden de puesto.
+    function premioQueRespalda(jugadorId, delta) {
+      let pr = request.resource.data.ultimoPremio;
+      let ruta = /databases/$(database)/documents/torneos/$(pr.torneoId);
+      let antes = get(ruta).data.premios[pr.puesto - 1];
+      let despues = getAfter(ruta).data.premios[pr.puesto - 1];
+      return pr is map
+        && pr.keys().hasOnly(['torneoId', 'puesto'])
+        && idValido(pr.torneoId)
+        && pr.puesto is int
+        && despues.puesto == pr.puesto
+        && despues.jugadorUid == jugadorId
+        && despues.entregado == true
+        && antes.get('entregado', false) == false
+        && despues.creditoCafeteria == delta;
     }
 
-    // Premios: el juez o el admin acreditan, nunca descuentan.
-    function subeCredito() {
+    // Premios: el juez acredita solo contra un premio que entrega en la misma escritura (no se puede
+    // regalar crédito ni cobrar dos veces el mismo premio). El admin puede corregir a mano, con tope.
+    function subeCredito(jugadorId) {
       let nuevo = request.resource.data.creditoCafeteria;
-      return (rol('juez') || esAdmin())
-        && soloCambiaCredito()
-        && nuevo > creditoAnterior()
-        && nuevo - creditoAnterior() <= maxSubidaCredito()
-        && nuevo <= maxCredito();
+      let delta = nuevo - creditoAnterior();
+      return nuevo is number
+        && delta > 0
+        && delta <= maxSubidaCredito()
+        && nuevo <= maxCredito()
+        && ((esAdmin() && cambios().hasOnly(['creditoCafeteria']))
+            || ((rol('juez') || esAdmin())
+                && cambios().hasOnly(['creditoCafeteria', 'ultimoPremio'])
+                && premioQueRespalda(jugadorId, delta)));
     }
 
-    // Cobro: el mozo o el admin descuentan, nunca acreditan ni dejan saldo negativo.
-    function bajaCredito() {
+    // La venta que respalda un descuento: nueva, del mismo cobro, a nombre de este jugador y por este monto.
+    function ventaQueRespalda(jugadorId, delta) {
+      let id = request.resource.data.ultimaVenta;
+      let ruta = /databases/$(database)/documents/ventas/$(id);
+      let v = getAfter(ruta).data;
+      return idValido(id)
+        && !exists(ruta)
+        && v.creditoUid == jugadorId
+        && v.creditoAplicado == delta
+        && v.creadoPor == request.auth.uid;
+    }
+
+    // Cobro: el mozo descuenta solo junto con la venta que aplica ese crédito (no puede vaciar un saldo
+    // ni cobrar en efectivo y quedarse con el crédito). Nunca acredita ni deja saldo negativo.
+    function bajaCredito(jugadorId) {
       let nuevo = request.resource.data.creditoCafeteria;
-      return (rol('mozo') || esAdmin())
-        && soloCambiaCredito()
-        && nuevo < creditoAnterior()
-        && nuevo >= 0;
+      let delta = creditoAnterior() - nuevo;
+      return nuevo is number
+        && delta > 0
+        && nuevo >= 0
+        && ((esAdmin() && cambios().hasOnly(['creditoCafeteria']))
+            || ((rol('mozo') || esAdmin())
+                && cambios().hasOnly(['creditoCafeteria', 'ultimaVenta'])
+                && ventaQueRespalda(jugadorId, delta)));
     }
 
     function nombreBusquedaValido(v) {
@@ -316,7 +356,7 @@ service cloud.firestore {
       allow get: if (autenticado() && request.auth.uid == jugadorId) || staff();
       allow list: if staff();
       allow create: if altaJugadorValida(jugadorId);
-      allow update: if renombreJugador(jugadorId) || subeCredito() || bajaCredito();
+      allow update: if renombreJugador(jugadorId) || subeCredito(jugadorId) || bajaCredito(jugadorId);
       allow delete: if esAdmin();
     }
 
@@ -446,7 +486,14 @@ service cloud.firestore {
               'medioPago', 'fecha', 'hora', 'creadoPor', 'creadoEn'];
     }
 
-    function ventaValida() {
+    // Una venta con crédito descuenta ese mismo monto del jugador en la misma escritura.
+    function creditoDescontado(uid, monto, ventaId) {
+      let ruta = /databases/$(database)/documents/jugadores/$(uid);
+      return getAfter(ruta).data.get('ultimaVenta', '') == ventaId
+        && get(ruta).data.get('creditoCafeteria', 0) - getAfter(ruta).data.get('creditoCafeteria', 0) == monto;
+    }
+
+    function ventaValida(ventaId) {
       let d = request.resource.data;
       return d.keys().hasOnly(camposVenta())
         && d.keys().hasAll(camposVenta())
@@ -457,10 +504,12 @@ service cloud.firestore {
         && numeroEntre(d.creditoAplicado, 0, d.subtotal)
         && (d.creditoUid == null || idValido(d.creditoUid))
         && (d.creditoAplicado == 0 || d.creditoUid != null)
+        && (d.creditoAplicado == 0 || creditoDescontado(d.creditoUid, d.creditoAplicado, ventaId))
         && d.total == d.subtotal - d.creditoAplicado
         && d.medioPago in mediosPago()
         && ((d.medioPago == 'credito_torneo') == (d.creditoAplicado > 0 && d.total == 0))
         && fechaValida(d.fecha)
+        && fechaDeHoy(d.fecha)
         && horaValida(d.hora)
         && d.creadoPor == request.auth.uid
         && d.creadoEn == request.time;
@@ -468,7 +517,7 @@ service cloud.firestore {
 
     match /ventas/{ventaId} {
       allow read: if rol('admin') || rol('mozo');
-      allow create: if (rol('admin') || rol('mozo')) && ventaValida();
+      allow create: if (rol('admin') || rol('mozo')) && ventaValida(ventaId);
       allow update, delete: if false;
     }
 
@@ -491,6 +540,7 @@ service cloud.firestore {
         && d.unidad in unidades()
         && numeroEntre(d.costoUnitario, 0, maxPrecio())
         && fechaValida(d.fecha)
+        && fechaDeHoy(d.fecha)
         && d.creadoPor == request.auth.uid
         && d.creadoEn == request.time;
     }

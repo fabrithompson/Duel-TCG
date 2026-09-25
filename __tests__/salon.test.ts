@@ -835,7 +835,8 @@ describe('pantalla Pedido', () => {
     await tocarControl(r, 'Confirmar cobro $0');
     const ops = mockBatches[0];
     expect(ops[0].datos).toMatchObject({ subtotal: 2200, creditoAplicado: 2200, creditoUid: 'j1', total: 0, medioPago: 'credito_torneo' });
-    expect(ops).toContainEqual({ op: 'update', path: 'jugadores/j1', datos: { creditoCafeteria: { incremento: -2200 } } });
+    const ventaId = ops[0].path.split('/')[1];
+    expect(ops).toContainEqual({ op: 'update', path: 'jugadores/j1', datos: { creditoCafeteria: { incremento: -2200 }, ultimaVenta: ventaId } });
     expect(mockMostrar).toHaveBeenCalledWith('Cobrado con crédito de torneo', 'ok');
     await desmontar(r);
   });

@@ -32,7 +32,7 @@ export type MedioPago = 'efectivo' | 'debito' | 'credito' | 'transferencia' | 'q
 export const MEDIOS_PAGO: readonly { id: MedioPago; nombre: string }[] = [
   { id: 'efectivo', nombre: 'Efectivo' },
   { id: 'debito', nombre: 'Débito' },
-  { id: 'credito', nombre: 'Crédito' },
+  { id: 'credito', nombre: 'Tarjeta de crédito' },
   { id: 'transferencia', nombre: 'Transferencia' },
   { id: 'qr', nombre: 'QR' },
 ];

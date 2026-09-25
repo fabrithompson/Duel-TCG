@@ -70,6 +70,7 @@ jest.mock('firebase/firestore', () => ({
   },
   setDoc: (ref: RefFalsa, datos: Record<string, unknown>, op?: unknown) => mockSetDoc(ref, datos, op),
   updateDoc: (ref: RefFalsa, datos: Record<string, unknown>) => mockUpdateDoc(ref, datos),
+  Timestamp: { fromMillis: (ms: number) => ({ toMillis: () => ms }) },
 }));
 
 jest.mock('firebase/storage', () => ({
@@ -337,6 +338,10 @@ describe('Equipo', () => {
     const [ref, datos, op] = mockSetDoc.mock.calls[0];
     expect(ref).toEqual({ tipo: 'doc', path: 'config/privado' });
     expect(String(datos.codigoInvitacion)).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);
+    // Vence en una semana: un código filtrado no sirve para siempre.
+    const vence = (datos.codigoVenceEn as { toMillis: () => number }).toMillis() - Date.now();
+    expect(vence).toBeGreaterThan(6.9 * 86_400_000);
+    expect(vence).toBeLessThanOrEqual(7 * 86_400_000 + 1000);
     expect(op).toEqual({ merge: true });
     alerta.mockRestore();
     await desmontar(r);

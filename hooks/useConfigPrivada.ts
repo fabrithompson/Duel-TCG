@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { Timestamp, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { getRandomBytes } from 'expo-crypto';
 import { db } from '../config/firebase';
 import { useToast } from '../contexts/ToastContext';
-import { ConfigPrivada, generarCodigoInvitacion } from '../lib/config';
+import { ConfigPrivada, VIGENCIA_CODIGO_DIAS, generarCodigoInvitacion } from '../lib/config';
+import { aMilis } from '../lib/fecha';
+import { ahoraServidor } from '../lib/reloj';
 import { mensajeError } from '../lib/errores';
 import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS, esperarConfirmacion } from '../lib/escritura';
 
@@ -20,14 +22,15 @@ interface UseConfigPrivadaResult {
 }
 
 function normalizarPrivada(raw: unknown): ConfigPrivada {
-  const codigo = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).codigoInvitacion : undefined;
-  return { codigoInvitacion: typeof codigo === 'string' && codigo.trim() ? codigo.trim() : null };
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const codigo = r.codigoInvitacion;
+  return { codigoInvitacion: typeof codigo === 'string' && codigo.trim() ? codigo.trim() : null, codigoVenceMs: aMilis(r.codigoVenceEn) };
 }
 
 // Solo el admin puede leer config/privado: con `habilitado` en false no se escucha nada.
 export function useConfigPrivada(habilitado: boolean): UseConfigPrivadaResult {
   const { mostrar } = useToast();
-  const [config, setConfig] = useState<ConfigPrivada>({ codigoInvitacion: null });
+  const [config, setConfig] = useState<ConfigPrivada>({ codigoInvitacion: null, codigoVenceMs: null });
   const [cargando, setCargando] = useState(habilitado);
   const [error, setError] = useState<unknown>(null);
   const [intento, setIntento] = useState(0);
@@ -63,7 +66,8 @@ export function useConfigPrivada(habilitado: boolean): UseConfigPrivadaResult {
     setGenerando(true);
     try {
       const codigo = generarCodigoInvitacion(getRandomBytes(8));
-      const r = await esperarConfirmacion(setDoc(CONFIG_PRIVADO_REF, { codigoInvitacion: codigo }, { merge: true }), ESPERA_ESCRITURA_MS, (e) =>
+      const codigoVenceEn = Timestamp.fromMillis(ahoraServidor() + VIGENCIA_CODIGO_DIAS * 86_400_000);
+      const r = await esperarConfirmacion(setDoc(CONFIG_PRIVADO_REF, { codigoInvitacion: codigo, codigoVenceEn }, { merge: true }), ESPERA_ESCRITURA_MS, (e) =>
         mostrar(mensajeError(e, 'No se pudo guardar el código.'), 'error')
       );
       // Sin señal el código todavía no vale para registrarse: se avisa en vez de invitar a compartirlo.

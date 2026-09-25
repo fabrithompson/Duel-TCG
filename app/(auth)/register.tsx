@@ -22,7 +22,7 @@ const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NOMBRE = { min: 2, max: 60 };
 const PASSWORD_MIN = 8;
 const CODIGO_MAX = 32;
-const CODIGO_INVALIDO = 'El código del local no es válido (o el admin todavía no lo generó).';
+const CODIGO_INVALIDO = 'El código del local no es válido o ya venció. Pedile al admin uno nuevo.';
 // Con caché en memoria, sin señal el alta no falla: queda esperando. Se corta para no dejar un spinner eterno.
 const ESPERA_ALTA_MS = 15000;
 

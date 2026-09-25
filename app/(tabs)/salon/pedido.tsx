@@ -304,7 +304,8 @@ function CobroSheet(props: CobroSheetProps) {
           const saldo = snapJugador.exists() ? normalizarJugadorDirectorio(jugador.uid, snapJugador.data()).credito : 0;
           if (saldo < creditoAplicado) throw new AvisoMesa(`${jugador.nombre} ya no tiene ese crédito: le quedan ${formatARS(saldo)}.`);
         }
-        tx.set(doc(collection(db, 'ventas')), {
+        const refVenta = doc(collection(db, 'ventas'));
+        tx.set(refVenta, {
           mesaId,
           mesaNum: mesaNumero,
           items: cuenta.map(limpiarLinea),
@@ -321,7 +322,8 @@ function CobroSheet(props: CobroSheetProps) {
         if (config.descontarStock) {
           for (const d of descuentos) tx.update(doc(db, d.coleccion, d.id), { stock: increment(-d.cantidad) });
         }
-        if (jugador) tx.update(doc(db, 'jugadores', jugador.uid), { creditoCafeteria: increment(-creditoAplicado) });
+        // ultimaVenta ata el descuento a esta venta: las reglas no aceptan descontar crédito sin la venta que lo usa.
+        if (jugador) tx.update(doc(db, 'jugadores', jugador.uid), { creditoCafeteria: increment(-creditoAplicado), ultimaVenta: refVenta.id });
         tx.update(refMesa, { pedido: [], estado: 'libre' });
       });
       onCobrado(total, creditoAplicado > 0);

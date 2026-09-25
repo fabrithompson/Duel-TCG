@@ -13,7 +13,8 @@ import { useUserProfileContext } from '../../../contexts/UserProfileContext';
 import { useConfigPrivada } from '../../../hooks/useConfigPrivada';
 import { MiembroEquipo, ROLES_STAFF, RolStaff, rolEnTexto, useEquipo } from '../../../hooks/useEquipo';
 import { useVolverA } from '../../../hooks/useVolverA';
-import { haceCuanto, inicialDe } from '../../../lib/ajustes';
+import { fechaConAnio, haceCuanto, inicialDe } from '../../../lib/ajustes';
+import { fechaLocal } from '../../../lib/fecha';
 import { mensajeError } from '../../../lib/errores';
 import { tocar } from '../../../lib/haptics';
 
@@ -199,6 +200,8 @@ function CodigoInvitacion() {
   const privada = useConfigPrivada(true);
   const compartiendo = useRef(false);
   const codigo = privada.config.codigoInvitacion;
+  const venceMs = privada.config.codigoVenceMs;
+  const vencido = venceMs !== null && venceMs <= Date.now();
 
   const generar = () => {
     if (!codigo) {
@@ -243,15 +246,20 @@ function CodigoInvitacion() {
             <Text style={[styles.codigoSub, { color: colors.dim }]}>
               Mozos y jueces lo escriben al crear su cuenta. Los jugadores no lo necesitan.
             </Text>
+            {venceMs !== null ? (
+              <Text style={[styles.codigoSub, { color: vencido ? colors.dg : colors.dim }]}>
+                {vencido ? 'Venció: generá uno nuevo para sumar a alguien.' : `Sirve hasta el ${fechaConAnio(fechaLocal(new Date(venceMs)))}.`}
+              </Text>
+            ) : null}
           </View>
         ) : (
           <Text style={[styles.sinCodigo, { color: colors.dim }]}>Sin código: mozo y juez no pueden registrarse todavía.</Text>
         )}
         <View style={styles.codigoAcciones}>
-          {codigo ? <Button label="Compartir" onPress={() => void compartir()} /> : null}
+          {codigo && !vencido ? <Button label="Compartir" onPress={() => void compartir()} /> : null}
           <Button
             label="Generar código nuevo"
-            variant={codigo ? 'secondary' : 'primary'}
+            variant={codigo && !vencido ? 'secondary' : 'primary'}
             onPress={generar}
             loading={privada.generando}
           />
