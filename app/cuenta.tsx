@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Redirect } from 'expo-router';
 import Constants from 'expo-constants';
 import {
@@ -29,7 +29,9 @@ import { formatARS } from '../lib/pedido';
 import type { UserProfile } from '../lib/users';
 import { useReiniciarNavegacion } from '../hooks/useReiniciarNavegacion';
 import { useMiCredito } from '../hooks/useDirectorioJugadores';
+import UsosCredito from '../components/UsosCredito';
 import { normalizarBusqueda } from '../lib/jugadores';
+import { preguntar } from '../lib/dialogo';
 
 const NOMBRE = { min: 2, max: 60 };
 const PASSWORD_MIN = 8;
@@ -180,7 +182,7 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
   };
 
   const confirmarSalida = () => {
-    Alert.alert('Cerrar sesión', `¿Salir de la cuenta de ${profile.nombre}?`, [
+    preguntar('Cerrar sesión', `¿Salir de la cuenta de ${profile.nombre}?`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Salir',
@@ -220,6 +222,7 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
           <Text style={[styles.ayuda, { color: colors.dim }]}>
             Lo ganás en los torneos y se descuenta cuando pagás en la barra.
           </Text>
+          <UsosCredito uid={profile.uid} />
         </Card>
       ) : null}
 

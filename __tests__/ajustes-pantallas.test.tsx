@@ -84,6 +84,9 @@ jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: jest
 
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 
+// La sección de jugadores tiene su propio test (jugadores-equipo.test.tsx).
+jest.mock('../components/JugadoresEquipo', () => () => null);
+
 jest.mock('expo-image-picker', () => ({
   requestMediaLibraryPermissionsAsync: jest.fn(),
   launchImageLibraryAsync: jest.fn(),

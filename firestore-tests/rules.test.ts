@@ -62,6 +62,27 @@ function ctx(uid: string): RulesTestContext {
   return testEnv.authenticatedContext(uid, { email: email(uid) });
 }
 
+/** YYYY-MM-DD del día argentino corrido `dias`. */
+function fechaAR(dias: number): string {
+  return new Date(Date.now() - 3 * 3600_000 + dias * 86400_000).toISOString().slice(0, 10);
+}
+
+function comoVerificado(uid: string): Firestore {
+  return testEnv.authenticatedContext(uid, { email: email(uid), email_verified: true }).firestore() as unknown as Firestore;
+}
+
+/** Como la app: el torneo nuevo y el candado de "uno en curso a la vez" van en la misma escritura. */
+function crearTorneo(db: Firestore, id: string, datos: Record<string, unknown>) {
+  const b = writeBatch(db);
+  b.set(doc(db, 'torneos', id), datos);
+  b.set(doc(db, 'bloqueos', 'torneo'), { torneoId: id, actualizadoEn: serverTimestamp() });
+  return b.commit();
+}
+
+async function liberarCandado(): Promise<void> {
+  await sinReglas((a) => setDoc(doc(a, 'bloqueos', 'torneo'), { torneoId: null, actualizadoEn: Timestamp.now() }));
+}
+
 function como(uid: string): Firestore {
   return ctx(uid).firestore() as unknown as Firestore;
 }
@@ -199,7 +220,7 @@ async function sembrar(): Promise<void> {
       creditoPremio: true,
       descontarStock: true,
     });
-    b.set(doc(db, 'config', 'privado'), { codigoInvitacion: CODIGO });
+    b.set(doc(db, 'config', 'privado'), { codigoInvitacion: CODIGO, codigoVenceEn: Timestamp.fromMillis(Date.now() + 7 * 86400000) });
     b.set(doc(db, 'salas', 's1'), { nombre: 'Planta baja', orden: 0, creadoEn: ahora });
     b.set(doc(db, 'mesas', 'm1'), { numero: 1, x: 18, y: 16, salaId: 's1', tipo: 'cafe', estado: 'libre', pedido: [], creadoEn: ahora });
     b.set(doc(db, 'mesas', 'm2'), { numero: 2, x: 118, y: 16, salaId: 's1', tipo: 'duelo', estado: 'libre', pedido: [], creadoEn: ahora });
@@ -218,12 +239,20 @@ async function sembrar(): Promise<void> {
       fecha: '2026-09-17',
       estado: 'finalizado',
       rondaActual: 3,
+      rondas: [1, 2, 3].map((numero) => ({ ...torneoBase(U.juez).rondas[0], numero })),
+      premios: [{ ...torneoBase(U.juez).premios[0], jugadorUid: U.j1 }],
       rondaFinEn: null,
       posiciones: [{ uid: U.j1, nombre: 'Usuario jugador1', puesto: 1, puntos: 9, victorias: 3, derrotas: 0 }],
       finalizadoEn: ahora,
       creadoEn: Timestamp.fromMillis(ahora.toMillis() - 7 * 86400000),
     });
     b.set(doc(db, 'torneos', 't1', 'reportes', `1_1_${U.j1}`), { ...reporteBase(U.j1), creadoEn: ahora });
+    b.set(doc(db, 'torneos', 't2r'), {
+      ...torneoBase(U.juez),
+      rondaActual: 2,
+      rondas: [1, 2].map((numero) => ({ ...torneoBase(U.juez).rondas[0], numero })),
+      creadoEn: ahora,
+    });
     const base3 = torneoBase(U.juez);
     b.set(doc(db, 'torneos', 't3'), {
       ...base3,
@@ -314,7 +343,10 @@ describe('config', () => {
       await assertFails(setDoc(doc(como(uid), 'config', 'privado'), { codigoInvitacion: 'MIO12345' }));
     }
     await assertFails(getDoc(doc(anonimo(), 'config', 'privado')));
-    await assertSucceeds(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'ZXCV7890' }));
+    const vence = Timestamp.fromMillis(Date.now() + 7 * 86400000);
+    await assertSucceeds(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'ZXCV7890', codigoVenceEn: vence }));
+    // Un código sin vencimiento ya no se acepta.
+    await assertFails(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'ZXCV7890' }));
     await assertFails(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'abc' }));
     await assertFails(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'ZXCV7890', extra: true }));
   });
@@ -396,6 +428,11 @@ describe('código de invitación con vencimiento', () => {
     await assertFails(setDoc(r, { codigoInvitacion: 'NUEVO2345', codigoVenceEn: Timestamp.fromMillis(Date.now() + 60 * 86400000) }));
   });
 
+  test('un código viejo sin vencimiento ya no sirve para registrarse', async () => {
+    await sinReglas((a) => setDoc(doc(a, 'config', 'privado'), { codigoInvitacion: CODIGO }));
+    await assertFails(setDoc(doc(como(U.nuevo), 'users', U.nuevo), altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: CODIGO })));
+  });
+
   test('un código vencido ya no sirve para registrarse', async () => {
     await sinReglas((a) => setDoc(doc(a, 'config', 'privado'), { codigoInvitacion: CODIGO, codigoVenceEn: Timestamp.fromMillis(Date.now() - 60_000) }));
     await assertFails(setDoc(doc(como(U.nuevo), 'users', U.nuevo), altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: CODIGO })));
@@ -470,6 +507,13 @@ describe('users: edición', () => {
     await assertFails(updateDoc(doc(db, 'users', U.j1), { email: 'otro@duel.test' }));
     await assertFails(updateDoc(doc(db, 'users', U.j1), { nombre: 'Juan', role: 'admin' }));
     await assertFails(updateDoc(doc(db, 'users', U.j2), { nombre: 'Pisado' }));
+  });
+
+  test('el email se marca verificado solo con el token de Authentication', async () => {
+    await assertFails(updateDoc(doc(como(U.mozoPendiente), 'users', U.mozoPendiente), { emailVerificado: true }));
+    await assertSucceeds(updateDoc(doc(comoVerificado(U.mozoPendiente), 'users', U.mozoPendiente), { emailVerificado: true }));
+    await assertFails(updateDoc(doc(comoVerificado(U.mozoPendiente), 'users', U.mozoPendiente), { emailVerificado: true, estadoAprobacion: 'aprobado' }));
+    await assertFails(updateDoc(doc(comoVerificado(U.j1), 'users', U.j2), { emailVerificado: true }));
   });
 
   test('nadie se auto-aprueba ni escala rol', async () => {
@@ -556,20 +600,53 @@ describe('jugadores: directorio público', () => {
   test('el juez acredita solo contra un premio que entrega en la misma escritura', async () => {
     const db = como(U.juez);
     const premios = torneoBase(U.juez).premios;
-    const entrega = (uid: string, credito: number, monto = credito) => {
+    const entrega = (uid: string, credito: number, monto = credito, torneoId = 'tf') => {
       const b = writeBatch(db);
-      b.update(doc(db, 'torneos', 'tf'), { premios: [{ ...premios[0], jugadorUid: uid, creditoCafeteria: credito, entregado: true }] });
-      b.update(doc(db, 'jugadores', uid), { creditoCafeteria: increment(monto), ultimoPremio: { torneoId: 'tf', puesto: 1 } });
+      b.update(doc(db, 'torneos', torneoId), { premios: [{ ...premios[0], jugadorUid: uid, creditoCafeteria: credito, entregado: true }] });
+      b.set(doc(db, 'torneos', torneoId, 'entregas', '1'), {
+        puesto: 1,
+        jugadorUid: uid,
+        creditoCafeteria: credito,
+        cantidadProducto: 4,
+        entregadoPor: U.juez,
+        entregadoEn: serverTimestamp(),
+      });
+      b.update(doc(db, 'jugadores', uid), { creditoCafeteria: increment(monto), ultimoPremio: { torneoId, puesto: 1 } });
       return b.commit();
     };
     // Sin premio, el juez no regala crédito.
     await assertFails(updateDoc(doc(db, 'jugadores', U.j1), { creditoCafeteria: increment(3000) }));
     // Con otro monto que el del premio, tampoco.
     await assertFails(entrega(U.j1, 3000, 5000));
+    // A quien no ganó ese puesto (aunque se lo reasigne en la misma escritura), tampoco.
+    await assertFails(entrega(U.j2, 3000));
+    // Más que el tope por entrega, tampoco.
+    await assertFails(entrega(U.j1, 2000000));
+    // Con el torneo en curso todavía no hay ganadores.
+    await assertFails(entrega(U.j1, 3000, 3000, 't1'));
     await assertSucceeds(entrega(U.j1, 3000));
-    // El mismo premio no se cobra dos veces.
+    // El mismo premio no se cobra dos veces, ni aunque se lo vuelva a marcar pendiente.
     await assertFails(updateDoc(doc(db, 'jugadores', U.j1), { creditoCafeteria: increment(3000) }));
+    await assertSucceeds(updateDoc(doc(db, 'torneos', 'tf'), { premios: [{ ...premios[0], jugadorUid: U.j1, creditoCafeteria: 3000, entregado: false }] }));
     await assertFails(entrega(U.j1, 3000));
+    // El registro de la entrega no se edita ni lo borra el juez.
+    await assertFails(updateDoc(doc(db, 'torneos', 'tf', 'entregas', '1'), { creditoCafeteria: 1 }));
+    await assertFails(deleteDoc(doc(db, 'torneos', 'tf', 'entregas', '1')));
+  });
+
+  test('cerrado el torneo, el juez no agrega puestos', async () => {
+    const premios = torneoBase(U.juez).premios;
+    await assertFails(updateDoc(doc(como(U.juez), 'torneos', 'tf'), { premios: [...premios, { ...premios[0], puesto: 2 }] }));
+    await assertSucceeds(updateDoc(doc(como(U.admin), 'torneos', 'tf'), { premios: [...premios, { ...premios[0], puesto: 2 }] }));
+  });
+
+  test('el admin bloquea y reactiva jugadores sin tocar su crédito', async () => {
+    await assertSucceeds(updateDoc(doc(como(U.admin), 'jugadores', U.j2), { activo: false }));
+    await assertSucceeds(updateDoc(doc(como(U.admin), 'jugadores', U.j2), { activo: true }));
+    await assertFails(updateDoc(doc(como(U.admin), 'jugadores', U.j2), { activo: 'no' }));
+    for (const uid of [U.mozo, U.juez, U.j2]) {
+      await assertFails(updateDoc(doc(como(uid), 'jugadores', U.j2), { activo: false }));
+    }
   });
 
   test('acreditar: solo subir, con tope; el admin puede corregir a mano', async () => {
@@ -689,7 +766,9 @@ describe('productos y tcg_productos', () => {
     const producto = { nombre: 'Flat white', precio: 3200, rubro: 'Café', controlStock: true, stock: 38, unidad: 'u', creadoEn: serverTimestamp() };
     await assertSucceeds(setDoc(doc(admin, 'productos', 'p2'), producto));
     await assertSucceeds(setDoc(doc(admin, 'productos', 'agua'), { nombre: 'Agua', precio: 1200, rubro: 'Mesa', controlStock: false }));
-    await assertFails(setDoc(doc(admin, 'productos', 'p3'), { ...producto, rubro: 'Bebidas' }));
+    await assertSucceeds(setDoc(doc(admin, 'productos', 'p4'), { ...producto, rubro: 'Panadería' }));
+    await assertFails(setDoc(doc(admin, 'productos', 'p3'), { ...producto, rubro: '' }));
+    await assertFails(setDoc(doc(admin, 'productos', 'p3'), { ...producto, rubro: 'x'.repeat(31) }));
     await assertFails(setDoc(doc(admin, 'productos', 'p3'), { ...producto, precio: -10 }));
     await assertFails(setDoc(doc(admin, 'productos', 'p3'), { ...producto, unidad: 'docena' }));
     await assertFails(setDoc(doc(admin, 'productos', 'p3'), { ...producto, costo: 100 }));
@@ -735,7 +814,8 @@ describe('productos y tcg_productos', () => {
     await assertSucceeds(updateDoc(doc(admin, 'productos', 'p1'), { activo: false }));
     await assertSucceeds(updateDoc(doc(admin, 'productos', 'viejo'), { rubro: 'Pastelería', controlStock: true, categoria: deleteField() }));
     await assertSucceeds(updateDoc(doc(admin, 'tcg_productos', 't1'), { stock: increment(12), valor: 8000 }));
-    await assertFails(updateDoc(doc(admin, 'productos', 'p1'), { rubro: 'Comidas' }));
+    await assertSucceeds(updateDoc(doc(admin, 'productos', 'p1'), { rubro: 'Comidas' }));
+    await assertFails(updateDoc(doc(admin, 'productos', 'p1'), { rubro: '' }));
     await assertFails(updateDoc(doc(admin, 'productos', 'p1'), { nombre: deleteField() }));
     await assertSucceeds(deleteDoc(doc(admin, 'productos', 'serv')));
   });
@@ -777,8 +857,19 @@ describe('ventas', () => {
     await assertFails(setDoc(r, { ...base, creditoAplicado: 5000, creditoUid: U.j1, total: -600 }));
     await assertFails(setDoc(r, { ...base, medioPago: 'bitcoin' }));
     await assertFails(setDoc(r, { ...base, medioPago: 'credito_torneo' }));
-    await assertFails(setDoc(r, { ...base, creditoAplicado: 1000, creditoUid: U.j1, total: 3400, medioPago: 'credito_torneo' }));
-    await assertFails(setDoc(r, { ...base, creditoAplicado: 4400, creditoUid: U.j1, total: 0, medioPago: 'efectivo' }));
+    const conDescuento = (venta: Record<string, unknown>, monto: number) => {
+      const b = writeBatch(db);
+      b.set(doc(db, 'ventas', 'cd'), venta);
+      b.update(doc(db, 'jugadores', U.j1), { creditoCafeteria: increment(-monto), ultimaVenta: 'cd' });
+      return b.commit();
+    };
+    await assertFails(conDescuento({ ...base, creditoAplicado: 1000, creditoUid: U.j1, total: 3400, medioPago: 'credito_torneo' }, 1000));
+    await assertFails(conDescuento({ ...base, creditoAplicado: 4400, creditoUid: U.j1, total: 0, medioPago: 'efectivo' }, 4400));
+    // Con el medio correcto, la misma venta pasa: lo que fallaba era solo el medio.
+    await assertSucceeds(conDescuento({ ...base, creditoAplicado: 1000, creditoUid: U.j1, total: 3400, medioPago: 'efectivo' }, 1000));
+    // Días cerrados: ni anteayer ni pasado mañana.
+    await assertFails(setDoc(r, { ...base, fecha: fechaAR(-2) }));
+    await assertFails(setDoc(r, { ...base, fecha: fechaAR(2) }));
     await assertFails(setDoc(r, { ...base, fecha: '24/09/2026' }));
     // Un día ya cerrado no se toca.
     await assertFails(setDoc(r, { ...base, fecha: '2020-01-01' }));
@@ -788,6 +879,14 @@ describe('ventas', () => {
     await assertFails(setDoc(r, { ...base, propina: 500 }));
     const { hora: _hora, ...sinHora } = base;
     await assertFails(setDoc(r, sinHora));
+  });
+
+  test('el jugador ve las ventas en las que se usó su crédito', async () => {
+    await sinReglas((a) => setDoc(doc(a, 'ventas', 'vc'), { ...ventaBase(U.mozo), creditoAplicado: 1000, creditoUid: U.j1, total: 3400, creadoEn: Timestamp.now() }));
+    await assertSucceeds(getDoc(doc(como(U.j1), 'ventas', 'vc')));
+    await assertSucceeds(getDocs(query(collection(como(U.j1), 'ventas'), where('creditoUid', '==', U.j1), orderBy('creadoEn', 'desc'), limit(10))));
+    await assertFails(getDoc(doc(como(U.j2), 'ventas', 'vc')));
+    await assertFails(getDocs(query(collection(como(U.j1), 'ventas'), where('creditoUid', '==', U.j2))));
   });
 
   test('solo mozo y admin leen ventas', async () => {
@@ -858,6 +957,7 @@ describe('ingresos', () => {
     await assertFails(setDoc(r, { ...base, costoUnitario: -1 }));
     await assertFails(setDoc(r, { ...base, coleccion: 'ventas' }));
     await assertFails(setDoc(r, { ...base, fecha: '2026-9-24' }));
+    await assertFails(setDoc(r, { ...base, fecha: fechaAR(-2) }));
     // Una hora del cliente (aunque sea de hace un minuto) no vale: tiene que ser la del servidor.
     await assertFails(setDoc(r, { ...base, creadoEn: Timestamp.fromMillis(Date.now() - 60_000) }));
     const { productoId: _p, ...sinProducto } = base;
@@ -896,18 +996,26 @@ describe('torneos', () => {
   });
 
   test('juez y admin crean torneos válidos', async () => {
-    await assertSucceeds(setDoc(doc(como(U.juez), 'torneos', 'n1'), torneoBase(U.juez)));
-    await assertSucceeds(setDoc(doc(como(U.admin), 'torneos', 'n2'), torneoBase(U.admin)));
+    await assertSucceeds(crearTorneo(como(U.juez), 'n1', torneoBase(U.juez)));
+    await liberarCandado();
+    await assertSucceeds(crearTorneo(como(U.admin), 'n2', torneoBase(U.admin)));
+    await liberarCandado();
     // Los juegos los define el local en Ajustes.
-    await assertSucceeds(setDoc(doc(como(U.juez), 'torneos', 'n3'), { ...torneoBase(U.juez), juego: 'Lorcana' }));
+    await assertSucceeds(crearTorneo(como(U.juez), 'n3', { ...torneoBase(U.juez), juego: 'Lorcana' }));
+    await liberarCandado();
     for (const uid of [U.mozo, U.j1, U.juezRechazado]) {
-      await assertFails(setDoc(doc(como(uid), 'torneos', 'x'), torneoBase(uid)));
+      await assertFails(crearTorneo(como(uid), 'x', torneoBase(uid)));
     }
   });
 
   test('el alta de torneo valida el contrato', async () => {
-    const r = doc(como(U.juez), 'torneos', 'x');
+    // Cada caso toma bien el candado: lo único que falla es el campo que se prueba.
+    const r = { crear: (datos: Record<string, unknown>) => crearTorneo(como(U.juez), 'x', datos) };
+    const setDoc = (_r: unknown, datos: Record<string, unknown>) => r.crear(datos);
     const base = torneoBase(U.juez);
+    await assertSucceeds(r.crear(base));
+    await liberarCandado();
+    await sinReglas((a) => deleteDoc(doc(a, 'torneos', 'x')));
     await assertFails(setDoc(r, { ...base, estado: 'finalizado' }));
     await assertFails(setDoc(r, { ...base, rondaActual: 2 }));
     await assertFails(setDoc(r, { ...base, creadoPor: U.admin }));
@@ -988,6 +1096,7 @@ describe('torneos', () => {
     b.update(doc(db, 'tcg_productos', 't1'), { stock: increment(-4) });
     b.update(doc(db, 'jugadores', U.j1), { creditoCafeteria: increment(3000), ultimoPremio: { torneoId: 'tf', puesto: 1 } });
     b.update(doc(db, 'torneos', 'tf'), { premios: [{ ...base.premios[0], jugadorUid: U.j1, entregado: true }] });
+    b.set(doc(db, 'torneos', 'tf', 'entregas', '1'), { puesto: 1, jugadorUid: U.j1, creditoCafeteria: 3000, cantidadProducto: 4, entregadoPor: U.juez, entregadoEn: serverTimestamp() });
     await assertSucceeds(b.commit());
   });
 
@@ -999,6 +1108,30 @@ describe('torneos', () => {
 });
 
 describe('candado de torneo en curso', () => {
+  test('sin tomar el candado no se crea un torneo', async () => {
+    await assertFails(setDoc(doc(como(U.juez), 'torneos', 'solo'), torneoBase(U.juez)));
+  });
+
+  test('con otro torneo en curso, el juez no crea uno nuevo (el admin puede destrabar)', async () => {
+    await sinReglas((a) => setDoc(doc(a, 'bloqueos', 'torneo'), { torneoId: 't1', actualizadoEn: Timestamp.now() }));
+    await assertFails(crearTorneo(como(U.juez), 'n9', torneoBase(U.juez)));
+    await assertSucceeds(crearTorneo(como(U.admin), 'n9', torneoBase(U.admin)));
+  });
+
+  test('el candado se libera solo al cerrar el torneo que lo tiene', async () => {
+    await sinReglas((a) => setDoc(doc(a, 'bloqueos', 'torneo'), { torneoId: 't1', actualizadoEn: Timestamp.now() }));
+    const db = como(U.juez);
+    await assertFails(setDoc(doc(db, 'bloqueos', 'torneo'), { torneoId: null, actualizadoEn: serverTimestamp() }));
+    const b = writeBatch(db);
+    b.update(doc(db, 'torneos', 't1'), { estado: 'finalizado', finalizadoEn: serverTimestamp(), rondaFinEn: null });
+    b.set(doc(db, 'bloqueos', 'torneo'), { torneoId: null, actualizadoEn: serverTimestamp() });
+    await assertSucceeds(b.commit());
+  });
+
+  test('no acepta ids con barra (romperían la creación de torneos para todos)', async () => {
+    await assertFails(setDoc(doc(como(U.juez), 'bloqueos', 'torneo'), { torneoId: 'a/b', actualizadoEn: serverTimestamp() }));
+  });
+
   test('juez y admin lo toman y lo liberan con la hora del servidor', async () => {
     const candado = (uid: string) => doc(como(uid), 'bloqueos', 'torneo');
     await assertSucceeds(setDoc(candado(U.juez), { torneoId: 't1', actualizadoEn: serverTimestamp() }));
@@ -1046,7 +1179,9 @@ describe('reportes de resultado', () => {
   test('solo inscriptos, en la ronda actual y con el torneo en curso', async () => {
     await assertFails(setDoc(reporte(U.j3), reporteBase(U.j3)));
     await assertFails(setDoc(reporte(U.juez), reporteBase(U.juez)));
-    await assertFails(setDoc(reporte(U.j1, 2, 1), reporteBase(U.j1, 2, 1)));
+    // Torneo jugando la ronda 2: la 1 ya no se reporta, la 2 sí.
+    await assertFails(setDoc(doc(como(U.j1), 'torneos', 't2r', 'reportes', `1_1_${U.j1}`), reporteBase(U.j1, 1, 1)));
+    await assertSucceeds(setDoc(doc(como(U.j1), 'torneos', 't2r', 'reportes', `2_1_${U.j1}`), reporteBase(U.j1, 2, 1)));
     await assertFails(setDoc(doc(como(U.j1), 'torneos', 'tf', 'reportes', `3_1_${U.j1}`), reporteBase(U.j1, 3, 1)));
     await assertFails(setDoc(doc(como(U.j1), 'torneos', 'noexiste', 'reportes', `1_1_${U.j1}`), reporteBase(U.j1)));
     await assertFails(setDoc(doc(anonimo(), 'torneos', 't1', 'reportes', `1_1_${U.j1}`), reporteBase(U.j1)));

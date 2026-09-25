@@ -16,5 +16,7 @@ export interface UserProfile {
   estadoAprobacion: EstadoAprobacion;
   /** Código con el que se registró (mozo/juez); las reglas lo validan al crear. */
   codigoInvitacion?: string;
+  /** Confirmó su email (lo marca su app al iniciar sesión, validado por las reglas con el token). */
+  emailVerificado?: boolean;
   creadoEn?: unknown;
 }

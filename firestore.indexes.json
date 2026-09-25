@@ -4,16 +4,42 @@
       "collectionGroup": "torneos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "jugadoresUids", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "creadoEn", "order": "DESCENDING" }
+        {
+          "fieldPath": "jugadoresUids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "creadoEn",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "torneos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "estado", "order": "ASCENDING" },
-        { "fieldPath": "fecha", "order": "ASCENDING" }
+        {
+          "fieldPath": "estado",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "fecha",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "ventas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "creditoUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "creadoEn",
+          "order": "DESCENDING"
+        }
       ]
     }
   ],

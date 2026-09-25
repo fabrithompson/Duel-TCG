@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { KeyboardAvoidingView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { createUserWithEmailAndPassword, deleteUser, signOut, updateProfile, User } from 'firebase/auth';
+import { createUserWithEmailAndPassword, deleteUser, sendEmailVerification, signOut, updateProfile, User } from 'firebase/auth';
 import { doc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../../config/firebase';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -166,6 +166,8 @@ export default function RegisterScreen() {
 
       exito();
       if (necesitaCodigo) {
+        // El admin ve en Equipo si el email está verificado: así sabe que la cuenta es de quien dice ser.
+        await sendEmailVerification(usuario).catch(() => undefined);
         await signOut(auth).catch(() => undefined);
         setPendienteComo(role);
       } else {
@@ -188,7 +190,7 @@ export default function RegisterScreen() {
           <View style={[styles.note, { borderColor: colors.gold }]}>
             <Text style={[styles.noteText, { color: colors.ink }]}>
               Tu cuenta de <Text style={[styles.noteFuerte, { color: colors.gold }]}>{ROLE_LABEL[pendienteComo]}</Text> quedó
-              pendiente de aprobación. El admin la habilita desde su panel; cuando lo haga, entrá con tu email y contraseña.
+              pendiente de aprobación. Te mandamos un mail para verificar tu dirección: abrilo así el admin sabe que la cuenta es tuya. Cuando te habilite, entrá con tu email y contraseña.
             </Text>
           </View>
           <Button label="Ir a iniciar sesión" onPress={() => router.replace('/(auth)/login')} />

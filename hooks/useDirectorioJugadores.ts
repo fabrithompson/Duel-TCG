@@ -51,7 +51,8 @@ export function useBuscarJugadores({ activo, busqueda, limite = 20, conCreditoPr
     }
     const unsub = onSnapshot(
       q,
-      (snap) => setEstado({ clave: claveConsulta, jugadores: snap.docs.map((d) => normalizarJugadorDirectorio(d.id, d.data())), error: null }),
+      // Los bloqueados por el admin no aparecen en las búsquedas del staff.
+      (snap) => setEstado({ clave: claveConsulta, jugadores: snap.docs.map((d) => normalizarJugadorDirectorio(d.id, d.data())).filter((j) => j.activo), error: null }),
       (e) => setEstado({ clave: claveConsulta, jugadores: [], error: e })
     );
     return unsub;

@@ -20,6 +20,8 @@ export interface MiembroEquipo {
   /** null = documento viejo sin estado; las reglas lo tratan como sin acceso. */
   estadoAprobacion: EstadoAprobacion | null;
   creadoEnMs: number | null;
+  /** Confirmó su email con el link de verificación (lo marca su propia app, validado por las reglas). */
+  emailVerificado: boolean;
 }
 
 type CambioUsuario = { role: RolStaff } | { estadoAprobacion: EstadoAprobacion };
@@ -59,6 +61,7 @@ function normalizarMiembro(uid: string, data: Record<string, unknown>): MiembroE
     role,
     estadoAprobacion: ESTADOS_VALIDOS.find((e) => e === data.estadoAprobacion) ?? null,
     creadoEnMs: aMilis(data.creadoEn),
+    emailVerificado: data.emailVerificado === true,
   };
 }
 

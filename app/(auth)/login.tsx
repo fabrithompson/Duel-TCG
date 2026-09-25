@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../config/firebase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -123,6 +123,10 @@ export default function LoginScreen() {
         exito();
         reiniciar('(tabs)');
         return;
+      }
+      // Si ya verificó su email, se deja anotado (las reglas lo aceptan solo con el token que lo confirma).
+      if (cred.user.emailVerified && !perfil.emailVerificado) {
+        await updateDoc(doc(db, 'users', cred.user.uid), { emailVerificado: true }).catch(() => undefined);
       }
       const problema = problemaDeAcceso(perfil, pedido);
       if (problema) {

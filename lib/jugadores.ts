@@ -9,6 +9,8 @@ export interface JugadorDirectorio {
   nombre: string;
   nombreBusqueda: string;
   credito: number;
+  /** false = el admin lo bloqueó: no entra a la app ni aparece en las búsquedas del staff. */
+  activo: boolean;
 }
 
 /** Minúsculas, sin tildes y con espacios simples: así "Pérez" y "perez" dan lo mismo al buscar. */
@@ -26,11 +28,11 @@ export function normalizarJugadorDirectorio(uid: string, data: Record<string, un
   const nombre = typeof data?.nombre === 'string' && data.nombre.trim() ? data.nombre.trim() : 'Sin nombre';
   const credito = typeof data?.creditoCafeteria === 'number' && Number.isFinite(data.creditoCafeteria) ? Math.max(0, data.creditoCafeteria) : 0;
   const busqueda = typeof data?.nombreBusqueda === 'string' && data.nombreBusqueda ? data.nombreBusqueda : normalizarBusqueda(nombre);
-  return { uid, nombre, nombreBusqueda: busqueda, credito };
+  return { uid, nombre, nombreBusqueda: busqueda, credito, activo: data?.activo !== false };
 }
 
 /** Datos para dar de alta (o reparar) la entrada del directorio de un jugador. */
-export function altaDirectorio(uid: string, nombre: string): Omit<JugadorDirectorio, 'credito'> & { creditoCafeteria: 0 } {
+export function altaDirectorio(uid: string, nombre: string): Omit<JugadorDirectorio, 'credito' | 'activo'> & { creditoCafeteria: 0 } {
   const limpio = nombre.trim().replace(/\s+/g, ' ').slice(0, LARGO_MAX_NOMBRE);
   return { uid, nombre: limpio, nombreBusqueda: normalizarBusqueda(limpio), creditoCafeteria: 0 };
 }

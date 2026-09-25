@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Screen, { LoadingScreen } from '../../../components/Screen';
 import Button from '../../../components/Button';
@@ -13,10 +13,12 @@ import { useUserProfileContext } from '../../../contexts/UserProfileContext';
 import { useConfigPrivada } from '../../../hooks/useConfigPrivada';
 import { MiembroEquipo, ROLES_STAFF, RolStaff, rolEnTexto, useEquipo } from '../../../hooks/useEquipo';
 import { useVolverA } from '../../../hooks/useVolverA';
+import JugadoresEquipo from '../../../components/JugadoresEquipo';
 import { fechaConAnio, haceCuanto, inicialDe } from '../../../lib/ajustes';
 import { fechaLocal } from '../../../lib/fecha';
 import { mensajeError } from '../../../lib/errores';
 import { tocar } from '../../../lib/haptics';
+import { preguntar } from '../../../lib/dialogo';
 
 type TonoRol = 'br' | 'gold';
 
@@ -53,21 +55,21 @@ function EquipoAdmin() {
   const { pendientes, activos, rechazados, miUid, estaOcupado } = equipo;
 
   const confirmarRechazo = (m: MiembroEquipo) => {
-    Alert.alert(`¿Rechazar a ${m.nombre}?`, 'No va a poder entrar a la app. Si fue un error, lo reactivás desde "Sin acceso".', [
+    preguntar(`¿Rechazar a ${m.nombre}?`, 'No va a poder entrar a la app. Si fue un error, lo reactivás desde "Sin acceso".', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Rechazar', style: 'destructive', onPress: () => void equipo.rechazar(m) },
     ]);
   };
 
   const confirmarQuitarAcceso = (m: MiembroEquipo) => {
-    Alert.alert(`¿Quitarle el acceso a ${m.nombre}?`, 'No va a poder entrar a la app hasta que lo reactives desde "Sin acceso".', [
+    preguntar(`¿Quitarle el acceso a ${m.nombre}?`, 'No va a poder entrar a la app hasta que lo reactives desde "Sin acceso".', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Quitar acceso', style: 'destructive', onPress: () => void equipo.quitarAcceso(m) },
     ]);
   };
 
   const confirmarAdmin = (m: MiembroEquipo) => {
-    Alert.alert(
+    preguntar(
       `¿Hacer admin a ${m.nombre}?`,
       'Va a poder cambiar los ajustes del local, ver la caja, cargar mercadería y aprobar o quitar gente del equipo.',
       [
@@ -85,7 +87,7 @@ function EquipoAdmin() {
   // Android muestra como mucho tres botones por Alert: por eso el cambio de rol va en un segundo paso.
   const elegirRol = (m: MiembroEquipo) => {
     const otros = ROLES_STAFF.filter((r) => r !== m.role);
-    Alert.alert(`Cambiar el rol de ${m.nombre}`, `Hoy es ${rolEnTexto(m.role)}.`, [
+    preguntar(`Cambiar el rol de ${m.nombre}`, `Hoy es ${rolEnTexto(m.role)}.`, [
       { text: 'Cancelar', style: 'cancel' },
       ...otros.slice(0, 2).map((rol) => ({ text: `Pasar a ${ROLE_LABEL[rol]}`, onPress: () => pasarA(m, rol) })),
     ]);
@@ -93,7 +95,7 @@ function EquipoAdmin() {
 
   const abrirOpciones = (m: MiembroEquipo) => {
     if (m.uid === miUid) return;
-    Alert.alert(m.nombre, m.email ? `${ROLE_LABEL[m.role]} · ${m.email}` : ROLE_LABEL[m.role], [
+    preguntar(m.nombre, m.email ? `${ROLE_LABEL[m.role]} · ${m.email}` : ROLE_LABEL[m.role], [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Quitar acceso', style: 'destructive', onPress: () => confirmarQuitarAcceso(m) },
       { text: 'Cambiar rol', onPress: () => elegirRol(m) },
@@ -186,6 +188,8 @@ function EquipoAdmin() {
           Tocá a alguien del equipo para cambiarle el rol o quitarle el acceso. Los jugadores no necesitan aprobación: entran solos y el juez
           los suma al torneo.
         </Text>
+
+        <JugadoresEquipo />
       </View>
     </Screen>
   );
@@ -201,14 +205,15 @@ function CodigoInvitacion() {
   const compartiendo = useRef(false);
   const codigo = privada.config.codigoInvitacion;
   const venceMs = privada.config.codigoVenceMs;
-  const vencido = venceMs !== null && venceMs <= Date.now();
+  // Los códigos viejos no tienen vencimiento: las reglas ya no los aceptan, hay que generar uno nuevo.
+  const vencido = !!codigo && (venceMs === null || venceMs <= Date.now());
 
   const generar = () => {
     if (!codigo) {
       void privada.generarCodigo();
       return;
     }
-    Alert.alert('¿Generar un código nuevo?', 'El código actual deja de servir. Quien todavía no se registró va a necesitar el nuevo.', [
+    preguntar('¿Generar un código nuevo?', 'El código actual deja de servir. Quien todavía no se registró va a necesitar el nuevo.', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Generar', style: 'destructive', onPress: () => void privada.generarCodigo() },
     ]);
@@ -246,11 +251,13 @@ function CodigoInvitacion() {
             <Text style={[styles.codigoSub, { color: colors.dim }]}>
               Mozos y jueces lo escriben al crear su cuenta. Los jugadores no lo necesitan.
             </Text>
-            {venceMs !== null ? (
-              <Text style={[styles.codigoSub, { color: vencido ? colors.dg : colors.dim }]}>
-                {vencido ? 'Venció: generá uno nuevo para sumar a alguien.' : `Sirve hasta el ${fechaConAnio(fechaLocal(new Date(venceMs)))}.`}
-              </Text>
-            ) : null}
+            <Text style={[styles.codigoSub, { color: vencido ? colors.dg : colors.dim }]}>
+              {venceMs === null
+                ? 'Este código es de antes y no vence: ya no sirve. Generá uno nuevo para sumar a alguien.'
+                : vencido
+                  ? 'Venció: generá uno nuevo para sumar a alguien.'
+                  : `Sirve hasta el ${fechaConAnio(fechaLocal(new Date(venceMs)))}.`}
+            </Text>
           </View>
         ) : (
           <Text style={[styles.sinCodigo, { color: colors.dim }]}>Sin código: mozo y juez no pueden registrarse todavía.</Text>
@@ -316,6 +323,9 @@ function Solicitud({ miembro, ocupado, onAprobar, onRechazar }: SolicitudProps) 
               {miembro.email}
             </Text>
           ) : null}
+          <Text style={[styles.sub, { color: miembro.emailVerificado ? colors.ok : colors.dim }]}>
+            {miembro.emailVerificado ? 'Email verificado' : 'Email sin verificar: confirmá que sea de alguien del equipo'}
+          </Text>
         </View>
       </View>
       <View style={styles.botones}>

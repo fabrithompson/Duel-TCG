@@ -66,16 +66,12 @@ service cloud.firestore {
     }
 
     function idValido(v) {
-      return v is string && v.size() > 0 && v.size() <= 128;
+      return v is string && v.size() > 0 && v.size() <= 128 && !v.matches('.*/.*');
     }
 
     // En las ediciones se valida solo lo que cambia: los docs viejos con valores fuera de contrato siguen siendo editables.
     function opcional(d, ks, k) {
       return !(k in ks) || !(k in d);
-    }
-
-    function rubros() {
-      return ['Café', 'Pastelería', 'TCG', 'Mesa'];
     }
 
     function unidades() {
@@ -112,7 +108,12 @@ service cloud.firestore {
     }
 
     function maxItemsPedido() {
-      return 200;
+      return 80;
+    }
+
+    // Lo máximo que el juez acredita en una entrega (el mismo tope que la app, MAX_CREDITO_PUESTO).
+    function maxCreditoPremio() {
+      return 1000000;
     }
 
     // ---------- Config del local ----------
@@ -120,7 +121,7 @@ service cloud.firestore {
     function camposConfigPublica() {
       return ['nombreLocal', 'logoUrl', 'marca', 'oscuroPorDefecto', 'turnos', 'alertaStock',
               'torneo', 'temporada', 'reporteJugador', 'creditoPremio', 'descontarStock',
-              'juegos', 'mediosPago'];
+              'juegos', 'mediosPago', 'rubrosCafeteria'];
     }
 
     function defaultsTorneoValidos(t) {
@@ -159,7 +160,9 @@ service cloud.firestore {
         && (opcional(d, ks, 'juegos') || (d.juegos is list && d.juegos.size() >= 1 && d.juegos.size() <= 12))
         && (opcional(d, ks, 'mediosPago')
             || (d.mediosPago is list && d.mediosPago.size() >= 1 && d.mediosPago.size() <= 5
-                && d.mediosPago.hasOnly(['efectivo', 'debito', 'credito', 'transferencia', 'qr'])));
+                && d.mediosPago.hasOnly(['efectivo', 'debito', 'credito', 'transferencia', 'qr'])))
+        && (opcional(d, ks, 'rubrosCafeteria')
+            || (d.rubrosCafeteria is list && d.rubrosCafeteria.size() >= 1 && d.rubrosCafeteria.size() <= 10));
     }
 
     function configPrivadaValida(d) {
@@ -169,7 +172,9 @@ service cloud.firestore {
         // Vence entre ahora y un mes: un código filtrado no sirve para siempre.
         && (!('codigoVenceEn' in d) || d.codigoVenceEn == null
             || (d.codigoVenceEn is timestamp && d.codigoVenceEn > request.time
-                && d.codigoVenceEn <= request.time + duration.value(31, 'd')));
+                && d.codigoVenceEn <= request.time + duration.value(31, 'd')))
+        // Un código nuevo siempre trae su vencimiento.
+        && (!('codigoInvitacion' in d) || !(d.codigoInvitacion is string) || d.get('codigoVenceEn', null) is timestamp);
     }
 
     match /config/publico {
@@ -193,7 +198,8 @@ service cloud.firestore {
         && exists(ruta)
         && get(ruta).data.get('codigoInvitacion', null) is string
         && codigo == get(ruta).data.codigoInvitacion
-        && (get(ruta).data.get('codigoVenceEn', null) == null || request.time < get(ruta).data.codigoVenceEn);
+        && get(ruta).data.get('codigoVenceEn', null) is timestamp
+        && request.time < get(ruta).data.codigoVenceEn;
     }
 
     function altaUsuarioValida(userId) {
@@ -217,8 +223,10 @@ service cloud.firestore {
     function edicionPropia(userId) {
       return autenticado()
         && request.auth.uid == userId
-        && cambios().hasOnly(['nombre'])
-        && texto(request.resource.data.nombre, 2, 60);
+        && ((cambios().hasOnly(['nombre']) && texto(request.resource.data.nombre, 2, 60))
+            || (cambios().hasOnly(['emailVerificado'])
+                && request.resource.data.emailVerificado == true
+                && request.auth.token.email_verified == true));
     }
 
     // El admin no puede tocarse el propio rol ni la aprobación: así no se deja sin acceso por error.
@@ -260,22 +268,30 @@ service cloud.firestore {
       return resource.data.get('creditoCafeteria', 0);
     }
 
-    // El premio que respalda una acreditación: en esta misma escritura pasa de pendiente a
-    // entregado, es de este jugador y trae este monto. Los premios están en orden de puesto.
+    // El premio que respalda una acreditación. Con el torneo ya cerrado:
+    //  - el jugador es el de ese puesto en las posiciones finales (que el juez no puede tocar),
+    //  - el premio pasa a entregado en esta misma escritura, con este monto,
+    //  - y se crea su registro de entrega, que es único: el mismo premio no se acredita dos veces
+    //    aunque alguien lo vuelva a marcar pendiente. Premios y posiciones están en orden de puesto.
     function premioQueRespalda(jugadorId, delta) {
       let pr = request.resource.data.ultimoPremio;
       let ruta = /databases/$(database)/documents/torneos/$(pr.torneoId);
-      let antes = get(ruta).data.premios[pr.puesto - 1];
+      let entrega = /databases/$(database)/documents/torneos/$(pr.torneoId)/entregas/$(string(pr.puesto));
+      let t = get(ruta).data;
       let despues = getAfter(ruta).data.premios[pr.puesto - 1];
       return pr is map
         && pr.keys().hasOnly(['torneoId', 'puesto'])
         && idValido(pr.torneoId)
         && pr.puesto is int
+        && t.estado == 'finalizado'
+        && t.posiciones[pr.puesto - 1].puesto == pr.puesto
+        && t.posiciones[pr.puesto - 1].uid == jugadorId
         && despues.puesto == pr.puesto
         && despues.jugadorUid == jugadorId
         && despues.entregado == true
-        && antes.get('entregado', false) == false
-        && despues.creditoCafeteria == delta;
+        && despues.creditoCafeteria == delta
+        && !exists(entrega)
+        && existsAfter(entrega);
     }
 
     // Premios: el juez acredita solo contra un premio que entrega en la misma escritura (no se puede
@@ -289,6 +305,7 @@ service cloud.firestore {
         && nuevo <= maxCredito()
         && ((esAdmin() && cambios().hasOnly(['creditoCafeteria']))
             || ((rol('juez') || esAdmin())
+                && delta <= maxCreditoPremio()
                 && cambios().hasOnly(['creditoCafeteria', 'ultimoPremio'])
                 && premioQueRespalda(jugadorId, delta)));
     }
@@ -356,7 +373,8 @@ service cloud.firestore {
       allow get: if (autenticado() && request.auth.uid == jugadorId) || staff();
       allow list: if staff();
       allow create: if altaJugadorValida(jugadorId);
-      allow update: if renombreJugador(jugadorId) || subeCredito(jugadorId) || bajaCredito(jugadorId);
+      allow update: if renombreJugador(jugadorId) || subeCredito(jugadorId) || bajaCredito(jugadorId)
+        || (esAdmin() && cambios().hasOnly(['activo']) && request.resource.data.activo is bool);
       allow delete: if esAdmin();
     }
 
@@ -422,7 +440,7 @@ service cloud.firestore {
                          'activo', 'categoria', 'creadoEn'])
         && (!('nombre' in ks) || texto(d.nombre, 1, 80))
         && (!('precio' in ks) || numeroEntre(d.precio, 0, maxPrecio()))
-        && (!('rubro' in ks) || d.rubro in rubros())
+        && (!('rubro' in ks) || texto(d.rubro, 1, 30))
         && (!('controlStock' in ks) || d.controlStock is bool)
         && (opcional(d, ks, 'stock') || stockValido(d.stock))
         && (opcional(d, ks, 'unidad') || d.unidad in unidades())
@@ -516,7 +534,8 @@ service cloud.firestore {
     }
 
     match /ventas/{ventaId} {
-      allow read: if rol('admin') || rol('mozo');
+      // El jugador ve las ventas en las que se usó SU crédito: si alguien lo usa sin permiso, se entera.
+      allow read: if rol('admin') || rol('mozo') || (aprobado() && resource.data.creditoUid == request.auth.uid);
       allow create: if (rol('admin') || rol('mozo')) && ventaValida(ventaId);
       allow update, delete: if false;
     }
@@ -535,7 +554,7 @@ service cloud.firestore {
         && idValido(d.productoId)
         && d.coleccion in ['productos', 'tcg_productos']
         && texto(d.nombre, 1, 80)
-        && d.rubro in rubros()
+        && texto(d.rubro, 1, 30)
         && d.cantidad is number && d.cantidad > 0 && d.cantidad <= 1000000
         && d.unidad in unidades()
         && numeroEntre(d.costoUnitario, 0, maxPrecio())
@@ -596,16 +615,20 @@ service cloud.firestore {
         && (opcional(d, ks, 'finalizadoEn') || d.finalizadoEn == null || d.finalizadoEn is timestamp);
     }
 
-    // La fecha del torneo (día local YYYY-MM-DD) tiene que ser la de hoy: no se cargan torneos retroactivos.
+    // La fecha (día local YYYY-MM-DD) tiene que ser la jornada de hoy: no se cargan torneos, ventas ni
+    // ingresos en días cerrados. El local está en Argentina, UTC-3 todo el año (sin horario de verano):
+    // el día D va de D 03:00 a D+1 03:00 UTC, y se aceptan 6 horas más para la madrugada de un turno
+    // nocturno (lib/fecha.ts fechaDeNegocio), más 15 minutos de tolerancia por relojes corridos.
     function fechaDeHoy(f) {
       let p = f.split('-');
-      let dia = timestamp.date(int(p[0]), int(p[1]), int(p[2]));
-      return request.time > dia - duration.value(1, 'd') && request.time < dia + duration.value(2, 'd');
+      let inicio = timestamp.date(int(p[0]), int(p[1]), int(p[2])) + duration.value(3, 'h');
+      return request.time > inicio - duration.value(15, 'm') && request.time < inicio + duration.value(30, 'h');
     }
 
-    function altaTorneoValida() {
+    function altaTorneoValida(torneoId) {
       let d = request.resource.data;
       return d.keys().hasAll(camposObligatoriosTorneo())
+        && getAfter(/databases/$(database)/documents/bloqueos/torneo).data.get('torneoId', null) == torneoId
         && !d.keys().hasAny(['posiciones', 'finalizadoEn'])
         && torneoValido(d, d.keys())
         && fechaDeHoy(d.fecha)
@@ -621,16 +644,37 @@ service cloud.firestore {
       let ks = cambios();
       return torneoValido(request.resource.data, ks)
         && !ks.hasAny(['creadoPor', 'creadoEn'])
-        && (resource.data.get('estado', 'en_curso') != 'finalizado' || esAdmin() || ks.hasOnly(['premios']));
+        && (resource.data.get('estado', 'en_curso') != 'finalizado' || esAdmin()
+            || (ks.hasOnly(['premios']) && request.resource.data.premios.size() == resource.data.premios.size()));
     }
 
     // Candado de torneo en curso: la creación lo toma en una transacción y el cierre lo libera.
+    function rutaTorneo(id) {
+      return /databases/$(database)/documents/torneos/$(id);
+    }
+
+    // Antes de esta escritura el candado no tenía dueño en curso.
+    function candadoLibre() {
+      let prev = resource == null ? null : resource.data.get('torneoId', null);
+      return prev == null || !exists(rutaTorneo(prev)) || get(rutaTorneo(prev)).data.get('estado', '') == 'finalizado';
+    }
+
+    // Se libera solo si el torneo que lo tenía termina (o se borra) en esta misma escritura.
+    function candadoSeLibera() {
+      let prev = resource == null ? null : resource.data.get('torneoId', null);
+      return prev == null || !existsAfter(rutaTorneo(prev)) || getAfter(rutaTorneo(prev)).data.get('estado', '') == 'finalizado';
+    }
+
     match /bloqueos/torneo {
       allow get: if rol('admin') || rol('juez');
       allow create, update: if (rol('admin') || rol('juez'))
         && request.resource.data.keys().hasOnly(['torneoId', 'actualizadoEn'])
-        && (request.resource.data.torneoId == null || idValido(request.resource.data.torneoId))
-        && request.resource.data.actualizadoEn == request.time;
+        && request.resource.data.actualizadoEn == request.time
+        && (request.resource.data.torneoId == null
+            ? (esAdmin() || candadoSeLibera())
+            : (idValido(request.resource.data.torneoId)
+               && (esAdmin() || candadoLibre())
+               && getAfter(rutaTorneo(request.resource.data.torneoId)).data.get('estado', '') == 'en_curso'));
     }
 
     // Medición del desfase de reloj de cada teléfono (ver hooks/useReloj.ts).
@@ -643,12 +687,16 @@ service cloud.firestore {
 
     match /torneos/{torneoId} {
       allow read: if aprobado();
-      allow create: if (rol('admin') || rol('juez')) && altaTorneoValida();
+      allow create: if (rol('admin') || rol('juez')) && altaTorneoValida(torneoId);
       allow update: if (rol('admin') || rol('juez')) && edicionTorneoValida();
       allow delete: if esAdmin();
 
+      function torneoRuta() {
+        return /databases/$(database)/documents/torneos/$(torneoId);
+      }
+
       function torneoActual() {
-        return get(/databases/$(database)/documents/torneos/$(torneoId)).data;
+        return get(torneoRuta()).data;
       }
 
       function reporteHabilitado() {
@@ -684,6 +732,20 @@ service cloud.firestore {
           && d.ronda == t.get('rondaActual', 0)
           && sentadoEnMesa(t, d)
           && reporteHabilitado();
+      }
+
+      // Una por puesto y para siempre: es lo que impide acreditar dos veces el mismo premio.
+      match /entregas/{puesto} {
+        allow read: if staff();
+        allow create: if (rol('admin') || rol('juez'))
+          && request.resource.data.keys().hasOnly(['puesto', 'jugadorUid', 'creditoCafeteria', 'cantidadProducto', 'entregadoPor', 'entregadoEn'])
+          && request.resource.data.puesto is int
+          && string(request.resource.data.puesto) == puesto
+          && getAfter(torneoRuta()).data.premios[request.resource.data.puesto - 1].entregado == true
+          && request.resource.data.entregadoPor == request.auth.uid
+          && request.resource.data.entregadoEn == request.time;
+        allow update: if false;
+        allow delete: if esAdmin();
       }
 
       match /reportes/{reporteId} {
