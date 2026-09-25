@@ -17,6 +17,8 @@ Cada perfil ve solo lo suyo: el rol define las pestañas, la pantalla de inicio 
 - Mozo y juez se registran con el código de invitación del local y quedan pendientes hasta que el admin los aprueba en Ajustes > Equipo. Reciben un mail para verificar su dirección; el admin ve en la solicitud si ya la verificaron.
 - El admin puede bloquear una cuenta de jugador (Ajustes > Equipo > Jugadores): pierde el acceso y deja de aparecer en las búsquedas del staff, pero conserva su historial y su crédito, y se puede reactivar.
 - La cuenta de admin no se registra desde la app: se crea desde la consola de Firebase (ver más abajo).
+- El juez (o el admin) puede jugar el torneo que maneja: en Nuevo torneo, paso Inscriptos, "Juego yo también" lo anota con la misma cuenta.
+- Toda cuenta arranca con una silueta como avatar; en Mi cuenta cada uno pone, cambia o quita su foto.
 - Las pestañas ocultas para un rol también están protegidas en la pantalla: si alguien llega por un enlace (`duel://…`), ve un aviso y no los controles.
 - Las cuentas de la versión anterior (con `role: 'user'`) se pasan solas a jugador la primera vez que entran. Si un registro se cortó sin guardar el perfil, al iniciar sesión la app pide completarlo.
 
@@ -74,7 +76,7 @@ Si Storage no está habilitado en el proyecto, el despliegue de sus reglas falla
 
 - `firestore.rules`: permisos de Firestore (ver Seguridad).
 - `firestore.indexes.json`: índices compuestos que necesitan las consultas de torneos. Tardan unos minutos en construirse después del primer despliegue. Mientras tanto, Historial, Tabla y Mi duelo muestran "esta pantalla todavía se está preparando"; si sigue así, falta `pnpm firebase deploy --only firestore:indexes`.
-- `storage.rules`: solo la carpeta `logos/` (lectura pública, escritura del admin, imágenes de menos de 2 MB).
+- `storage.rules`: `logos/` (lectura pública, escritura del admin) y `avatares/{uid}/` (fotos de perfil: cada uno sube la suya, las ve cualquiera con sesión). Imágenes de menos de 2 MB.
 
 Las reglas de Storage leen el perfil del usuario en Firestore para saber si es admin. La primera vez que las despliegues, la CLI pide permiso para que Storage consulte Firestore: aceptalo, si no, subir el logo falla con permiso denegado.
 
@@ -126,8 +128,8 @@ Colecciones de Firestore (contrato completo en `lib/pedido.ts`, `lib/torneo.ts`,
 | --- | --- | --- |
 | `config/publico` | `nombreLocal`, `logoUrl`, `marca`, `oscuroPorDefecto`, `turnos`, `alertaStock`, `torneo`, `temporada` (`nombre`, `inicio`, `inicioMs`), `reporteJugador`, `creditoPremio`, `descontarStock`, `juegos`, `mediosPago`, `rubrosCafeteria` | Lectura pública (el splash la usa antes del login). |
 | `config/privado` | `codigoInvitacion`, `codigoVenceEn` | Solo admin. |
-| `users/{uid}` | `uid`, `nombre`, `email`, `role` (`admin`, `mozo`, `juez`, `jugador`), `estadoAprobacion` (`pendiente`, `aprobado`, `rechazado`), `codigoInvitacion?`, `emailVerificado?`, `creadoEn` | Privado: el propio usuario y el admin. El ID es el UID de Authentication. |
-| `jugadores/{uid}` | `uid`, `nombre`, `nombreBusqueda` (minúsculas, sin tildes), `creditoCafeteria`, `ultimaVenta?`, `ultimoPremio?`, `activo?`, `creadoEn` | Directorio público para el staff: buscar jugadores y mover crédito sin ver emails. Se crea con el alta del jugador (o solo, al abrir la app, si faltaba). |
+| `users/{uid}` | `uid`, `nombre`, `email`, `role` (`admin`, `mozo`, `juez`, `jugador`), `estadoAprobacion` (`pendiente`, `aprobado`, `rechazado`), `codigoInvitacion?`, `emailVerificado?`, `fotoUrl?`, `creadoEn` | Privado: el propio usuario y el admin. El ID es el UID de Authentication. |
+| `jugadores/{uid}` | `uid`, `nombre`, `nombreBusqueda` (minúsculas, sin tildes), `creditoCafeteria`, `ultimaVenta?`, `ultimoPremio?`, `activo?`, `fotoUrl?`, `creadoEn` | Directorio público para el staff: buscar jugadores y mover crédito sin ver emails. Se crea con el alta del jugador (o solo, al abrir la app, si faltaba). |
 | `salas/{id}` | `nombre`, `orden`, `creadoEn` | |
 | `mesas/{id}` | `numero`, `x`, `y`, `salaId`, `tipo` (`cafe`, `duelo`), `estado` (`libre`, `consumo`), `pedido` (ítems), `creadoEn` | "Duelo en curso" no se guarda: se deriva del torneo en curso. |
 | `productos/{id}` | `nombre`, `precio`, `rubro` (`Café`, `Pastelería`, `TCG`, `Mesa`), `controlStock`, `stock?`, `unidad?`, `alerta?`, `activo?`, `creadoEn` | Los servicios de mesa van con `controlStock: false`. |
@@ -155,7 +157,7 @@ Storage: `logos/` guarda el logo del local.
 | `config/publico` | Todos, incluso sin sesión | Admin |
 | `config/privado` | Admin | Admin; el código siempre con vencimiento (hasta 31 días) |
 | `users` | Cada uno el suyo; admin todos | Alta: el propio usuario (jugador aprobado, o mozo/juez pendiente con código válido y vigente). Edición: el usuario solo su nombre, marcar su email verificado (si el token lo confirma) o pasar su cuenta vieja a jugador; admin rol, aprobación y nombre. Baja: admin |
-| `jugadores` | Cada jugador el suyo; staff todos | Alta: el propio jugador aprobado, con crédito 0, en el mismo batch que su perfil. Edición: el jugador solo su nombre; el juez acredita solo al entregar un premio de un torneo cerrado, al ganador de ese puesto, por el monto del premio (hasta $1.000.000) y una sola vez (`ultimoPremio` + registro en `entregas`); el mozo descuenta solo junto con la venta que aplica ese crédito (`ultimaVenta`); el admin puede corregir a mano, con tope, y bloquear o reactivar (`activo`); nunca queda en negativo. Baja: admin |
+| `jugadores` | Cada jugador el suyo; staff todos | Alta: el propio jugador aprobado, con crédito 0, en el mismo batch que su perfil; también el juez o el admin, para jugar los torneos que manejan. Foto: cada uno la suya, solo URLs de Firebase Storage. Edición: el jugador solo su nombre; el juez acredita solo al entregar un premio de un torneo cerrado, al ganador de ese puesto, por el monto del premio (hasta $1.000.000) y una sola vez (`ultimoPremio` + registro en `entregas`); el mozo descuenta solo junto con la venta que aplica ese crédito (`ultimaVenta`); el admin puede corregir a mano, con tope, y bloquear o reactivar (`activo`); nunca queda en negativo. Baja: admin |
 | `salas` | Staff | Admin |
 | `mesas` | Staff | Admin; el mozo solo cambia `pedido` y `estado` |
 | `productos`, `tcg_productos` | Staff | Admin; mozo y juez solo bajan `stock`, hasta 1.000 por vez y sin pasar de -1.000 |
