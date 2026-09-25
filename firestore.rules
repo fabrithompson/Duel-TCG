@@ -119,7 +119,8 @@ service cloud.firestore {
 
     function camposConfigPublica() {
       return ['nombreLocal', 'logoUrl', 'marca', 'oscuroPorDefecto', 'turnos', 'alertaStock',
-              'torneo', 'temporada', 'reporteJugador', 'creditoPremio', 'descontarStock'];
+              'torneo', 'temporada', 'reporteJugador', 'creditoPremio', 'descontarStock',
+              'juegos', 'mediosPago'];
     }
 
     function defaultsTorneoValidos(t) {
@@ -134,9 +135,10 @@ service cloud.firestore {
 
     function temporadaValida(t) {
       return t is map
-        && t.keys().hasOnly(['nombre', 'inicio'])
+        && t.keys().hasOnly(['nombre', 'inicio', 'inicioMs'])
         && (!('nombre' in t) || texto(t.nombre, 1, 60))
-        && (!('inicio' in t) || t.inicio == null || fechaValida(t.inicio));
+        && (!('inicio' in t) || t.inicio == null || fechaValida(t.inicio))
+        && (!('inicioMs' in t) || t.inicioMs == null || t.inicioMs is number);
     }
 
     function configPublicaValida(d, ks) {
@@ -153,7 +155,11 @@ service cloud.firestore {
         && (opcional(d, ks, 'temporada') || temporadaValida(d.temporada))
         && (opcional(d, ks, 'reporteJugador') || d.reporteJugador is bool)
         && (opcional(d, ks, 'creditoPremio') || d.creditoPremio is bool)
-        && (opcional(d, ks, 'descontarStock') || d.descontarStock is bool);
+        && (opcional(d, ks, 'descontarStock') || d.descontarStock is bool)
+        && (opcional(d, ks, 'juegos') || (d.juegos is list && d.juegos.size() >= 1 && d.juegos.size() <= 12))
+        && (opcional(d, ks, 'mediosPago')
+            || (d.mediosPago is list && d.mediosPago.size() >= 1 && d.mediosPago.size() <= 5
+                && d.mediosPago.hasOnly(['efectivo', 'debito', 'credito', 'transferencia', 'qr'])));
     }
 
     function configPrivadaValida(d) {
@@ -397,12 +403,22 @@ service cloud.firestore {
         && (opcional(d, ks, 'creadoEn') || d.creadoEn is timestamp);
     }
 
-    // Mozo y juez solo descuentan stock (cobro, premios). Puede quedar negativo por sobreventa.
+    // Mozo y juez solo descuentan stock (cobro, premios), de a lo que puede salir en una venta o un premio.
+    // Puede quedar algo negativo por sobreventa, pero no hundirse: las correcciones las hace el admin.
+    function maxBajaStock() {
+      return 1000;
+    }
+
     function soloBajaStock() {
+      let antes = resource.data.get('stock', 0);
+      let despues = request.resource.data.stock;
       return (rol('mozo') || rol('juez'))
         && cambios().hasOnly(['stock'])
-        && stockValido(request.resource.data.stock)
-        && request.resource.data.stock < resource.data.get('stock', 0);
+        && antes is number
+        && stockValido(despues)
+        && despues < antes
+        && antes - despues <= maxBajaStock()
+        && despues >= -maxBajaStock();
     }
 
     match /productos/{productoId} {
@@ -443,6 +459,7 @@ service cloud.firestore {
         && (d.creditoAplicado == 0 || d.creditoUid != null)
         && d.total == d.subtotal - d.creditoAplicado
         && d.medioPago in mediosPago()
+        && ((d.medioPago == 'credito_torneo') == (d.creditoAplicado > 0 && d.total == 0))
         && fechaValida(d.fecha)
         && horaValida(d.hora)
         && d.creadoPor == request.auth.uid
@@ -486,10 +503,6 @@ service cloud.firestore {
 
     // ---------- Torneos ----------
 
-    function juegos() {
-      return ['Pokémon TCG', 'Magic', 'Yu-Gi-Oh', 'One Piece', 'Otro'];
-    }
-
     function formatos() {
       return ['suizo', 'eliminacion', 'suizo_top_cut', 'casual'];
     }
@@ -508,7 +521,7 @@ service cloud.firestore {
     function torneoValido(d, ks) {
       return ks.hasOnly(camposTorneo())
         && (!('nombre' in ks) || texto(d.nombre, 1, 80))
-        && (!('juego' in ks) || d.juego in juegos())
+        && (!('juego' in ks) || texto(d.juego, 1, 40))
         && (!('formatoId' in ks) || d.formatoId in formatos())
         && (!('formato' in ks) || texto(d.formato, 1, 60))
         && (!('totalRondas' in ks) || enteroEntre(d.totalRondas, 1, 20))
@@ -533,10 +546,19 @@ service cloud.firestore {
         && (opcional(d, ks, 'finalizadoEn') || d.finalizadoEn == null || d.finalizadoEn is timestamp);
     }
 
+    // La fecha del torneo (día local YYYY-MM-DD) tiene que ser la de hoy: no se cargan torneos retroactivos.
+    function fechaDeHoy(f) {
+      let p = f.split('-');
+      let dia = timestamp.date(int(p[0]), int(p[1]), int(p[2]));
+      return request.time > dia - duration.value(1, 'd') && request.time < dia + duration.value(2, 'd');
+    }
+
     function altaTorneoValida() {
       let d = request.resource.data;
       return d.keys().hasAll(camposObligatoriosTorneo())
+        && !d.keys().hasAny(['posiciones', 'finalizadoEn'])
         && torneoValido(d, d.keys())
+        && fechaDeHoy(d.fecha)
         && d.estado == 'en_curso'
         && d.rondaActual == 1
         && d.rondas.size() >= 1
@@ -550,6 +572,23 @@ service cloud.firestore {
       return torneoValido(request.resource.data, ks)
         && !ks.hasAny(['creadoPor', 'creadoEn'])
         && (resource.data.get('estado', 'en_curso') != 'finalizado' || esAdmin() || ks.hasOnly(['premios']));
+    }
+
+    // Candado de torneo en curso: la creación lo toma en una transacción y el cierre lo libera.
+    match /bloqueos/torneo {
+      allow get: if rol('admin') || rol('juez');
+      allow create, update: if (rol('admin') || rol('juez'))
+        && request.resource.data.keys().hasOnly(['torneoId', 'actualizadoEn'])
+        && (request.resource.data.torneoId == null || idValido(request.resource.data.torneoId))
+        && request.resource.data.actualizadoEn == request.time;
+    }
+
+    // Medición del desfase de reloj de cada teléfono (ver hooks/useReloj.ts).
+    match /relojes/{userId} {
+      allow get: if autenticado() && request.auth.uid == userId;
+      allow create, update: if autenticado() && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['t'])
+        && request.resource.data.t == request.time;
     }
 
     match /torneos/{torneoId} {
@@ -567,6 +606,17 @@ service cloud.firestore {
         return !exists(ruta) || get(ruta).data.get('reporteJugador', true) != false;
       }
 
+      // Las partidas de cada ronda se guardan ordenadas por mesa (mesa N en la posición N-1)
+      // y las rondas por número: así se puede comprobar quién está sentado sin recorrer listas.
+      function sentadoEnMesa(t, d) {
+        let ronda = t.rondas[d.ronda - 1];
+        let partida = ronda.partidas[d.mesa - 1];
+        return ronda.numero == d.ronda
+          && partida.mesa == d.mesa
+          && partida.jugador2 != null
+          && (partida.jugador1.uid == request.auth.uid || partida.jugador2.uid == request.auth.uid);
+      }
+
       function reporteValido(reporteId) {
         let d = request.resource.data;
         let t = torneoActual();
@@ -582,6 +632,7 @@ service cloud.firestore {
           && request.auth.uid in t.get('jugadoresUids', [])
           && t.get('estado', '') == 'en_curso'
           && d.ronda == t.get('rondaActual', 0)
+          && sentadoEnMesa(t, d)
           && reporteHabilitado();
       }
 

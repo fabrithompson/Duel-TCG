@@ -31,7 +31,8 @@ import { getMetadata, ref, uploadBytes, type FirebaseStorage } from 'firebase/st
 
 const PROJECT_ID = 'demo-duel';
 const CODIGO = 'ABCD2345';
-const HOY = '2026-09-24';
+// Día local de Argentina (UTC-3): las reglas exigen que un torneo nuevo tenga la fecha de hoy.
+const HOY = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
 
 const U = {
   admin: 'admin1',
@@ -223,6 +224,23 @@ async function sembrar(): Promise<void> {
       creadoEn: Timestamp.fromMillis(ahora.toMillis() - 7 * 86400000),
     });
     b.set(doc(db, 'torneos', 't1', 'reportes', `1_1_${U.j1}`), { ...reporteBase(U.j1), creadoEn: ahora });
+    const base3 = torneoBase(U.juez);
+    b.set(doc(db, 'torneos', 't3'), {
+      ...base3,
+      jugadores: [jugador(U.j1), jugador(U.j2), jugador(U.j3)],
+      jugadoresUids: [U.j1, U.j2, U.j3],
+      rondas: [
+        {
+          numero: 1,
+          fase: 'suizo',
+          partidas: [
+            { mesa: 1, jugador1: jugador(U.j1), jugador2: jugador(U.j2), resultado: null, mesaSalonId: null, mesaSalonNumero: null },
+            { mesa: 2, jugador1: jugador(U.j3), jugador2: null, resultado: '2-0', mesaSalonId: null, mesaSalonNumero: null },
+          ],
+        },
+      ],
+      creadoEn: ahora,
+    });
     b.set(doc(db, 'tcg_juegos', 'x'), { nombre: 'Pokémon' });
     await b.commit();
   });
@@ -270,6 +288,18 @@ describe('config', () => {
     await assertFails(setDoc(doc(db, 'config', 'publico'), { logoUrl: 'http://inseguro.test/logo.png' }, { merge: true }));
     await assertFails(setDoc(doc(db, 'config', 'publico'), { reporteJugador: 'no' }, { merge: true }));
     await assertFails(setDoc(doc(db, 'config', 'publico'), { nombreLocal: '' }, { merge: true }));
+  });
+
+  test('juegos, medios de pago e inicio de temporada del local', async () => {
+    const r = doc(como(U.admin), 'config', 'publico');
+    await assertSucceeds(setDoc(r, { juegos: ['Pokémon TCG', 'Lorcana'], mediosPago: ['efectivo', 'qr'] }, { merge: true }));
+    await assertSucceeds(setDoc(r, { temporada: { nombre: 'T2', inicio: HOY, inicioMs: Date.now() } }, { merge: true }));
+    await assertFails(setDoc(r, { juegos: [] }, { merge: true }));
+    await assertFails(setDoc(r, { juegos: 'Magic' }, { merge: true }));
+    await assertFails(setDoc(r, { mediosPago: ['bitcoin'] }, { merge: true }));
+    await assertFails(setDoc(r, { mediosPago: ['credito_torneo'] }, { merge: true }));
+    await assertFails(setDoc(r, { mediosPago: [] }, { merge: true }));
+    await assertFails(setDoc(r, { temporada: { inicioMs: 'ayer' } }, { merge: true }));
   });
 
   test('el admin puede crear config/publico desde cero', async () => {
@@ -637,6 +667,15 @@ describe('productos y tcg_productos', () => {
     await assertFails(deleteDoc(doc(como(U.juez), 'tcg_productos', 't1')));
   });
 
+  test('mozo y juez no vacían el depósito de un saque ni lo hunden en negativo', async () => {
+    await assertFails(updateDoc(doc(como(U.mozo), 'productos', 'p1'), { stock: increment(-1001) }));
+    await assertFails(updateDoc(doc(como(U.juez), 'tcg_productos', 't1'), { stock: -1000000 }));
+    await sinReglas((a) => updateDoc(doc(a, 'productos', 'p1'), { stock: -995 }));
+    await assertFails(updateDoc(doc(como(U.mozo), 'productos', 'p1'), { stock: increment(-10) }));
+    await assertSucceeds(updateDoc(doc(como(U.mozo), 'productos', 'p1'), { stock: increment(-5) }));
+    await assertSucceeds(updateDoc(doc(como(U.admin), 'productos', 'p1'), { stock: 40 }));
+  });
+
   test('jugadores y staff pendiente no tocan stock', async () => {
     await assertFails(updateDoc(doc(como(U.j1), 'tcg_productos', 't1'), { stock: increment(-1) }));
     await assertFails(updateDoc(doc(como(U.mozoPendiente), 'productos', 'p1'), { stock: increment(-1) }));
@@ -669,6 +708,12 @@ describe('ventas', () => {
     );
   });
 
+  test('una cuenta de $0 sin crédito se registra con un medio real', async () => {
+    const gratis = { ...ventaBase(U.mozo), items: [{ itemId: 'agua', nombre: 'Agua', precio: 0, cantidad: 1, rubro: 'Mesa', origen: 'productos' }], subtotal: 0, total: 0 };
+    await assertSucceeds(setDoc(doc(como(U.mozo), 'ventas', 'g1'), gratis));
+    await assertFails(setDoc(doc(como(U.mozo), 'ventas', 'g2'), { ...gratis, medioPago: 'credito_torneo' }));
+  });
+
   test('juez, jugador, pendientes y anónimos no registran ventas', async () => {
     for (const uid of [U.juez, U.j1, U.mozoPendiente, U.adminPendiente]) {
       await assertFails(setDoc(doc(como(uid), 'ventas', 'x'), ventaBase(uid)));
@@ -687,6 +732,9 @@ describe('ventas', () => {
     await assertFails(setDoc(r, { ...base, creditoAplicado: 500, total: 3900 }));
     await assertFails(setDoc(r, { ...base, creditoAplicado: 5000, creditoUid: U.j1, total: -600 }));
     await assertFails(setDoc(r, { ...base, medioPago: 'bitcoin' }));
+    await assertFails(setDoc(r, { ...base, medioPago: 'credito_torneo' }));
+    await assertFails(setDoc(r, { ...base, creditoAplicado: 1000, creditoUid: U.j1, total: 3400, medioPago: 'credito_torneo' }));
+    await assertFails(setDoc(r, { ...base, creditoAplicado: 4400, creditoUid: U.j1, total: 0, medioPago: 'efectivo' }));
     await assertFails(setDoc(r, { ...base, fecha: '24/09/2026' }));
     await assertFails(setDoc(r, { ...base, hora: '9:30' }));
     await assertFails(setDoc(r, { ...base, items: [] }));
@@ -763,7 +811,8 @@ describe('ingresos', () => {
     await assertFails(setDoc(r, { ...base, costoUnitario: -1 }));
     await assertFails(setDoc(r, { ...base, coleccion: 'ventas' }));
     await assertFails(setDoc(r, { ...base, fecha: '2026-9-24' }));
-    await assertFails(setDoc(r, { ...base, creadoEn: Timestamp.now() }));
+    // Una hora del cliente (aunque sea de hace un minuto) no vale: tiene que ser la del servidor.
+    await assertFails(setDoc(r, { ...base, creadoEn: Timestamp.fromMillis(Date.now() - 60_000) }));
     const { productoId: _p, ...sinProducto } = base;
     await assertFails(setDoc(r, sinProducto));
   });
@@ -802,6 +851,8 @@ describe('torneos', () => {
   test('juez y admin crean torneos válidos', async () => {
     await assertSucceeds(setDoc(doc(como(U.juez), 'torneos', 'n1'), torneoBase(U.juez)));
     await assertSucceeds(setDoc(doc(como(U.admin), 'torneos', 'n2'), torneoBase(U.admin)));
+    // Los juegos los define el local en Ajustes.
+    await assertSucceeds(setDoc(doc(como(U.juez), 'torneos', 'n3'), { ...torneoBase(U.juez), juego: 'Lorcana' }));
     for (const uid of [U.mozo, U.j1, U.juezRechazado]) {
       await assertFails(setDoc(doc(como(uid), 'torneos', 'x'), torneoBase(uid)));
     }
@@ -816,7 +867,13 @@ describe('torneos', () => {
     await assertFails(setDoc(r, { ...base, creadoEn: Timestamp.fromMillis(0) }));
     await assertFails(setDoc(r, { ...base, jugadoresUids: [U.j1] }));
     await assertFails(setDoc(r, { ...base, formatoId: 'round_robin' }));
-    await assertFails(setDoc(r, { ...base, juego: 'Ajedrez' }));
+    await assertFails(setDoc(r, { ...base, juego: '' }));
+    await assertFails(setDoc(r, { ...base, juego: 'x'.repeat(41) }));
+    await assertFails(setDoc(r, { ...base, fecha: '2026-01-01' }));
+    await assertFails(
+      setDoc(r, { ...base, posiciones: [{ uid: U.juez, nombre: 'Juez', puesto: 1, puntos: 99, victorias: 9, derrotas: 0 }] })
+    );
+    await assertFails(setDoc(r, { ...base, finalizadoEn: serverTimestamp() }));
     await assertFails(setDoc(r, { ...base, minutosPorRonda: 500 }));
     await assertFails(setDoc(r, { ...base, rondas: [] }));
     await assertFails(setDoc(r, { ...base, fecha: 'hoy' }));
@@ -894,6 +951,33 @@ describe('torneos', () => {
   });
 });
 
+describe('candado de torneo en curso', () => {
+  test('juez y admin lo toman y lo liberan con la hora del servidor', async () => {
+    const candado = (uid: string) => doc(como(uid), 'bloqueos', 'torneo');
+    await assertSucceeds(setDoc(candado(U.juez), { torneoId: 't1', actualizadoEn: serverTimestamp() }));
+    await assertSucceeds(getDoc(candado(U.admin)));
+    await assertSucceeds(setDoc(candado(U.admin), { torneoId: null, actualizadoEn: serverTimestamp() }));
+    await assertFails(setDoc(candado(U.juez), { torneoId: 't1', actualizadoEn: Timestamp.fromMillis(0) }));
+    await assertFails(setDoc(candado(U.juez), { torneoId: 't1', actualizadoEn: serverTimestamp(), extra: 1 }));
+    for (const uid of [U.mozo, U.j1, U.juezRechazado]) {
+      await assertFails(setDoc(candado(uid), { torneoId: null, actualizadoEn: serverTimestamp() }));
+      await assertFails(getDoc(candado(uid)));
+    }
+  });
+});
+
+describe('relojes', () => {
+  test('cada uno escribe su propio reloj, solo con la hora del servidor', async () => {
+    await assertSucceeds(setDoc(doc(como(U.j1), 'relojes', U.j1), { t: serverTimestamp() }));
+    await assertSucceeds(getDoc(doc(como(U.j1), 'relojes', U.j1)));
+    await assertFails(setDoc(doc(como(U.j1), 'relojes', U.j1), { t: Timestamp.fromMillis(0) }));
+    await assertFails(setDoc(doc(como(U.j1), 'relojes', U.j1), { t: serverTimestamp(), otro: 1 }));
+    await assertFails(setDoc(doc(como(U.j1), 'relojes', U.j2), { t: serverTimestamp() }));
+    await assertFails(getDoc(doc(como(U.j2), 'relojes', U.j1)));
+    await assertFails(setDoc(doc(anonimo(), 'relojes', 'x'), { t: serverTimestamp() }));
+  });
+});
+
 describe('reportes de resultado', () => {
   const reporte = (uid: string, ronda = 1, mesa = 1) => doc(como(uid), 'torneos', 't1', 'reportes', `${ronda}_${mesa}_${uid}`);
 
@@ -919,6 +1003,14 @@ describe('reportes de resultado', () => {
     await assertFails(setDoc(doc(como(U.j1), 'torneos', 'tf', 'reportes', `3_1_${U.j1}`), reporteBase(U.j1, 3, 1)));
     await assertFails(setDoc(doc(como(U.j1), 'torneos', 'noexiste', 'reportes', `1_1_${U.j1}`), reporteBase(U.j1)));
     await assertFails(setDoc(doc(anonimo(), 'torneos', 't1', 'reportes', `1_1_${U.j1}`), reporteBase(U.j1)));
+  });
+
+  test('solo reporta quien está sentado en esa mesa (el bye no reporta)', async () => {
+    const rep3 = (uid: string, mesa: number) => doc(como(uid), 'torneos', 't3', 'reportes', `1_${mesa}_${uid}`);
+    await assertSucceeds(setDoc(rep3(U.j1, 1), reporteBase(U.j1, 1, 1)));
+    await assertFails(setDoc(rep3(U.j3, 1), reporteBase(U.j3, 1, 1)));
+    await assertFails(setDoc(rep3(U.j3, 2), reporteBase(U.j3, 1, 2)));
+    await assertFails(setDoc(rep3(U.j1, 7), reporteBase(U.j1, 1, 7)));
   });
 
   test('valida el contenido del reporte', async () => {
