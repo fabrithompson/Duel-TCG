@@ -12,7 +12,6 @@
     "test": "jest",
     "qa": "tsc --noEmit && jest",
     "test:rules": "pnpm dlx firebase-tools@15 emulators:exec --only firestore,storage --project demo-duel \"jest -c firestore-tests/jest.config.js --runInBand\"",
-    "demo": "tsx scripts/demo/index.ts",
     "firebase": "pnpm dlx firebase-tools@15"
   },
   "jest": {

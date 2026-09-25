@@ -22,13 +22,13 @@ Cada perfil ve solo lo suyo: el rol define las pestañas, la pantalla de inicio 
 
 ## Stack
 
-- Expo SDK 54 con expo-router 6, React Native 0.81, React 19 y TypeScript estricto.
+- Expo SDK 57 con expo-router, React Native 0.86, React 19.2 y TypeScript 6 estricto.
 - Firebase JS SDK 12 (Authentication, Cloud Firestore y Storage), inicializado en `config/firebase.ts`.
 - No hay backend propio: toda la lógica corre en el cliente y la seguridad la hacen cumplir las reglas de Firestore y Storage (`firestore.rules`, `storage.rules`).
 
 ## Puesta en marcha
 
-Requisitos: Node 20 o superior, [pnpm](https://pnpm.io/installation) 11 y un proyecto de Firebase. Para el modo demo y los tests de reglas hace falta además Java 21 o superior (los emuladores de Firebase lo usan).
+Requisitos: Node 20 o superior, [pnpm](https://pnpm.io/installation) 11 y un proyecto de Firebase. Para los tests de reglas hace falta además Java 21 o superior (los emuladores de Firebase lo usan).
 
 El proyecto usa pnpm con `node_modules` plano (`nodeLinker: hoisted` en `pnpm-workspace.yaml`), que es lo que mejor se lleva con Expo y React Native. No mezcles con `npm install`: el lockfile es `pnpm-lock.yaml`.
 
@@ -57,36 +57,7 @@ El proyecto usa pnpm con `node_modules` plano (`nodeLinker: hoisted` en `pnpm-wo
 
    Abrí la app con Expo Go o un emulador. Si cambiaste el `.env`, reiniciá con `pnpm start --clear`.
 
-   Expo Go de las tiendas abre solo la última versión de Expo, y este proyecto está en SDK 54. En Android se puede instalar el Expo Go de SDK 54 desde [expo.dev/go](https://expo.dev/go?sdkVersion=54&platform=android&device=true). En iPhone no hay Expo Go para versiones viejas: usá la versión web (`pnpm start`, tecla `w`, o abrí `http://<ip-de-la-pc>:8081` en el navegador del celular) o un build de desarrollo.
-
-## Modo demo
-
-Para ver la app con datos sin tocar el proyecto de Firebase real:
-
-```
-pnpm demo
-```
-
-Necesita Java 21 o superior. En Windows: `winget install --id EclipseAdoptium.Temurin.21.JRE -e`. El script lo encuentra solo aunque la terminal todavía no tenga el `PATH` nuevo.
-
-Levanta los emuladores de Firebase en la PC (Authentication, Firestore y Storage, con las mismas reglas del repo), carga un local de prueba y arranca Expo con la app apuntando a ellos. No hace falta el `.env`. Los datos incluyen dos salas con mesas de café y de duelo, pedidos abiertos, carta y stock (con productos en alerta y sin stock), ventas de la última semana, un torneo en curso en la ronda 2 con el reloj corriendo, un torneo de ayer con premios por entregar y una solicitud de mozo pendiente.
-
-Cuentas de prueba (contraseña `duel1234` para todas). En la pantalla de entrada, el recuadro "Modo demo" las completa con un toque:
-
-| Rol | Email | Cómo entrar |
-| --- | --- | --- |
-| Admin | `admin@duel.test` | "Entrar con cuenta de administración" |
-| Juez | `juez@duel.test` | Perfil Juez |
-| Mozo | `mozo@duel.test` | Perfil Mozo |
-| Jugador | `jugador@duel.test` | Perfil Jugador (está anotado en el torneo en curso y tiene crédito) |
-
-El código de invitación del demo es `DUEL2345`. Cada `pnpm demo` arranca de cero: lo que cambies se pierde al cortarlo con Ctrl+C.
-
-- El celular tiene que estar en el mismo Wi-Fi que la PC. La primera vez, Windows puede preguntar si deja que Java y Node usen la red: aceptá para redes privadas.
-- Si la PC tiene varias placas de red y el script elige mal la IP, forzala con la variable `DEMO_HOST` (en PowerShell: `$env:DEMO_HOST="192.168.0.10"; pnpm demo`).
-- Los emuladores usan puertos propios (Auth 9099, Firestore 8180, Storage 9299), así que `pnpm test:rules` se puede correr con el demo abierto.
-- Lo que pases de más va a `expo start`, por ejemplo `pnpm demo --web`.
-- El modo demo solo existe en desarrollo: un build de producción siempre usa el `.env`.
+   Expo Go de las tiendas (Android y iPhone) abre el proyecto: está en la misma versión de SDK. Si el celular no encuentra la PC en la red, probá `pnpm start --tunnel`.
 
 ## Desplegar reglas e índices
 
@@ -206,7 +177,6 @@ Nadie puede crearse como admin, aprobarse solo, cambiarse el rol, inflar un cré
 | Comando | Qué hace |
 | --- | --- |
 | `pnpm start` | Levanta Expo (`expo start`). |
-| `pnpm demo` | Emuladores de Firebase con datos de prueba y Expo apuntando a ellos (ver Modo demo). |
 | `pnpm desplegar [partes]` | Sube reglas e índices al proyecto del `.env`. |
 | `pnpm firebase <comando>` | Firebase CLI 15 sin instalarla global (login, deploy). |
 | `pnpm typecheck` | Chequeo de tipos con `tsc --noEmit`. |
@@ -214,7 +184,7 @@ Nadie puede crearse como admin, aprobarse solo, cambiarse el rol, inflar un cré
 | `pnpm qa` | Tipos y tests unitarios, lo mismo que debería pasar antes de cada commit. |
 | `pnpm test:rules` | Levanta los emuladores de Firestore y Storage y corre `firestore-tests/` contra `firestore.rules` y `storage.rules`. Necesita Java 21 o superior en el `PATH`. |
 
-Los tests de reglas usan el proyecto de demo `demo-duel`, así que no tocan ningún proyecto real ni necesitan credenciales.
+Los tests de reglas usan el proyecto ficticio `demo-duel` (el prefijo `demo-` es el que los emuladores reservan para eso), así que no tocan ningún proyecto real ni necesitan credenciales.
 
 ## Estructura
 
