@@ -1,6 +1,7 @@
 import { conNombresUnicos, etiquetaMesa, normalizarTorneo, pozoCobrado, pozoDe, premioPorEntregar, premiosPorEntregar, type PuestoPremio } from '../lib/torneo';
 import { torneosDeTemporada } from '../lib/temporada';
 import { estimarDesfase } from '../lib/reloj';
+import { esUrlFoto } from '../lib/users';
 import { CONFIG_DEFAULT, JUEGOS_POR_DEFECTO, MEDIOS_COBRO, normalizarConfig } from '../lib/config';
 
 // Pruebas de QA de las piezas que comparten varias pantallas: una sola definición para todas.
@@ -127,5 +128,15 @@ describe('conNombresUnicos', () => {
   it('sin repetidos devuelve el mismo torneo', () => {
     const t = normalizarTorneo('t', { jugadores: [{ uid: 'a', nombre: 'Ana' }, { uid: 'b', nombre: 'Beto' }] });
     expect(conNombresUnicos(t)).toBe(t);
+  });
+});
+
+describe('esUrlFoto', () => {
+  it('solo acepta URLs de descarga de Firebase Storage', () => {
+    expect(esUrlFoto('https://firebasestorage.googleapis.com/v0/b/duel.appspot.com/o/avatares%2Fa%2Ffoto.jpg?alt=media')).toBe(true);
+    expect(esUrlFoto('https://otro-sitio.com/foto.jpg')).toBe(false);
+    expect(esUrlFoto('javascript:alert(1)')).toBe(false);
+    expect(esUrlFoto(null)).toBe(false);
+    expect(esUrlFoto(`https://firebasestorage.googleapis.com/${'x'.repeat(1100)}`)).toBe(false);
   });
 });

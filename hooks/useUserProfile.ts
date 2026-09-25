@@ -3,7 +3,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import type { Role } from '../constants/roles';
-import type { EstadoAprobacion, UserProfile } from '../lib/users';
+import { esUrlFoto, type EstadoAprobacion, type UserProfile } from '../lib/users';
 
 const ROLES_VALIDOS: readonly Role[] = ['admin', 'mozo', 'juez', 'jugador'];
 const ESTADOS_VALIDOS: readonly EstadoAprobacion[] = ['pendiente', 'aprobado', 'rechazado'];
@@ -46,6 +46,7 @@ export function normalizarPerfil(uid: string, data: Record<string, unknown> | un
     estadoAprobacion,
     codigoInvitacion: typeof data.codigoInvitacion === 'string' ? data.codigoInvitacion : undefined,
     emailVerificado: data.emailVerificado === true,
+    fotoUrl: esUrlFoto(data.fotoUrl) ? data.fotoUrl : null,
     creadoEn: data.creadoEn,
   };
 }

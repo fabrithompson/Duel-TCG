@@ -3,6 +3,7 @@ import { ActivityIndicator, Share, StyleSheet, Text, TouchableOpacity, View } fr
 import { Ionicons } from '@expo/vector-icons';
 import Screen, { LoadingScreen } from '../../../components/Screen';
 import Button from '../../../components/Button';
+import Avatar from '../../../components/Avatar';
 import { Badge, Card, EmptyState, ErrorBanner, SectionLabel, SmallButton } from '../../../components/ui';
 import { ROLE_LABEL, Role } from '../../../constants/roles';
 import { Typography, tabularNums } from '../../../constants/theme';
@@ -14,7 +15,7 @@ import { useConfigPrivada } from '../../../hooks/useConfigPrivada';
 import { MiembroEquipo, ROLES_STAFF, RolStaff, rolEnTexto, useEquipo } from '../../../hooks/useEquipo';
 import { useVolverA } from '../../../hooks/useVolverA';
 import JugadoresEquipo from '../../../components/JugadoresEquipo';
-import { fechaConAnio, haceCuanto, inicialDe } from '../../../lib/ajustes';
+import { fechaConAnio, haceCuanto } from '../../../lib/ajustes';
 import { fechaLocal } from '../../../lib/fecha';
 import { mensajeError } from '../../../lib/errores';
 import { tocar } from '../../../lib/haptics';
@@ -285,18 +286,9 @@ function CodigoInvitacion() {
 
 // ─── Filas ─────────────────────────────────────────────────────────────────
 
-function Avatar({ nombre, tono, grande = false }: { readonly nombre: string; readonly tono: TonoRol | 'dim'; readonly grande?: boolean }) {
+function AvatarMiembro({ fotoUrl, tono, grande = false }: { readonly fotoUrl: string | null; readonly tono: TonoRol | 'dim'; readonly grande?: boolean }) {
   const { colors } = useTheme();
-  const color = colors[tono];
-  return (
-    <View
-      style={[styles.avatar, grande ? styles.avatarGrande : null, { borderColor: color }]}
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-    >
-      <Text style={[styles.avatarTexto, grande ? styles.avatarTextoGrande : null, { color }]}>{inicialDe(nombre)}</Text>
-    </View>
-  );
+  return <Avatar fotoUrl={fotoUrl} tamano={grande ? 34 : 32} borde={colors[tono]} radio={grande ? 11 : 10} />;
 }
 
 interface SolicitudProps {
@@ -314,7 +306,7 @@ function Solicitud({ miembro, ocupado, onAprobar, onRechazar }: SolicitudProps) 
   return (
     <View style={[styles.solicitud, { borderColor: colors.br, backgroundColor: colors.brs }]}>
       <View style={styles.solicitudFila}>
-        <Avatar nombre={miembro.nombre} tono="br" grande />
+        <AvatarMiembro fotoUrl={miembro.fotoUrl} tono="br" grande />
         <View style={styles.flex1}>
           <Text style={[styles.solicitudNombre, { color: colors.ink }]}>{miembro.nombre}</Text>
           <Text style={[styles.sub, { color: colors.dim }]}>{`Pide entrar como ${rol}${cuando ? ` · ${cuando}` : ''}`}</Text>
@@ -367,7 +359,7 @@ function FilaMiembro({ miembro, esYo, ocupado, onPress }: FilaMiembroProps) {
       accessibilityHint={esYo ? undefined : 'Cambiar el rol o quitar el acceso'}
       accessibilityState={{ disabled: bloqueado, busy: ocupado }}
     >
-      <Avatar nombre={miembro.nombre} tono={tono} />
+      <AvatarMiembro fotoUrl={miembro.fotoUrl} tono={tono} />
       <View style={styles.flex1}>
         <Text style={[styles.miembroNombre, { color: colors.ink }]}>{miembro.nombre}</Text>
         <Text style={[styles.sub, { color: colors.dim }]} numberOfLines={1}>
@@ -390,7 +382,7 @@ function FilaSinAcceso({ miembro, ocupado, onReactivar }: FilaSinAccesoProps) {
   const detalle = miembro.email ? `${ROLE_LABEL[miembro.role]} · ${miembro.email}` : ROLE_LABEL[miembro.role];
   return (
     <View style={[styles.miembro, { borderBottomColor: colors.line }]}>
-      <Avatar nombre={miembro.nombre} tono="dim" />
+      <AvatarMiembro fotoUrl={miembro.fotoUrl} tono="dim" />
       <View style={styles.flex1}>
         <Text style={[styles.miembroNombre, { color: colors.ink }]}>{miembro.nombre}</Text>
         <Text style={[styles.sub, { color: colors.dim }]} numberOfLines={1}>
@@ -427,10 +419,6 @@ const styles = StyleSheet.create({
   miembroNombre: { fontFamily: Typography.fontFamily.medium, fontSize: 13.5 },
   sub: { fontFamily: Typography.fontFamily.regular, fontSize: 11, lineHeight: 15, marginTop: 2 },
 
-  avatar: { width: 32, height: 32, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  avatarGrande: { width: 34, height: 34, borderRadius: 11 },
-  avatarTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 12 },
-  avatarTextoGrande: { fontSize: 13 },
 
   plegable: { minHeight: 44, justifyContent: 'center' },
 });

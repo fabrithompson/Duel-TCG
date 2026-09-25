@@ -3,7 +3,6 @@ import {
   errorNombre,
   fechaConAnio,
   haceCuanto,
-  inicialDe,
   normalizarHora,
   pasoSiguiente,
   validarTurnos,
@@ -124,15 +123,10 @@ describe('haceCuanto', () => {
   });
 });
 
-describe('fechaConAnio e inicialDe', () => {
+describe('fechaConAnio', () => {
   it('agrega el año solo si no es el actual', () => {
     const ahora = new Date(2026, 0, 1);
     expect(fechaConAnio('2026-07-26', ahora)).toBe('26 jul');
     expect(fechaConAnio('2025-07-26', ahora)).toBe('26 jul 2025');
-  });
-
-  it('toma la primera letra en mayúscula', () => {
-    expect(inicialDe('  martina gómez')).toBe('M');
-    expect(inicialDe('')).toBe('?');
   });
 });

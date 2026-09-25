@@ -11,7 +11,7 @@ import { useToast } from '../../../contexts/ToastContext';
 import { useUserProfileContext } from '../../../contexts/UserProfileContext';
 import { Typography, tabularNums } from '../../../constants/theme';
 import { useBuscarJugadores } from '../../../hooks/useDirectorioJugadores';
-import { etiquetasDesambiguadas } from '../../../lib/jugadores';
+import { altaDirectorio, etiquetasDesambiguadas, normalizarBusqueda } from '../../../lib/jugadores';
 
 interface JugadorCuenta {
   uid: string;
@@ -47,7 +47,7 @@ import Button from '../../../components/Button';
 import Chip from '../../../components/Chip';
 import Stepper from '../../../components/Stepper';
 import FormField from '../../../components/FormField';
-import { Card, EmptyState, ErrorBanner, SectionLabel, SettingRow, SmallButton } from '../../../components/ui';
+import { Card, EmptyState, ErrorBanner, SectionLabel, SettingRow, SmallButton, ToggleRow } from '../../../components/ui';
 import { preguntar } from '../../../lib/dialogo';
 
 const TOTAL_PASOS = 4;
@@ -143,7 +143,7 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
   const router = useRouter();
   const { colors } = useTheme();
   const { mostrar } = useToast();
-  const { user } = useUserProfileContext();
+  const { user, profile } = useUserProfileContext();
   const catalogoQ = useCatalogo();
   const mesasQ = useMesasDuelo();
 
@@ -173,6 +173,9 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
   const navigation = useNavigation();
 
   const inscriptos = seleccion;
+  // El juez (o el admin) puede jugar el torneo que maneja, con la misma cuenta.
+  const yo: JugadorCuenta | null = user && profile ? { uid: user.uid, nombre: profile.nombre, nombreBusqueda: normalizarBusqueda(profile.nombre) } : null;
+  const juegoYo = !!yo && seleccion.some((j) => j.uid === yo.uid);
   const n = inscriptos.length;
   const nParaRondas = n >= 2 ? n : cupo;
   const totalRondas = totalRondasPara(formatoId, nParaRondas, rondas, topCut);
@@ -318,6 +321,9 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
       await runTransaction(db, async (tx) => {
         // Dos jueces creando a la vez: el segundo lee el candado del primero y no crea otro torneo en curso.
         const candado = await tx.get(refCandado);
+        // Si juega y no tiene ficha de jugador, se le crea: la necesita para recibir premios y crédito.
+        const refFicha = juegoYo ? doc(db, 'jugadores', user.uid) : null;
+        const ficha = refFicha ? await tx.get(refFicha) : null;
         const enCursoId = candado.exists() ? candado.get('torneoId') : null;
         if (typeof enCursoId === 'string' && enCursoId) {
           const enCurso = await tx.get(doc(db, 'torneos', enCursoId));
@@ -326,6 +332,9 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
           }
         }
         tx.set(refCandado, { torneoId: refTorneo.id, actualizadoEn: serverTimestamp() });
+        if (refFicha && ficha && !ficha.exists() && profile) {
+          tx.set(refFicha, { ...altaDirectorio(user.uid, profile.nombre), creadoEn: serverTimestamp() });
+        }
         tx.set(refTorneo, {
         nombre: limpiarNombre(nombre) || nombrePorDefecto(juego, fecha),
         juego,
@@ -539,6 +548,7 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
           >
             Inscriptos
           </SectionLabel>
+          {yo ? <ToggleRow label="Juego yo también" value={juegoYo} onChange={() => alternarJugador(yo)} disabled={creando} /> : null}
           <FormField
             label="Buscar"
             value={busqueda}

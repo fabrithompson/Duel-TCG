@@ -4,6 +4,7 @@ import { Redirect, useRouter } from 'expo-router';
 import Screen, { LoadingScreen } from '../../components/Screen';
 import MetricTile from '../../components/MetricTile';
 import PendingCard from '../../components/PendingCard';
+import Avatar from '../../components/Avatar';
 import { EmptyState, ErrorBanner, SectionLabel } from '../../components/ui';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useConfig } from '../../contexts/ConfigContext';
@@ -129,9 +130,7 @@ function PanelHoy({ profile }: { readonly profile: UserProfile }) {
           accessibilityLabel="Mi cuenta"
           accessibilityHint="Abre tu perfil, el tema y el cierre de sesión"
         >
-          <View style={[styles.avatar, { borderColor: tonoRol }]}>
-            <Text style={[styles.avatarText, { color: tonoRol }]}>{profile.nombre.charAt(0).toUpperCase() || '?'}</Text>
-          </View>
+          <Avatar fotoUrl={profile.fotoUrl} tamano={38} borde={tonoRol} />
         </TouchableOpacity>
       </View>
 
@@ -216,8 +215,6 @@ const styles = StyleSheet.create({
   titulo: { fontFamily: Typography.fontFamily.bold, fontSize: 27, lineHeight: 30, letterSpacing: -0.8, marginTop: 7 },
   subtitulo: { fontFamily: Typography.fontFamily.regular, fontSize: 12, lineHeight: 17, marginTop: 5 },
   avatarHit: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginTop: -3, marginRight: -3 },
-  avatar: { width: 38, height: 38, borderRadius: 19, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontFamily: Typography.fontFamily.semibold, fontSize: 14 },
   errorWrap: { marginTop: 16, marginBottom: -4 },
   metricas: { flexDirection: 'row', gap: 8, marginTop: 16 },
   seccion: { marginTop: 16 },

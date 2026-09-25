@@ -18,5 +18,14 @@ export interface UserProfile {
   codigoInvitacion?: string;
   /** Confirmó su email (lo marca su app al iniciar sesión, validado por las reglas con el token). */
   emailVerificado?: boolean;
+  /** Foto de perfil (URL de Storage); null = silueta. */
+  fotoUrl?: string | null;
   creadoEn?: unknown;
+}
+
+// Tiene que coincidir con firestore.rules (fotoValida): solo URLs de descarga de Firebase Storage.
+const URL_FOTO = /^https:\/\/firebasestorage\.googleapis\.com\//;
+
+export function esUrlFoto(valor: unknown): valor is string {
+  return typeof valor === 'string' && valor.length <= 1024 && URL_FOTO.test(valor);
 }

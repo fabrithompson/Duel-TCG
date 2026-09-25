@@ -115,8 +115,3 @@ export function haceCuanto(ms: number | null, ahora: Date = new Date()): string 
   if (dias < 7) return `hace ${dias} días`;
   return `el ${fechaConAnio(fechaLocal(fecha), ahora)}`;
 }
-
-export function inicialDe(nombre: string): string {
-  const primera = limpiarTexto(nombre).charAt(0);
-  return primera ? primera.toLocaleUpperCase('es') : '?';
-}

@@ -509,6 +509,17 @@ describe('users: edición', () => {
     await assertFails(updateDoc(doc(db, 'users', U.j2), { nombre: 'Pisado' }));
   });
 
+  test('cada uno pone o quita su foto de perfil, solo desde Firebase Storage', async () => {
+    const foto = 'https://firebasestorage.googleapis.com/v0/b/duel.appspot.com/o/avatares%2Fx%2Ffoto.jpg?alt=media';
+    await assertSucceeds(updateDoc(doc(como(U.j1), 'users', U.j1), { fotoUrl: foto }));
+    await assertSucceeds(updateDoc(doc(como(U.j1), 'users', U.j1), { fotoUrl: null }));
+    await assertSucceeds(updateDoc(doc(como(U.mozoPendiente), 'users', U.mozoPendiente), { fotoUrl: foto }));
+    await assertFails(updateDoc(doc(como(U.j1), 'users', U.j1), { fotoUrl: 'https://otro-sitio.com/foto.jpg' }));
+    await assertFails(updateDoc(doc(como(U.j1), 'users', U.j1), { fotoUrl: 42 }));
+    await assertFails(updateDoc(doc(como(U.j1), 'users', U.j1), { fotoUrl: foto, role: 'admin' }));
+    await assertFails(updateDoc(doc(como(U.j2), 'users', U.j1), { fotoUrl: foto }));
+  });
+
   test('el email se marca verificado solo con el token de Authentication', async () => {
     await assertFails(updateDoc(doc(como(U.mozoPendiente), 'users', U.mozoPendiente), { emailVerificado: true }));
     await assertSucceeds(updateDoc(doc(comoVerificado(U.mozoPendiente), 'users', U.mozoPendiente), { emailVerificado: true }));
@@ -553,6 +564,25 @@ describe('users: edición', () => {
 });
 
 describe('jugadores: directorio público', () => {
+  test('el jugador cambia su foto en el directorio; nadie cambia la de otro', async () => {
+    const foto = 'https://firebasestorage.googleapis.com/v0/b/duel.appspot.com/o/avatares%2Fx%2Ffoto.jpg?alt=media';
+    await assertSucceeds(updateDoc(doc(como(U.j1), 'jugadores', U.j1), { fotoUrl: foto }));
+    await assertSucceeds(updateDoc(doc(como(U.j1), 'jugadores', U.j1), { fotoUrl: null }));
+    await assertFails(updateDoc(doc(como(U.j1), 'jugadores', U.j1), { fotoUrl: 'javascript:alert(1)' }));
+    await assertFails(updateDoc(doc(como(U.j1), 'jugadores', U.j1), { fotoUrl: foto, creditoCafeteria: 99999 }));
+    await assertFails(updateDoc(doc(como(U.j2), 'jugadores', U.j1), { fotoUrl: foto }));
+    await assertFails(updateDoc(doc(como(U.admin), 'jugadores', U.j1), { fotoUrl: foto }));
+  });
+
+  test('el juez o el admin se anotan en el directorio para jugar, con crédito 0', async () => {
+    const ficha = (uid: string, credito = 0) => ({ uid, nombre: 'Juez Jugador', nombreBusqueda: 'juez jugador', creditoCafeteria: credito, creadoEn: serverTimestamp() });
+    await assertFails(setDoc(doc(como(U.juez), 'jugadores', U.juez), ficha(U.juez, 5000)));
+    await assertSucceeds(setDoc(doc(como(U.juez), 'jugadores', U.juez), ficha(U.juez)));
+    await assertSucceeds(setDoc(doc(como(U.admin), 'jugadores', U.admin), ficha(U.admin)));
+    await assertFails(setDoc(doc(como(U.juez), 'jugadores', U.mozo), ficha(U.mozo)));
+    await assertFails(setDoc(doc(como(U.mozoPendiente), 'jugadores', U.mozoPendiente), ficha(U.mozoPendiente)));
+    await assertFails(setDoc(doc(como(U.juezRechazado), 'jugadores', U.juezRechazado), ficha(U.juezRechazado)));
+  });
   test('el jugador se da de alta en el mismo batch que su perfil', async () => {
     const db = como(U.nuevo);
     const b = writeBatch(db);
@@ -1266,7 +1296,19 @@ describe('storage: logos', () => {
     );
   });
 
-  test('fuera de logos/ no se lee ni se escribe', async () => {
+  test('cada uno sube su foto de perfil; la ve cualquiera con sesión', async () => {
+    await assertSucceeds(uploadBytes(ref(almacenamiento(ctx(U.j1)), `avatares/${U.j1}/foto-1.jpg`), png, { contentType: 'image/jpeg' }));
+    await assertSucceeds(uploadBytes(ref(almacenamiento(ctx(U.mozoPendiente)), `avatares/${U.mozoPendiente}/foto-1.jpg`), png, { contentType: 'image/jpeg' }));
+    await assertSucceeds(getMetadata(ref(almacenamiento(ctx(U.j2)), `avatares/${U.j1}/foto-1.jpg`)));
+    await assertFails(getMetadata(ref(almacenamiento(testEnv.unauthenticatedContext()), `avatares/${U.j1}/foto-1.jpg`)));
+    await assertFails(uploadBytes(ref(almacenamiento(ctx(U.j2)), `avatares/${U.j1}/foto-2.jpg`), png, { contentType: 'image/jpeg' }));
+    await assertFails(
+      uploadBytes(ref(almacenamiento(ctx(U.j1)), `avatares/${U.j1}/grande.jpg`), new Uint8Array(2 * 1024 * 1024), { contentType: 'image/jpeg' })
+    );
+    await assertFails(uploadBytes(ref(almacenamiento(ctx(U.j1)), `avatares/${U.j1}/script.js`), png, { contentType: 'text/javascript' }));
+  });
+
+  test('fuera de logos/ y avatares/ no se lee ni se escribe', async () => {
     await assertFails(getMetadata(ref(almacenamiento(ctx(U.admin)), 'privado/secreto.png')));
     await assertFails(uploadBytes(ref(almacenamiento(ctx(U.admin)), 'productos/foto.png'), png, { contentType: 'image/png' }));
   });

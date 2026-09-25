@@ -7,7 +7,7 @@ import { useUserProfileContext } from '../contexts/UserProfileContext';
 import { mensajeError } from '../lib/errores';
 import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS, esperarConfirmacion } from '../lib/escritura';
 import { aMilis } from '../lib/fecha';
-import type { EstadoAprobacion } from '../lib/users';
+import { esUrlFoto, type EstadoAprobacion } from '../lib/users';
 
 export type RolStaff = 'admin' | 'mozo' | 'juez';
 export const ROLES_STAFF: readonly RolStaff[] = ['admin', 'mozo', 'juez'];
@@ -22,6 +22,7 @@ export interface MiembroEquipo {
   creadoEnMs: number | null;
   /** Confirmó su email con el link de verificación (lo marca su propia app, validado por las reglas). */
   emailVerificado: boolean;
+  fotoUrl: string | null;
 }
 
 type CambioUsuario = { role: RolStaff } | { estadoAprobacion: EstadoAprobacion };
@@ -62,6 +63,7 @@ function normalizarMiembro(uid: string, data: Record<string, unknown>): MiembroE
     estadoAprobacion: ESTADOS_VALIDOS.find((e) => e === data.estadoAprobacion) ?? null,
     creadoEnMs: aMilis(data.creadoEn),
     emailVerificado: data.emailVerificado === true,
+    fotoUrl: esUrlFoto(data.fotoUrl) ? data.fotoUrl : null,
   };
 }
 

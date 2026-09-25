@@ -35,7 +35,7 @@ export function mensajeErrorLogo(error: unknown): string {
 }
 
 // XHR y no fetch(): en React Native es la forma confiable de leer un file:// como Blob.
-function leerComoBlob(uri: string): Promise<Blob> {
+export function leerComoBlob(uri: string): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.onload = () => {

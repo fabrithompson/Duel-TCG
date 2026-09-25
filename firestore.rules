@@ -220,10 +220,21 @@ service cloud.firestore {
         );
     }
 
+    // Foto de perfil: una URL de descarga de Firebase Storage, o null para volver a la silueta.
+    function fotoValida(v) {
+      return v == null
+        || (v is string && v.size() <= 1024 && v.matches('^https://firebasestorage[.]googleapis[.]com/.*'));
+    }
+
+    function cambiaSoloFoto() {
+      return cambios().hasOnly(['fotoUrl']) && fotoValida(request.resource.data.get('fotoUrl', null));
+    }
+
     function edicionPropia(userId) {
       return autenticado()
         && request.auth.uid == userId
         && ((cambios().hasOnly(['nombre']) && texto(request.resource.data.nombre, 2, 60))
+            || cambiaSoloFoto()
             || (cambios().hasOnly(['emailVerificado'])
                 && request.resource.data.emailVerificado == true
                 && request.auth.token.email_verified == true));
@@ -357,7 +368,8 @@ service cloud.firestore {
         && nombreBusquedaValido(d.nombreBusqueda)
         && d.creditoCafeteria == 0
         && d.creadoEn == request.time
-        && esJugadorAprobado(jugadorId);
+        // Quien maneja torneos (juez o admin) también se anota, para jugarlos con la misma cuenta.
+        && (esJugadorAprobado(jugadorId) || rol('juez') || esAdmin());
     }
 
     function renombreJugador(jugadorId) {
@@ -374,6 +386,7 @@ service cloud.firestore {
       allow list: if staff();
       allow create: if altaJugadorValida(jugadorId);
       allow update: if renombreJugador(jugadorId) || subeCredito(jugadorId) || bajaCredito(jugadorId)
+        || (autenticado() && request.auth.uid == jugadorId && cambiaSoloFoto())
         || (esAdmin() && cambios().hasOnly(['activo']) && request.resource.data.activo is bool);
       allow delete: if esAdmin();
     }

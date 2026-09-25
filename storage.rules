@@ -1,6 +1,7 @@
 rules_version = '2';
 
-// Solo existe la carpeta logos/ (logo del local, lectura pública para el splash).
+// logos/: logo del local, lectura pública para el splash.
+// avatares/{uid}/: foto de perfil de cada uno; la ve cualquiera con sesión.
 // Todo lo demás queda denegado.
 
 service firebase.storage {
@@ -26,6 +27,12 @@ service firebase.storage {
       allow read: if true;
       allow create, update: if esAdmin() && imagenValida();
       allow delete: if esAdmin();
+    }
+
+    match /avatares/{uid}/{archivo} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == uid && imagenValida();
+      allow delete: if request.auth != null && (request.auth.uid == uid || esAdmin());
     }
   }
 }

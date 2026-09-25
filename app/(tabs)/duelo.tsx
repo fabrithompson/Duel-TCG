@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { useFocusEffect, useRouter } from 'expo-router';
 import Screen, { LoadingScreen } from '../../components/Screen';
 import Button from '../../components/Button';
+import Avatar from '../../components/Avatar';
 import { Card, EmptyState, ErrorBanner, SectionLabel } from '../../components/ui';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useConfig } from '../../contexts/ConfigContext';
@@ -78,7 +79,7 @@ export default function DueloScreen() {
   if (cargando) return <LoadingScreen />;
 
   const credito = creditoValido(miCredito);
-  const avatar = <Avatar nombre={profile?.nombre ?? ''} onPress={() => router.push('/cuenta')} />;
+  const avatar = <BotonCuenta fotoUrl={profile?.fotoUrl} onPress={() => router.push('/cuenta')} />;
   const creditoCard = config.creditoPremio || credito > 0 ? <CreditoBarra monto={credito} /> : null;
   const errorBanner = error ? (
     <ErrorBanner
@@ -172,12 +173,10 @@ function DueloEnCurso({ torneo, uid, avatar, errorBanner, creditoCard }: DueloEn
   );
 }
 
-function Avatar({ nombre, onPress }: { readonly nombre: string; readonly onPress: () => void }) {
+function BotonCuenta({ fotoUrl, onPress }: { readonly fotoUrl: string | null | undefined; readonly onPress: () => void }) {
   const { colors } = useTheme();
-  const inicial = Array.from(nombre.trim())[0]?.toUpperCase() ?? '?';
   return (
     <TouchableOpacity
-      style={[styles.avatar, { borderColor: colors.gold }]}
       onPress={() => {
         tocar();
         onPress();
@@ -187,7 +186,7 @@ function Avatar({ nombre, onPress }: { readonly nombre: string; readonly onPress
       accessibilityRole="button"
       accessibilityLabel="Mi cuenta"
     >
-      <Text style={[styles.avatarTexto, { color: colors.gold }]}>{inicial}</Text>
+      <Avatar fotoUrl={fotoUrl} tamano={38} borde={colors.gold} />
     </TouchableOpacity>
   );
 }
@@ -480,15 +479,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   bloque: { marginBottom: 14 },
   seccion: { marginTop: 8 },
-  avatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 14 },
   vsFila: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   vsCard: { flex: 1, borderRadius: 14, padding: 13, alignItems: 'center' },
   vsNombre: { fontFamily: Typography.fontFamily.semibold, fontSize: 14 },
