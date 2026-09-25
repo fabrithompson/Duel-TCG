@@ -204,7 +204,7 @@ export function getTheme(mode: ThemeMode, brand?: string): ThemeTokens {
     bg: base.bg,
     sf: base.sf,
     ink: base.ink,
-    dim: base.dim,
+    dim: legibleSobre(base.dim, [...fondos, brs], noche),
     line: base.line,
     gold,
     ok,

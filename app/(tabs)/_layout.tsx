@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, ScrollView, StyleSheet, Text } from 'react-native';
 import { Redirect, Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -125,13 +125,16 @@ export default function TabsLayout() {
 function Aviso({ titulo, texto, children }: { readonly titulo: string; readonly texto?: string; readonly children?: React.ReactNode }) {
   const { colors } = useTheme();
   return (
-    <View style={[styles.aviso, { backgroundColor: colors.bg }]}>
-      <Text style={[styles.avisoTitulo, { color: colors.ink }]} accessibilityRole="header">
-        {titulo}
-      </Text>
-      {texto ? <Text style={[styles.avisoTexto, { color: colors.dim }]}>{texto}</Text> : null}
-      {children}
-    </View>
+    // Con edge-to-edge el teclado no achica la ventana: sin esto tapaba "Continuar como jugador".
+    <KeyboardAvoidingView behavior="padding" style={[styles.flex, { backgroundColor: colors.bg }]}>
+      <ScrollView contentContainerStyle={styles.aviso} keyboardShouldPersistTaps="handled">
+        <Text style={[styles.avisoTitulo, { color: colors.ink }]} accessibilityRole="header">
+          {titulo}
+        </Text>
+        {texto ? <Text style={[styles.avisoTexto, { color: colors.dim }]}>{texto}</Text> : null}
+        {children}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -267,7 +270,8 @@ function RoleTabs({ role }: { readonly role: Role }) {
 }
 
 const styles = StyleSheet.create({
-  aviso: { flex: 1, justifyContent: 'center', paddingHorizontal: 26, gap: 12 },
+  flex: { flex: 1 },
+  aviso: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 26, paddingVertical: 32, gap: 12 },
   avisoTitulo: { fontFamily: Typography.fontFamily.bold, fontSize: 22, letterSpacing: -0.6, marginBottom: 4 },
   avisoTexto: { fontFamily: Typography.fontFamily.regular, fontSize: 13.5, lineHeight: 20, marginBottom: 8 },
 });

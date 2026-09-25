@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from './ThemeContext';
 import { Typography } from '../constants/theme';
@@ -35,7 +35,7 @@ export function ToastProvider({ children }: { readonly children: React.ReactNode
     if (tono === 'ok') exito();
     if (tono === 'error') fallo();
     // En iOS accessibilityLiveRegion no existe: sin esto VoiceOver no lee los avisos.
-    AccessibilityInfo.announceForAccessibility(mensaje);
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(mensaje);
   }, []);
 
   const value = useMemo(() => ({ mostrar }), [mostrar]);
@@ -53,7 +53,9 @@ export function ToastProvider({ children }: { readonly children: React.ReactNode
 function ToastView({ toast, onFin }: { readonly toast: ToastState; readonly onFin: () => void }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const margenFooter = useMargenToast();
+  // El margen se toma al aparecer el aviso: si la pantalla se va mientras se ve, no salta.
+  const margenActual = useMargenToast();
+  const [margenFooter] = useState(margenActual);
   const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {

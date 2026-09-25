@@ -40,11 +40,13 @@ describe('getTheme', () => {
       for (const marca of [undefined, ...BRAND_COLORS]) {
         const t = getTheme(modo, marca);
         for (const fondo of [t.bg, t.sf]) {
-          for (const acento of [t.br, t.gold, t.ok, t.dg]) {
+          for (const acento of [t.br, t.gold, t.ok, t.dg, t.dim]) {
             expect(contraste(acento, fondo)).toBeGreaterThanOrEqual(CONTRASTE_MINIMO);
           }
         }
         expect(contraste(t.br, t.brs)).toBeGreaterThanOrEqual(CONTRASTE_MINIMO);
+        // El texto secundario también se lee sobre el suave (fila propia en la Tabla, chips activos).
+        expect(contraste(t.dim, t.brs)).toBeGreaterThanOrEqual(CONTRASTE_MINIMO);
         // El texto de los botones y estados elegidos también.
         expect(contraste(t.onBr, t.br)).toBeGreaterThanOrEqual(CONTRASTE_MINIMO);
         expect(contraste(t.onGold, t.gold)).toBeGreaterThanOrEqual(CONTRASTE_MINIMO);

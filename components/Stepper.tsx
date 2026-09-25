@@ -15,6 +15,8 @@ interface StepperProps {
   readonly accessibilityLabel?: string;
   /** Si está, tocar el número deja escribirlo: para montos grandes los toques de ± no alcanzan. */
   readonly onChangeValue?: (valor: number) => void;
+  /** Mientras se guarda algo que depende de este valor. */
+  readonly disabled?: boolean;
 }
 
 // Mantener apretado ± repite: primero lento, después más rápido.
@@ -22,16 +24,20 @@ const REPETIR_MS = 110;
 const REPETIR_RAPIDO_MS = 45;
 const TOQUES_HASTA_RAPIDO = 8;
 
-export default function Stepper({ value, onIncrement, onDecrement, formatValue, min, max, accessibilityLabel, onChangeValue }: StepperProps) {
+export default function Stepper({ value, onIncrement, onDecrement, formatValue, min, max, accessibilityLabel, onChangeValue, disabled = false }: StepperProps) {
   const { colors } = useTheme();
-  const enMin = min !== undefined && value <= min;
-  const enMax = max !== undefined && value >= max;
+  const enMin = disabled || (min !== undefined && value <= min);
+  const enMax = disabled || (max !== undefined && value >= max);
   const etiqueta = accessibilityLabel ?? 'valor';
   const [editando, setEditando] = useState(false);
   const [texto, setTexto] = useState('');
 
   // Los handlers de la repetición leen siempre lo último (el valor cambia en cada paso).
   const ultimo = useRef({ enMin, enMax, onIncrement, onDecrement });
+  const ultimoValor = useRef(value);
+  useLayoutEffect(() => {
+    ultimoValor.current = value;
+  }, [value]);
   useLayoutEffect(() => {
     ultimo.current = { enMin, enMax, onIncrement, onDecrement };
   });
@@ -74,20 +80,24 @@ export default function Stepper({ value, onIncrement, onDecrement, formatValue, 
   };
 
   const empezarEdicion = () => {
-    if (!onChangeValue) return;
+    if (!onChangeValue || disabled) return;
     setTexto(String(value));
     setEditando(true);
   };
 
-  const terminarEdicion = () => {
-    setEditando(false);
-    const limpio = texto.replace(/\D/g, '');
+  // Se aplica en cada tecla: si el juez toca "Entregar" o "Continuar" sin cerrar el teclado (en iOS el
+  // teclado numérico no tiene Enter), el valor escrito ya es el que vale.
+  const escribir = (t: string) => {
+    setTexto(t);
+    const limpio = t.replace(/\D/g, '');
     if (!onChangeValue || !limpio) return;
     let n = Number(limpio);
     if (min !== undefined) n = Math.max(min, n);
     if (max !== undefined) n = Math.min(max, n);
-    if (n !== value) onChangeValue(n);
+    if (n !== ultimoValor.current) onChangeValue(n);
   };
+
+  const terminarEdicion = () => setEditando(false);
 
   const textoValor = formatValue ? formatValue(value) : String(value);
 
@@ -118,7 +128,7 @@ export default function Stepper({ value, onIncrement, onDecrement, formatValue, 
       {editando ? (
         <TextInput
           value={texto}
-          onChangeText={setTexto}
+          onChangeText={escribir}
           onBlur={terminarEdicion}
           onSubmitEditing={terminarEdicion}
           keyboardType="number-pad"
@@ -130,7 +140,7 @@ export default function Stepper({ value, onIncrement, onDecrement, formatValue, 
           accessibilityLabel={`Escribir ${etiqueta}`}
         />
       ) : onChangeValue ? (
-        <TouchableOpacity onPress={empezarEdicion} hitSlop={{ top: 8, bottom: 8 }} importantForAccessibility="no" accessibilityLabel={`Escribir ${etiqueta}`}>
+        <TouchableOpacity onPress={empezarEdicion} hitSlop={{ top: 8, bottom: 8 }} style={styles.tocable} importantForAccessibility="no" accessibilityLabel={`Escribir ${etiqueta}`}>
           <Text style={[styles.value, styles.editable, { color: colors.ink, borderBottomColor: colors.line }, tabularNums(13)]}>{textoValor}</Text>
         </TouchableOpacity>
       ) : (
@@ -159,5 +169,6 @@ const styles = StyleSheet.create({
   btnText: { fontFamily: Typography.fontFamily.semibold, fontSize: 16, lineHeight: 19 },
   value: { fontFamily: Typography.fontFamily.semibold, fontSize: 13, minWidth: 44, textAlign: 'center' },
   editable: { borderBottomWidth: 1, borderStyle: 'dashed', paddingBottom: 1 },
+  tocable: { minHeight: 44, justifyContent: 'center' },
   input: { minWidth: 72, borderWidth: 1, borderRadius: 8, paddingVertical: 3, paddingHorizontal: 6 },
 });
