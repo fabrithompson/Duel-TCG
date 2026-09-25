@@ -177,7 +177,7 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockParams,
 }));
 
-jest.mock('@react-navigation/native', () => ({
+jest.mock('expo-router/react-navigation', () => ({
   NavigationContext: jest.requireActual<typeof import('react')>('react').createContext(undefined),
   useNavigation: () => ({ dispatch: mockDispatch }),
   usePreventRemove: (activo: boolean, alSalir: (e: { data: { action: unknown } }) => void) => {

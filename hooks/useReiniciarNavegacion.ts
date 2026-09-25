@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useNavigationContainerRef } from 'expo-router';
-import { CommonActions } from '@react-navigation/native';
+import { CommonActions } from 'expo-router/react-navigation';
 
 type DestinoRaiz = '(tabs)' | 'index';
 

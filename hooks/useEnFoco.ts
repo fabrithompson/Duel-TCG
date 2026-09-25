@@ -1,5 +1,5 @@
 import { useContext, useEffect, useState } from 'react';
-import { NavigationContext } from '@react-navigation/native';
+import { NavigationContext } from 'expo-router/react-navigation';
 
 /**
  * true mientras la pantalla es la visible. Fuera de un navegador (tests, pantallas sueltas) se

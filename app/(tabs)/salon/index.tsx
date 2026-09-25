@@ -684,7 +684,7 @@ const styles = StyleSheet.create({
   chips: { gap: 8, paddingVertical: 4 },
   lienzo: { flex: 1, minHeight: 260, marginTop: 12, borderWidth: BORDE_LIENZO, borderRadius: Radii.roomBoard, overflow: 'hidden' },
   punto: { position: 'absolute', width: 2, height: 2, borderRadius: 1 },
-  lienzoVacio: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  lienzoVacio: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', padding: 24 },
   lienzoVacioTitulo: { fontFamily: Typography.fontFamily.semibold, fontSize: 14, textAlign: 'center' },
   lienzoVacioTexto: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, textAlign: 'center', marginTop: 6 },
   mesa: { position: 'absolute', borderWidth: 1.5 },

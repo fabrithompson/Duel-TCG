@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, ScrollView, StyleSheet, Text } from 'react-native';
+import { KeyboardAvoidingView, ScrollView, StyleSheet, Text, type ColorValue } from 'react-native';
 import { Redirect, Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -184,7 +184,7 @@ function MigrarCuentaLegado({ uid, nombreInicial, onCerrarSesion }: MigrarProps)
 }
 
 function icono(normal: NombreIcono, activo: NombreIcono) {
-  return ({ focused, color, size }: { focused: boolean; color: string; size: number }) => (
+  return ({ focused, color, size }: { focused: boolean; color: ColorValue; size: number }) => (
     <Ionicons name={focused ? activo : normal} size={size} color={color} />
   );
 }

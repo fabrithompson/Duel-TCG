@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
-import { NavigationAction, useNavigation, usePreventRemove } from '@react-navigation/native';
+import { NavigationAction, useNavigation, usePreventRemove } from 'expo-router/react-navigation';
 import { collection, doc, increment, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
 import { useConfig } from '../../../contexts/ConfigContext';
