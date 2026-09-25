@@ -1,0 +1,9 @@
+# Expo y React Native resuelven dependencias como si fuera npm: con node_modules plano
+# se evitan paquetes nativos duplicados o que Metro no encuentra.
+nodeLinker: hoisted
+
+# Scripts de instalación permitidos (pnpm no corre ninguno sin permiso).
+allowBuilds:
+  '@firebase/util': true
+  esbuild: true
+  protobufjs: true

@@ -1,6 +1,7 @@
 {
   "name": "duel",
   "version": "1.0.0",
+  "packageManager": "pnpm@11.3.0",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
@@ -10,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "qa": "tsc --noEmit && jest",
-    "test:rules": "npx -y firebase-tools@15 emulators:exec --only firestore,storage --project demo-duel \"jest -c firestore-tests/jest.config.js --runInBand\""
+    "test:rules": "pnpm dlx firebase-tools@15 emulators:exec --only firestore,storage --project demo-duel \"jest -c firestore-tests/jest.config.js --runInBand\"",
+    "demo": "tsx scripts/demo/index.ts",
+    "firebase": "pnpm dlx firebase-tools@15"
   },
   "jest": {
     "preset": "jest-expo",
@@ -38,10 +41,12 @@
     "expo-status-bar": "~3.0.9",
     "firebase": "^12.9.0",
     "react": "19.1.0",
+    "react-dom": "19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-safe-area-context": "~5.6.0",
-    "react-native-screens": "~4.16.0"
+    "react-native-screens": "~4.16.0",
+    "react-native-web": "^0.21.2"
   },
   "devDependencies": {
     "@babel/plugin-transform-modules-commonjs": "^7.29.7",
@@ -51,6 +56,7 @@
     "@types/react": "~19.1.10",
     "jest": "~29.7.0",
     "jest-expo": "~54.0.18",
+    "tsx": "^4.23.15",
     "typescript": "~5.9.2"
   },
   "private": true

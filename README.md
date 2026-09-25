@@ -28,7 +28,9 @@ Cada perfil ve solo lo suyo: el rol define las pestañas, la pantalla de inicio 
 
 ## Puesta en marcha
 
-Requisitos: Node 20 o superior, npm y un proyecto de Firebase. Para correr los tests de reglas hace falta además Java 21 o superior (los emuladores de Firebase lo usan).
+Requisitos: Node 20 o superior, [pnpm](https://pnpm.io/installation) 11 y un proyecto de Firebase. Para el modo demo y los tests de reglas hace falta además Java 21 o superior (los emuladores de Firebase lo usan).
+
+El proyecto usa pnpm con `node_modules` plano (`nodeLinker: hoisted` en `pnpm-workspace.yaml`), que es lo que mejor se lleva con Expo y React Native. No mezcles con `npm install`: el lockfile es `pnpm-lock.yaml`.
 
 1. Creá el proyecto en la [consola de Firebase](https://console.firebase.google.com/) y habilitá:
    - Authentication con el proveedor Correo electrónico/contraseña.
@@ -49,23 +51,54 @@ Requisitos: Node 20 o superior, npm y un proyecto de Firebase. Para correr los t
 3. Instalá las dependencias y levantá el servidor de desarrollo:
 
    ```
-   npm install --legacy-peer-deps
-   npx expo start
+   pnpm install
+   pnpm start
    ```
 
-   Abrí la app con Expo Go o un emulador. Si cambiaste el `.env`, reiniciá con `npx expo start --clear`.
+   Abrí la app con Expo Go o un emulador. Si cambiaste el `.env`, reiniciá con `pnpm start --clear`.
+
+   Expo Go de las tiendas abre solo la última versión de Expo, y este proyecto está en SDK 54. En Android se puede instalar el Expo Go de SDK 54 desde [expo.dev/go](https://expo.dev/go?sdkVersion=54&platform=android&device=true). En iPhone no hay Expo Go para versiones viejas: usá la versión web (`pnpm start`, tecla `w`, o abrí `http://<ip-de-la-pc>:8081` en el navegador del celular) o un build de desarrollo.
+
+## Modo demo
+
+Para ver la app con datos sin tocar el proyecto de Firebase real:
+
+```
+pnpm demo
+```
+
+Levanta los emuladores de Firebase en la PC (Authentication, Firestore y Storage, con las mismas reglas del repo), carga un local de prueba y arranca Expo con la app apuntando a ellos. No hace falta el `.env`. Los datos incluyen dos salas con mesas de café y de duelo, pedidos abiertos, carta y stock (con productos en alerta y sin stock), ventas de la última semana, un torneo en curso en la ronda 2 con el reloj corriendo, un torneo de ayer con premios por entregar y una solicitud de mozo pendiente.
+
+Cuentas de prueba (contraseña `duel1234` para todas). En la pantalla de entrada, el recuadro "Modo demo" las completa con un toque:
+
+| Rol | Email | Cómo entrar |
+| --- | --- | --- |
+| Admin | `admin@duel.test` | "Entrar con cuenta de administración" |
+| Juez | `juez@duel.test` | Perfil Juez |
+| Mozo | `mozo@duel.test` | Perfil Mozo |
+| Jugador | `jugador@duel.test` | Perfil Jugador (está anotado en el torneo en curso y tiene crédito) |
+
+El código de invitación del demo es `DUEL2345`. Cada `pnpm demo` arranca de cero: lo que cambies se pierde al cortarlo con Ctrl+C.
+
+- El celular tiene que estar en el mismo Wi-Fi que la PC. La primera vez, Windows puede preguntar si deja que Java y Node usen la red: aceptá para redes privadas.
+- Si la PC tiene varias placas de red y el script elige mal la IP, forzala con la variable `DEMO_HOST` (en PowerShell: `$env:DEMO_HOST="192.168.0.10"; pnpm demo`).
+- Los emuladores usan puertos propios (Auth 9099, Firestore 8180, Storage 9299), así que `pnpm test:rules` se puede correr con el demo abierto.
+- Lo que pases de más va a `expo start`, por ejemplo `pnpm demo --web`.
+- El modo demo solo existe en desarrollo: un build de producción siempre usa el `.env`.
 
 ## Desplegar reglas e índices
 
 Las reglas y los índices viven en el repo y se despliegan con Firebase CLI. Hacelo antes de usar la app contra un proyecto nuevo: sin reglas desplegadas, Firestore rechaza todo (o, peor, lo permite todo si el proyecto quedó en modo de prueba).
 
 ```
-npx firebase-tools login
-npx firebase-tools deploy --only firestore:rules,firestore:indexes,storage --project <id-del-proyecto>
+pnpm firebase login
+pnpm firebase deploy --only firestore:rules,firestore:indexes,storage --project <id-del-proyecto>
 ```
 
+`pnpm firebase` es un atajo a Firebase CLI 15 (`pnpm dlx firebase-tools@15`), sin instalarla global.
+
 - `firestore.rules`: permisos de Firestore (ver Seguridad).
-- `firestore.indexes.json`: índices compuestos que necesitan las consultas de torneos. Tardan unos minutos en construirse después del primer despliegue. Mientras tanto, Historial, Tabla y Mi duelo muestran "esta pantalla todavía se está preparando"; si sigue así, falta `npx firebase-tools deploy --only firestore:indexes`.
+- `firestore.indexes.json`: índices compuestos que necesitan las consultas de torneos. Tardan unos minutos en construirse después del primer despliegue. Mientras tanto, Historial, Tabla y Mi duelo muestran "esta pantalla todavía se está preparando"; si sigue así, falta `pnpm firebase deploy --only firestore:indexes`.
 - `storage.rules`: solo la carpeta `logos/` (lectura pública, escritura del admin, imágenes de menos de 2 MB).
 
 Las reglas de Storage leen el perfil del usuario en Firestore para saber si es admin. La primera vez que las despliegues, la CLI pide permiso para que Storage consulte Firestore: aceptalo, si no, subir el logo falla con permiso denegado.
@@ -168,11 +201,13 @@ Nadie puede crearse como admin, aprobarse solo, cambiarse el rol, inflar un cré
 
 | Comando | Qué hace |
 | --- | --- |
-| `npm start` | Levanta Expo (`expo start`). |
-| `npm run typecheck` | Chequeo de tipos con `tsc --noEmit`. |
-| `npm test` | Tests unitarios con Jest (preset `jest-expo`). |
-| `npm run qa` | Tipos y tests unitarios, lo mismo que debería pasar antes de cada commit. |
-| `npm run test:rules` | Levanta los emuladores de Firestore y Storage y corre `firestore-tests/` contra `firestore.rules` y `storage.rules`. Necesita Java 21 o superior en el `PATH`. |
+| `pnpm start` | Levanta Expo (`expo start`). |
+| `pnpm demo` | Emuladores de Firebase con datos de prueba y Expo apuntando a ellos (ver Modo demo). |
+| `pnpm firebase <comando>` | Firebase CLI 15 sin instalarla global (login, deploy). |
+| `pnpm typecheck` | Chequeo de tipos con `tsc --noEmit`. |
+| `pnpm test` | Tests unitarios con Jest (preset `jest-expo`). |
+| `pnpm qa` | Tipos y tests unitarios, lo mismo que debería pasar antes de cada commit. |
+| `pnpm test:rules` | Levanta los emuladores de Firestore y Storage y corre `firestore-tests/` contra `firestore.rules` y `storage.rules`. Necesita Java 21 o superior en el `PATH`. |
 
 Los tests de reglas usan el proyecto de demo `demo-duel`, así que no tocan ningún proyecto real ni necesitan credenciales.
 

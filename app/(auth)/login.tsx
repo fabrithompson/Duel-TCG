@@ -18,6 +18,8 @@ import RoleSelector from '../../components/RoleSelector';
 import FormField from '../../components/FormField';
 import Button from '../../components/Button';
 import { ErrorBanner } from '../../components/ui';
+import AccesosDemo from '../../components/AccesosDemo';
+import { CLAVE_DEMO, type CuentaDemo } from '../../lib/demo';
 import { useReiniciarNavegacion } from '../../hooks/useReiniciarNavegacion';
 
 const CLAVE_ULTIMO_PERFIL = 'duel.ultimoPerfil';
@@ -181,6 +183,17 @@ export default function LoginScreen() {
     setErrorGeneral(null);
   };
 
+  const usarCuentaDemo = (c: CuentaDemo) => {
+    tocar();
+    eligioPerfil.current = true;
+    setAdminMode(c.role === 'admin');
+    if (c.role !== 'admin') setRole(c.role);
+    setEmail(c.email);
+    setPassword(CLAVE_DEMO);
+    setErrores({});
+    setErrorGeneral(null);
+  };
+
   const botonLabel = adminMode ? 'Entrar como Admin' : role ? `Entrar como ${ROLE_LABEL[role]}` : 'Entrar';
 
   return (
@@ -205,6 +218,8 @@ export default function LoginScreen() {
               ? 'Ingresá con la cuenta de administración del local.'
               : 'Elegí tu perfil: cada uno abre solo lo suyo, así nadie se pierde entre pantallas ajenas.'}
           </Text>
+
+          <AccesosDemo onElegir={usarCuentaDemo} disabled={enviando} />
 
           {adminMode ? (
             <TouchableOpacity
