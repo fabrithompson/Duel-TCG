@@ -9,7 +9,14 @@ import { useConfig } from '../../../contexts/ConfigContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useUserProfileContext } from '../../../contexts/UserProfileContext';
 import { Typography, tabularNums } from '../../../constants/theme';
-import { useJugadores, type JugadorCuenta } from '../../../hooks/useJugadores';
+import { useBuscarJugadores } from '../../../hooks/useDirectorioJugadores';
+import { etiquetasDesambiguadas } from '../../../lib/jugadores';
+
+interface JugadorCuenta {
+  uid: string;
+  nombre: string;
+  nombreBusqueda: string;
+}
 import { useCatalogo } from '../../../hooks/useCatalogo';
 import { useMesasDuelo } from '../../../hooks/useMesasDuelo';
 import { useUltimoTorneo } from '../../../hooks/useUltimoTorneo';
@@ -54,14 +61,6 @@ interface Reparto {
 
 function limitar(valor: number, lim: { readonly min: number; readonly max: number }): number {
   return Math.min(lim.max, Math.max(lim.min, Math.round(valor)));
-}
-
-function sinAcentos(texto: string): string {
-  try {
-    return texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  } catch {
-    return texto.toLowerCase();
-  }
 }
 
 function claveProducto(item: Pick<CatalogoItem, 'origen' | 'id'>): string {
@@ -112,7 +111,6 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
   const { colors } = useTheme();
   const { mostrar } = useToast();
   const { user } = useUserProfileContext();
-  const jugadoresQ = useJugadores();
   const catalogoQ = useCatalogo();
   const mesasQ = useMesasDuelo();
 
@@ -125,9 +123,11 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
   const [extra, setExtra] = useState(() => limitar(defaults.extra, LIMITES.extra));
   const [inscripcion, setInscripcion] = useState(() => limitar(defaults.inscripcion, LIMITES.inscripcion));
   const [cupo, setCupo] = useState(() => limitar(defaults.cupo, LIMITES.cupo));
-  const [seleccion, setSeleccion] = useState<string[]>([]);
+  // Se guardan nombre y todo: la búsqueda cambia los resultados, pero los anotados no se pierden de vista.
+  const [seleccion, setSeleccion] = useState<JugadorCuenta[]>([]);
   const [pagados, setPagados] = useState<Record<string, boolean>>({});
   const [busqueda, setBusqueda] = useState('');
+  const jugadoresQ = useBuscarJugadores({ activo: paso === 3, busqueda, limite: 30 });
   const [puestos, setPuestos] = useState(4);
   const [reparto, setReparto] = useState<Reparto[]>(() =>
     Array.from({ length: MAX_PUESTOS }, (_, i) => ({ cantidad: Math.max(1, 4 - i), credito: 0 }))
@@ -135,11 +135,7 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
   const [productoClave, setProductoClave] = useState<string | null | undefined>(undefined);
   const [creando, setCreando] = useState(false);
 
-  const porUid = useMemo(() => new Map(jugadoresQ.jugadores.map((j) => [j.uid, j])), [jugadoresQ.jugadores]);
-  const inscriptos = useMemo(
-    () => seleccion.map((uid) => porUid.get(uid)).filter((j): j is JugadorCuenta => j !== undefined),
-    [seleccion, porUid]
-  );
+  const inscriptos = seleccion;
   const n = inscriptos.length;
   const nParaRondas = n >= 2 ? n : cupo;
   const totalRondas = totalRondasPara(formatoId, nParaRondas, rondas, topCut);
@@ -167,9 +163,10 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
   const comprometidos = producto ? reparto.slice(0, puestosEfectivos).reduce((acc, r) => acc + r.cantidad, 0) : 0;
 
   const filtrados = useMemo(() => {
-    const q = sinAcentos(busqueda.trim());
-    return q ? jugadoresQ.jugadores.filter((j) => sinAcentos(j.nombre).includes(q)) : jugadoresQ.jugadores;
-  }, [busqueda, jugadoresQ.jugadores]);
+    const anotados = new Set(seleccion.map((j) => j.uid));
+    return jugadoresQ.jugadores.filter((j) => !anotados.has(j.uid));
+  }, [seleccion, jugadoresQ.jugadores]);
+  const etiquetas = useMemo(() => etiquetasDesambiguadas([...seleccion, ...filtrados]), [seleccion, filtrados]);
 
   const salir = () => {
     if (router.canGoBack()) router.back();
@@ -198,14 +195,14 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
     setPaso(paso + 1);
   };
 
-  const alternarJugador = (uid: string) => {
+  const alternarJugador = (jugador: JugadorCuenta) => {
     setSeleccion((prev) => {
-      if (prev.includes(uid)) return prev.filter((u) => u !== uid);
+      if (prev.some((j) => j.uid === jugador.uid)) return prev.filter((j) => j.uid !== jugador.uid);
       if (prev.length >= cupo) {
         mostrar(`Llegaste al cupo de ${cupo}. Subilo en el paso 2 si entran más.`, 'info');
         return prev;
       }
-      return [...prev, uid];
+      return [...prev, { uid: jugador.uid, nombre: jugador.nombre, nombreBusqueda: jugador.nombreBusqueda }];
     });
   };
 
@@ -479,27 +476,44 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
           {jugadoresQ.error ? (
             <ErrorBanner mensaje={mensajeError(jugadoresQ.error, 'No se pudo cargar la lista de jugadores.')} onRetry={jugadoresQ.reintentar} />
           ) : null}
-          {jugadoresQ.cargando ? (
-            <ActivityIndicator color={colors.br} style={styles.cargando} accessibilityLabel="Cargando jugadores" />
-          ) : jugadoresQ.jugadores.length === 0 && !jugadoresQ.error ? (
-            <EmptyState
-              title="Todavía no hay jugadores registrados"
-              body="Cada jugador se crea su cuenta desde la app (perfil Jugador) y aparece acá al instante."
+          {seleccion.map((j) => (
+            <FilaInscripto
+              key={j.uid}
+              jugador={j}
+              etiqueta={etiquetas.get(j.uid) ?? j.nombre}
+              marcado
+              pagado={pagados[j.uid] === true}
+              onAlternar={() => alternarJugador(j)}
+              onPago={() => setPagados((prev) => ({ ...prev, [j.uid]: !prev[j.uid] }))}
             />
-          ) : filtrados.length === 0 && busqueda.trim() ? (
-            <EmptyState title={`Nadie coincide con "${busqueda.trim()}"`} body="Probá con otra parte del nombre." />
+          ))}
+          {jugadoresQ.cargando ? (
+            <ActivityIndicator color={colors.br} style={styles.cargando} accessibilityLabel="Buscando jugadores" />
+          ) : filtrados.length === 0 && !jugadoresQ.error ? (
+            busqueda.trim() ? (
+              <EmptyState title={`Nadie coincide con "${busqueda.trim()}"`} body="Se busca por cómo empieza el nombre con el que se registró (sin importar tildes ni mayúsculas)." />
+            ) : seleccion.length === 0 ? (
+              <EmptyState
+                title="Todavía no hay jugadores registrados"
+                body="Cada jugador se crea su cuenta desde la app (perfil Jugador) y aparece acá al instante."
+              />
+            ) : null
           ) : (
             filtrados.map((j) => (
               <FilaInscripto
                 key={j.uid}
                 jugador={j}
-                marcado={seleccion.includes(j.uid)}
-                pagado={pagados[j.uid] === true}
-                onAlternar={() => alternarJugador(j.uid)}
-                onPago={() => setPagados((prev) => ({ ...prev, [j.uid]: !prev[j.uid] }))}
+                etiqueta={etiquetas.get(j.uid) ?? j.nombre}
+                marcado={false}
+                pagado={false}
+                onAlternar={() => alternarJugador(j)}
+                onPago={() => undefined}
               />
             ))
           )}
+          {!jugadoresQ.cargando && filtrados.length >= 30 ? (
+            <Text style={[styles.meta, { color: colors.dim }]}>Se muestran los primeros 30: escribí parte del nombre para encontrar al resto.</Text>
+          ) : null}
           <Card style={styles.bloque}>
             <Text style={[styles.nota, { color: colors.dim }]}>
               Tocá Pagado / Impago para marcar la inscripción. La impaga se cobra desde el salón como cualquier consumo.
@@ -614,47 +628,54 @@ function Asistente({ defaults, creditoPremio }: AsistenteProps) {
 
 interface FilaInscriptoProps {
   readonly jugador: JugadorCuenta;
+  /** Nombre a mostrar (con sufijo si hay dos jugadores que se llaman igual). */
+  readonly etiqueta: string;
   readonly marcado: boolean;
   readonly pagado: boolean;
   readonly onAlternar: () => void;
   readonly onPago: () => void;
 }
 
-function FilaInscripto({ jugador, marcado, pagado, onAlternar, onPago }: FilaInscriptoProps) {
+// Dos controles hermanos (no anidados): así VoiceOver y TalkBack llegan a los dos por separado.
+function FilaInscripto({ etiqueta, marcado, pagado, onAlternar, onPago }: FilaInscriptoProps) {
   const { colors } = useTheme();
   return (
-    <TouchableOpacity
-      style={[styles.inscripto, { borderBottomColor: colors.line }]}
-      onPress={() => {
-        tocar();
-        onAlternar();
-      }}
-      activeOpacity={0.7}
-      accessibilityRole="checkbox"
-      accessibilityLabel={jugador.nombre}
-      accessibilityState={{ checked: marcado }}
-    >
-      <View style={[styles.check, { borderColor: marcado ? colors.br : colors.line, backgroundColor: marcado ? colors.br : 'transparent' }]}>
-        {marcado ? <Ionicons name="checkmark" size={13} color="#FFFFFF" /> : null}
-      </View>
-      <Text style={[styles.inscriptoNombre, { color: colors.ink }]} numberOfLines={1}>
-        {jugador.nombre}
-      </Text>
+    <View style={[styles.inscripto, { borderBottomColor: colors.line }]}>
       <TouchableOpacity
-        style={styles.pago}
+        style={styles.inscriptoToque}
         onPress={() => {
           tocar();
-          onPago();
+          onAlternar();
         }}
-        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-        accessibilityRole="switch"
-        accessibilityLabel={`Inscripción de ${jugador.nombre}`}
-        accessibilityState={{ checked: pagado }}
-        accessibilityHint="Tocá para marcarla como pagada o impaga"
+        activeOpacity={0.7}
+        accessibilityRole="checkbox"
+        accessibilityLabel={etiqueta}
+        accessibilityState={{ checked: marcado }}
       >
-        <Text style={[styles.pagoTexto, { color: pagado ? colors.ok : colors.dg }]}>{pagado ? 'Pagado' : 'Impago'}</Text>
+        <View style={[styles.check, { borderColor: marcado ? colors.br : colors.line, backgroundColor: marcado ? colors.br : 'transparent' }]}>
+          {marcado ? <Ionicons name="checkmark" size={13} color="#FFFFFF" /> : null}
+        </View>
+        <Text style={[styles.inscriptoNombre, { color: colors.ink }]} numberOfLines={1}>
+          {etiqueta}
+        </Text>
       </TouchableOpacity>
-    </TouchableOpacity>
+      {marcado ? (
+        <TouchableOpacity
+          style={styles.pago}
+          onPress={() => {
+            tocar();
+            onPago();
+          }}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          accessibilityRole="switch"
+          accessibilityLabel={`Inscripción de ${etiqueta}`}
+          accessibilityState={{ checked: pagado }}
+          accessibilityHint="Tocá para marcarla como pagada o impaga"
+        >
+          <Text style={[styles.pagoTexto, { color: pagado ? colors.ok : colors.dg }]}>{pagado ? 'Pagado' : 'Impago'}</Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
   );
 }
 
@@ -680,6 +701,7 @@ const styles = StyleSheet.create({
   sugerenciaTexto: { marginBottom: 8 },
   cargando: { marginVertical: 24 },
   inscripto: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 52, paddingVertical: 6, borderBottomWidth: 1 },
+  inscriptoToque: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 44 },
   check: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   inscriptoNombre: { flex: 1, fontFamily: Typography.fontFamily.medium, fontSize: 13.5 },
   pago: { minHeight: 44, minWidth: 64, alignItems: 'flex-end', justifyContent: 'center' },

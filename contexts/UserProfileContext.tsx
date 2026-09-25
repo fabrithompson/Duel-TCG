@@ -7,10 +7,10 @@ const UserProfileContext = createContext<UserProfileContextValue | null>(null);
 
 /** Un único listener de sesión + perfil para toda la app. */
 export function UserProfileProvider({ children }: { readonly children: React.ReactNode }) {
-  const { user, profile, loading, error, reintentar } = useUserProfile();
+  const { user, profile, estadoDoc, nombreLegado, loading, error, reintentar } = useUserProfile();
   const value = useMemo(
-    () => ({ user, profile, loading, error, reintentar }),
-    [user, profile, loading, error, reintentar]
+    () => ({ user, profile, estadoDoc, nombreLegado, loading, error, reintentar }),
+    [user, profile, estadoDoc, nombreLegado, loading, error, reintentar]
   );
   return <UserProfileContext.Provider value={value}>{children}</UserProfileContext.Provider>;
 }

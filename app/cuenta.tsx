@@ -10,7 +10,7 @@ import {
   updateProfile,
   User,
 } from 'firebase/auth';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import Screen, { LoadingScreen } from '../components/Screen';
 import FormField from '../components/FormField';
@@ -27,6 +27,8 @@ import { advertencia, fallo } from '../lib/haptics';
 import { formatARS } from '../lib/pedido';
 import type { UserProfile } from '../lib/users';
 import { useReiniciarNavegacion } from '../hooks/useReiniciarNavegacion';
+import { useMiCredito } from '../hooks/useDirectorioJugadores';
+import { normalizarBusqueda } from '../lib/jugadores';
 
 const NOMBRE = { min: 2, max: 60 };
 const PASSWORD_MIN = 8;
@@ -81,6 +83,7 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
   }, [profile.nombre]);
 
   const esJugador = profile.role === 'jugador';
+  const { credito } = useMiCredito(esJugador ? profile.uid : null);
   const tonoRol = profile.role === 'juez' || esJugador ? 'gold' : 'br';
   const nombreLimpio = nombre.trim().replace(/\s+/g, ' ');
   const nombreCambiado = nombreLimpio !== profile.nombre;
@@ -95,7 +98,11 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
     }
     setGuardandoNombre(true);
     try {
-      await updateDoc(doc(db, 'users', profile.uid), { nombre: nombreLimpio });
+      // El staff ve al jugador por el directorio: el nombre tiene que cambiar en los dos lados a la vez.
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'users', profile.uid), { nombre: nombreLimpio });
+      if (esJugador) batch.update(doc(db, 'jugadores', profile.uid), { nombre: nombreLimpio, nombreBusqueda: normalizarBusqueda(nombreLimpio) });
+      await batch.commit();
       // El displayName de Auth es secundario: el nombre que ve la app es el de users/{uid}.
       await updateProfile(user, { displayName: nombreLimpio }).catch(() => undefined);
       mostrar('Nombre actualizado.', 'ok');
@@ -207,7 +214,7 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
       {esJugador ? (
         <Card style={styles.credito}>
           <Text style={[styles.creditoLabel, { color: colors.gold }]}>TU CRÉDITO EN LA BARRA</Text>
-          <Text style={[styles.creditoValor, { color: colors.ink }, tabularNums(28)]}>{formatARS(profile.creditoCafeteria ?? 0)}</Text>
+          <Text style={[styles.creditoValor, { color: colors.ink }, tabularNums(28)]}>{credito === null ? '—' : formatARS(credito)}</Text>
           <Text style={[styles.ayuda, { color: colors.dim }]}>
             Lo ganás en los torneos y se descuenta cuando pagás en la barra.
           </Text>

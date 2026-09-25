@@ -8,9 +8,23 @@ import type { EstadoAprobacion, UserProfile } from '../lib/users';
 const ROLES_VALIDOS: readonly Role[] = ['admin', 'mozo', 'juez', 'jugador'];
 const ESTADOS_VALIDOS: readonly EstadoAprobacion[] = ['pendiente', 'aprobado', 'rechazado'];
 
+/** Estado del documento de perfil, más allá del perfil normalizado. */
+export type EstadoDocPerfil =
+  /** Existe con un rol válido. */
+  | 'ok'
+  /** El servidor confirmó que no existe (alta que quedó a medias). */
+  | 'no_existe'
+  /** Sin conexión: la caché vacía no alcanza para decir que no existe. */
+  | 'sin_confirmar'
+  /** Cuenta del prototipo (role 'user' o sin rol): hay que pasarla a jugador. */
+  | 'legado';
+
 export interface UseUserProfileResult {
   user: User | null;
   profile: UserProfile | null;
+  estadoDoc: EstadoDocPerfil | null;
+  /** Nombre que traía una cuenta heredada (campo `name` del prototipo), para migrarla. */
+  nombreLegado: string | null;
   loading: boolean;
   error: unknown;
   reintentar: () => void;
@@ -24,14 +38,12 @@ export function normalizarPerfil(uid: string, data: Record<string, unknown> | un
   const estadoAprobacion = ESTADOS_VALIDOS.find((e) => e === data.estadoAprobacion) ?? 'pendiente';
   const email = typeof data.email === 'string' ? data.email : '';
   const nombre = typeof data.nombre === 'string' && data.nombre.trim() ? data.nombre.trim() : email.split('@')[0] || 'Sin nombre';
-  const credito = data.creditoCafeteria;
   return {
     uid,
     nombre,
     email,
     role,
     estadoAprobacion,
-    creditoCafeteria: typeof credito === 'number' && Number.isFinite(credito) ? credito : undefined,
     codigoInvitacion: typeof data.codigoInvitacion === 'string' ? data.codigoInvitacion : undefined,
     creadoEn: data.creadoEn,
   };
@@ -40,10 +52,18 @@ export function normalizarPerfil(uid: string, data: Record<string, unknown> | un
 interface EstadoPerfil {
   uid: string | null;
   profile: UserProfile | null;
+  estadoDoc: EstadoDocPerfil | null;
+  nombreLegado: string | null;
   error: unknown;
 }
 
-const SIN_PERFIL: EstadoPerfil = { uid: null, profile: null, error: null };
+const SIN_PERFIL: EstadoPerfil = { uid: null, profile: null, estadoDoc: null, nombreLegado: null, error: null };
+
+function nombreDeLegado(data: Record<string, unknown>): string | null {
+  const candidatos = [data.nombre, data.name, typeof data.email === 'string' ? data.email.split('@')[0] : null];
+  const nombre = candidatos.find((c): c is string => typeof c === 'string' && c.trim().length >= 2);
+  return nombre ? nombre.trim().slice(0, 60) : null;
+}
 
 /** Escucha la sesión de Firebase Auth y el perfil (rol, aprobación) en Firestore. */
 export function useUserProfile(): UseUserProfileResult {
@@ -68,15 +88,30 @@ export function useUserProfile(): UseUserProfileResult {
       return undefined;
     }
     let activo = true;
+    // includeMetadataChanges: sin conexión llega primero un "no existe" desde la caché vacía; sin esta
+    // opción, la confirmación posterior del servidor (solo cambia fromCache) nunca se notificaría.
     const unsub = onSnapshot(
       doc(db, 'users', uid),
+      { includeMetadataChanges: true },
       (snap) => {
         if (!activo) return;
-        setEstado({ uid, profile: normalizarPerfil(uid, snap.exists() ? snap.data() : undefined), error: null });
+        if (snap.exists()) {
+          const data = snap.data();
+          const profile = normalizarPerfil(uid, data);
+          setEstado({
+            uid,
+            profile,
+            estadoDoc: profile ? 'ok' : 'legado',
+            nombreLegado: profile ? null : nombreDeLegado(data),
+            error: null,
+          });
+          return;
+        }
+        setEstado({ uid, profile: null, estadoDoc: snap.metadata.fromCache ? 'sin_confirmar' : 'no_existe', nombreLegado: null, error: null });
       },
       (error) => {
         if (!activo) return;
-        setEstado((prev) => ({ uid, profile: prev.uid === uid ? prev.profile : null, error }));
+        setEstado((prev) => ({ ...(prev.uid === uid ? prev : { ...SIN_PERFIL, uid }), uid, error }));
       }
     );
     return () => {
@@ -92,7 +127,9 @@ export function useUserProfile(): UseUserProfileResult {
   return {
     user,
     profile: perfilDeEsteUsuario ? estado.profile : null,
-    loading: authLoading || (uid !== null && !perfilDeEsteUsuario),
+    estadoDoc: perfilDeEsteUsuario ? estado.estadoDoc : null,
+    nombreLegado: perfilDeEsteUsuario ? estado.nombreLegado : null,
+    loading: authLoading || (uid !== null && (!perfilDeEsteUsuario || (estado.estadoDoc === null && !estado.error))),
     error: perfilDeEsteUsuario ? estado.error : null,
     reintentar,
   };

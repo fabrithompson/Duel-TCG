@@ -10,6 +10,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { useUserProfileContext } from '../../contexts/UserProfileContext';
 import { Typography, tabularNums } from '../../constants/theme';
 import { reportarResultado, useMiDuelo, useReportesPartida } from '../../hooks/useMiDuelo';
+import { useMiCredito } from '../../hooks/useDirectorioJugadores';
 import { RESULTADOS, calcularStandings, formatTimer, nombreRonda, recordDe, type Resultado, type Standing, type Torneo } from '../../lib/torneo';
 import {
   esVictoria,
@@ -82,10 +83,11 @@ export default function DueloScreen() {
   const { user, profile } = useUserProfileContext();
   const uid = user?.uid ?? null;
   const { torneo, cargando, error, reintentar } = useMiDuelo(uid);
+  const { credito: miCredito } = useMiCredito(uid);
 
   if (cargando) return <LoadingScreen />;
 
-  const credito = creditoValido(profile?.creditoCafeteria);
+  const credito = creditoValido(miCredito);
   const avatar = <Avatar nombre={profile?.nombre ?? ''} onPress={() => router.push('/cuenta')} />;
   const creditoCard = config.creditoPremio || credito > 0 ? <CreditoBarra monto={credito} /> : null;
   const errorBanner = error ? (
@@ -378,7 +380,7 @@ function ReporteResultado({ torneo, mia, uid, habilitado, nombreRival }: Reporte
       if (fin === 'ok') {
         mostrar(`Reportaste ${marcador(r)}.`, 'ok');
       } else {
-        mostrar('Sin conexión: tu reporte se envía cuando vuelva internet.', 'info');
+        mostrar('Sin señal: tu reporte se envía cuando vuelva. No cierres la app hasta verlo confirmado.', 'info');
         escritura.catch(avisarError);
       }
     } catch (e) {

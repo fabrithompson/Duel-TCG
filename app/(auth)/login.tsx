@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { KeyboardAvoidingView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -118,6 +118,12 @@ export default function LoginScreen() {
         fallo();
         return;
       }
+      // Alta a medias o cuenta de la versión anterior: las pestañas guían para completarla en vez de rebotar.
+      if (!perfil) {
+        exito();
+        reiniciar('(tabs)');
+        return;
+      }
       const problema = problemaDeAcceso(perfil, pedido);
       if (problema) {
         await signOut(auth).catch(() => undefined);
@@ -175,7 +181,7 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.bg }]} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <TouchableOpacity
             onPress={volver}

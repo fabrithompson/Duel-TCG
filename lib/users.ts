@@ -14,8 +14,6 @@ export interface UserProfile {
   email: string;
   role: Role;
   estadoAprobacion: EstadoAprobacion;
-  /** Crédito de cafetería ganado en torneos, pendiente de usar en un pedido. */
-  creditoCafeteria?: number;
   /** Código con el que se registró (mozo/juez); las reglas lo validan al crear. */
   codigoInvitacion?: string;
   creadoEn?: unknown;

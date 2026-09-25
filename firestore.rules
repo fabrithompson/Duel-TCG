@@ -222,13 +222,35 @@ service cloud.firestore {
         && (!('nombre' in ks) || texto(d.nombre, 2, 60));
     }
 
+    // Cuentas del prototipo (role 'user' o sin rol): el dueño las pasa a jugador y nada más.
+    function migracionLegado(userId) {
+      let d = request.resource.data;
+      return autenticado()
+        && request.auth.uid == userId
+        && !(resource.data.get('role', '') in roles())
+        && cambios().hasOnly(['role', 'estadoAprobacion', 'nombre'])
+        && d.role == 'jugador'
+        && d.estadoAprobacion == 'aprobado'
+        && texto(d.nombre, 2, 60);
+    }
+
+    // users es privado (email, rol): solo el dueño y el admin. El staff ve a los jugadores por /jugadores.
+    match /users/{userId} {
+      allow get: if (autenticado() && request.auth.uid == userId) || esAdmin();
+      allow list: if esAdmin();
+      allow create: if altaUsuarioValida(userId);
+      allow update: if edicionPropia(userId) || edicionAdmin(userId) || migracionLegado(userId);
+      allow delete: if esAdmin();
+    }
+
+    // ---------- Directorio público de jugadores (nombre y crédito, sin email) ----------
+
     function creditoAnterior() {
       return resource.data.get('creditoCafeteria', 0);
     }
 
-    function soloCambiaCreditoDeJugador() {
-      return resource.data.get('role', '') == 'jugador'
-        && cambios().hasOnly(['creditoCafeteria'])
+    function soloCambiaCredito() {
+      return cambios().hasOnly(['creditoCafeteria'])
         && request.resource.data.creditoCafeteria is number;
     }
 
@@ -236,7 +258,7 @@ service cloud.firestore {
     function subeCredito() {
       let nuevo = request.resource.data.creditoCafeteria;
       return (rol('juez') || esAdmin())
-        && soloCambiaCreditoDeJugador()
+        && soloCambiaCredito()
         && nuevo > creditoAnterior()
         && nuevo - creditoAnterior() <= maxSubidaCredito()
         && nuevo <= maxCredito();
@@ -246,18 +268,49 @@ service cloud.firestore {
     function bajaCredito() {
       let nuevo = request.resource.data.creditoCafeteria;
       return (rol('mozo') || esAdmin())
-        && soloCambiaCreditoDeJugador()
+        && soloCambiaCredito()
         && nuevo < creditoAnterior()
         && nuevo >= 0;
     }
 
-    match /users/{userId} {
-      allow get: if (autenticado() && request.auth.uid == userId)
-        || esAdmin()
-        || (staff() && resource.data.role == 'jugador');
-      allow list: if esAdmin() || (staff() && resource.data.role == 'jugador');
-      allow create: if altaUsuarioValida(userId);
-      allow update: if edicionPropia(userId) || edicionAdmin(userId) || subeCredito() || bajaCredito();
+    function nombreBusquedaValido(v) {
+      return v is string && v.size() >= 1 && v.size() <= 60 && v == v.lower();
+    }
+
+    // getAfter: sirve igual en el alta (users y jugadores en el mismo batch) y cuando ya existía el perfil.
+    function esJugadorAprobado(uid) {
+      let p = getAfter(/databases/$(database)/documents/users/$(uid)).data;
+      return p.get('role', '') == 'jugador' && p.get('estadoAprobacion', '') == 'aprobado';
+    }
+
+    function altaJugadorValida(jugadorId) {
+      let d = request.resource.data;
+      return autenticado()
+        && request.auth.uid == jugadorId
+        && d.keys().hasOnly(['uid', 'nombre', 'nombreBusqueda', 'creditoCafeteria', 'creadoEn'])
+        && d.keys().hasAll(['uid', 'nombre', 'nombreBusqueda', 'creditoCafeteria', 'creadoEn'])
+        && d.uid == jugadorId
+        && texto(d.nombre, 2, 60)
+        && nombreBusquedaValido(d.nombreBusqueda)
+        && d.creditoCafeteria == 0
+        && d.creadoEn == request.time
+        && esJugadorAprobado(jugadorId);
+    }
+
+    function renombreJugador(jugadorId) {
+      let d = request.resource.data;
+      return autenticado()
+        && request.auth.uid == jugadorId
+        && cambios().hasOnly(['nombre', 'nombreBusqueda'])
+        && texto(d.nombre, 2, 60)
+        && nombreBusquedaValido(d.nombreBusqueda);
+    }
+
+    match /jugadores/{jugadorId} {
+      allow get: if (autenticado() && request.auth.uid == jugadorId) || staff();
+      allow list: if staff();
+      allow create: if altaJugadorValida(jugadorId);
+      allow update: if renombreJugador(jugadorId) || subeCredito() || bajaCredito();
       allow delete: if esAdmin();
     }
 
