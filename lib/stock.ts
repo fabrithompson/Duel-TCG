@@ -11,8 +11,8 @@ export const LIMITES_STOCK = {
   costo: 10_000_000,
 } as const;
 
-export type RubroMercaderia = Exclude<Rubro, 'Mesa'>;
-export const RUBROS_MERCADERIA: readonly RubroMercaderia[] = ['Café', 'Pastelería', 'TCG'];
+/** Rubro de mercadería (con stock): los de cafetería del local o TCG; los servicios no llevan ingreso. */
+export type RubroMercaderia = Rubro;
 
 export type Resultado<T> = { ok: true; valor: T } | { ok: false; error: string };
 

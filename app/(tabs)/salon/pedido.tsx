@@ -1,16 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 import { NavigationAction, useNavigation, usePreventRemove } from '@react-navigation/native';
@@ -41,7 +30,6 @@ import {
   ItemPedido,
   MEDIOS_PAGO,
   MedioPago,
-  RUBROS,
   Rubro,
   Unidad,
   formatARS,
@@ -66,8 +54,11 @@ import {
   numeroMesaTexto,
   puedeAgregar,
 } from '../../../lib/salon';
-import { segundosRestantes, type Torneo } from '../../../lib/torneo';
+import type { Torneo } from '../../../lib/torneo';
+import { describirReloj } from '../../../lib/relojRonda';
 import { useAhoraServidor } from '../../../hooks/useReloj';
+import { nombreRubro, ordenarRubros } from '../../../lib/rubros';
+import { preguntar } from '../../../lib/dialogo';
 
 const MAX_RESULTADOS_JUGADOR = 6;
 const SIN_CONEXION_COBRO = 'Sin conexión: el cobro NO se registró. Reintentá cuando vuelva la señal.';
@@ -114,8 +105,7 @@ interface EstadoMesaProps {
 function EstadoMesa({ duelo, torneo, conCuenta }: EstadoMesaProps) {
   const { colors } = useTheme();
   const ahora = useAhoraServidor(!!duelo && torneo?.rondaPausada !== true);
-  const segundos = duelo && torneo ? segundosRestantes(torneo, ahora) : 0;
-  const texto = duelo ? `Duelo · ${etiquetaDuelo(duelo.ronda, segundos)}` : conCuenta ? 'Consumo' : 'Libre';
+  const texto = duelo && torneo ? `Duelo · ${etiquetaDuelo(duelo.ronda, describirReloj(torneo, ahora).corto)}` : conCuenta ? 'Consumo' : 'Libre';
   const color = duelo ? colors.gold : conCuenta ? colors.br : colors.dim;
   return (
     <Text style={[styles.estado, { color }, tabularNums(11.5)]} accessibilityLabel={`Estado: ${texto}`}>
@@ -138,9 +128,10 @@ interface ProductoCardProps {
   readonly enCuenta: number;
   readonly alertaLocal: number;
   readonly onAgregar: (item: CatalogoItem) => void;
+  readonly bloqueado?: boolean;
 }
 
-function ProductoCard({ item, enCuenta, alertaLocal, onAgregar }: ProductoCardProps) {
+function ProductoCard({ item, enCuenta, alertaLocal, onAgregar, bloqueado = false }: ProductoCardProps) {
   const { colors } = useTheme();
   const sinStock = item.stock !== null && item.stock <= 0;
   const bajo = stockBajo(item, alertaLocal);
@@ -154,20 +145,20 @@ function ProductoCard({ item, enCuenta, alertaLocal, onAgregar }: ProductoCardPr
         tocar();
         onAgregar(item);
       }}
-      disabled={sinStock}
+      disabled={sinStock || bloqueado}
       style={({ pressed }) => [
         styles.producto,
         {
           borderColor: enCuenta > 0 ? colors.br : colors.line,
           borderWidth: enCuenta > 0 ? 1.5 : 1,
           backgroundColor: colors.sf,
-          opacity: sinStock ? 0.45 : pressed ? 0.7 : 1,
+          opacity: sinStock || bloqueado ? 0.45 : pressed ? 0.7 : 1,
         },
       ]}
       accessibilityRole="button"
       accessibilityLabel={`${item.nombre}, ${meta}${enCuenta > 0 ? `, ${enCuenta} en la cuenta` : ''}`}
       accessibilityHint={sinStock ? undefined : tope ? 'No queda más stock para sumar.' : 'Suma uno a la cuenta.'}
-      accessibilityState={{ disabled: sinStock }}
+      accessibilityState={{ disabled: sinStock || bloqueado }}
     >
       {enCuenta > 0 ? (
         <View style={[styles.contador, { backgroundColor: colors.br }]} importantForAccessibility="no-hide-descendants">
@@ -506,6 +497,8 @@ export default function PedidoScreen() {
   const [guardando, setGuardando] = useState(false);
   const [cobroAbierto, setCobroAbierto] = useState(false);
   const [salida, setSalida] = useState<Salida | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const [yCuenta, setYCuenta] = useState(0);
 
   const [baseVista, setBaseVista] = useState<ItemPedido[] | null>(null);
   const base = useRef<ItemPedido[] | null>(null);
@@ -582,7 +575,7 @@ export default function PedidoScreen() {
   );
 
   const activos = useMemo(() => catalogo.filter((i) => i.activo), [catalogo]);
-  const rubros = useMemo(() => RUBROS.filter((r) => activos.some((i) => i.rubro === r)), [activos]);
+  const rubros = useMemo(() => ordenarRubros(new Set(activos.map((i) => i.rubro)), config.rubrosCafeteria), [activos, config.rubrosCafeteria]);
   const rubro = rubroElegido && rubros.includes(rubroElegido) ? rubroElegido : rubros[0] ?? null;
   const productos = useMemo(() => activos.filter((i) => i.rubro === rubro), [activos, rubro]);
   const filas = useMemo(() => {
@@ -592,7 +585,10 @@ export default function PedidoScreen() {
   }, [productos]);
 
   const subtotal = subtotalDe(cuenta);
+  const unidades = cuenta.reduce((acc, l) => acc + l.cantidad, 0);
   const sucio = baseVista !== null && !mismoPedido(cuenta, baseVista);
+  // Mesa de la versión anterior marcada ocupada con la cuenta vacía: sin esto no había cómo liberarla.
+  const liberable = !!mesa && !sucio && cuenta.length === 0 && mesa.estado !== 'libre';
   const numero = mesa ? numeroMesaTexto(mesa.numero) : '';
 
   // Se navega recién cuando la cuenta ya coincide con lo guardado: así el aviso de "cambios sin guardar" no salta.
@@ -656,8 +652,11 @@ export default function PedidoScreen() {
       });
       fijarBase(lineas);
       toast.mostrar(lineas.length > 0 ? `Mesa ${numero} guardada` : `Mesa ${numero} libre`, 'ok');
-      setSalida(despues);
+      // Si el mozo quiso salir mientras se guardaba, se respeta a dónde iba.
+      setSalida((pendiente) => pendiente ?? despues);
     } catch (e) {
+      // Falló: nadie se va de la pantalla, los cambios siguen ahí para reintentar.
+      setSalida(null);
       if (e instanceof AvisoMesa) toast.mostrar(e.message, 'error');
       else toast.mostrar(esSinConexion(e) ? SIN_CONEXION_GUARDAR : mensajeError(e, 'No se pudo guardar la mesa.'), 'error');
     } finally {
@@ -676,15 +675,21 @@ export default function PedidoScreen() {
   };
 
   // Atrás de Android, "← Salón" o tocar la pestaña con cambios sin guardar: se pregunta antes de perderlos.
-  usePreventRemove(puedeOperar && sucio && !guardando, ({ data }) => {
+  usePreventRemove(puedeOperar && sucio, ({ data }) => {
+    if (guardando) {
+      // Todavía no se sabe si se guardó: se sale recién cuando se confirme (si falla, se queda).
+      setSalida({ tipo: 'accion', accion: data.action });
+      toast.mostrar('Esperá un segundo: se está guardando la mesa', 'info');
+      return;
+    }
     const descartar = { text: 'Descartar', style: 'destructive' as const, onPress: () => navigation.dispatch(data.action) };
     const seguir = { text: 'Seguir editando', style: 'cancel' as const };
     if (conflicto) {
       // Con conflicto no se puede guardar a ciegas: primero hay que resolver el aviso.
-      Alert.alert('Cambios sin guardar', `Otro dispositivo cambió la mesa ${numero}. Resolvé el aviso antes de guardar o descartá lo tuyo.`, [seguir, descartar]);
+      preguntar('Cambios sin guardar', `Otro dispositivo cambió la mesa ${numero}. Resolvé el aviso antes de guardar o descartá lo tuyo.`, [seguir, descartar]);
       return;
     }
-    Alert.alert('Cambios sin guardar', `La mesa ${numero} tiene cambios que no guardaste.`, [
+    preguntar('Cambios sin guardar', `La mesa ${numero} tiene cambios que no guardaste.`, [
       seguir,
       descartar,
       { text: 'Guardar', onPress: () => void guardar({ tipo: 'accion', accion: data.action }) },
@@ -756,14 +761,34 @@ export default function PedidoScreen() {
         </Text>
       ) : null}
       <View style={styles.totalFila}>
-        <Text style={[styles.totalLabel, { color: colors.dim }]}>TOTAL</Text>
+        <View style={styles.totalIzquierda}>
+          <Text style={[styles.totalLabel, { color: colors.dim }]}>TOTAL</Text>
+          {cuenta.length > 0 ? (
+            // Con un catálogo largo la cuenta queda abajo de todo: un toque para ir a revisarla.
+            <Pressable
+              onPress={() => scrollRef.current?.scrollTo({ y: Math.max(0, yCuenta - 12), animated: true })}
+              hitSlop={10}
+              style={styles.verCuenta}
+              accessibilityRole="button"
+              accessibilityLabel={`Ver la cuenta, ${unidades} ${unidades === 1 ? 'ítem' : 'ítems'}`}
+            >
+              <Text style={[styles.verCuentaTexto, { color: colors.br }]}>{`Ver cuenta · ${unidades}`}</Text>
+            </Pressable>
+          ) : null}
+        </View>
         <Text style={[styles.total, { color: colors.ink }, tabularNums(27)]} accessibilityLabel={`Total ${formatARS(subtotal)}`}>
           {formatARS(subtotal)}
         </Text>
       </View>
       <View style={styles.acciones}>
         <View style={styles.flex1}>
-          <Button label="Guardar" variant="secondary" onPress={() => void guardar()} loading={guardando} disabled={!sucio || !!conflicto} />
+          <Button
+            label={liberable ? 'Liberar mesa' : 'Guardar'}
+            variant="secondary"
+            onPress={() => void guardar()}
+            loading={guardando}
+            disabled={(!sucio && !liberable) || !!conflicto}
+          />
         </View>
         <View style={styles.flex17}>
           <Button
@@ -785,6 +810,7 @@ export default function PedidoScreen() {
         <EstadoMesa duelo={duelo} torneo={torneo} conCuenta={mesa.estado !== 'libre' || mesa.pedido.length > 0} />
       }
       footer={footer}
+      scrollRef={scrollRef}
     >
       {errorMesa ? <ErrorBanner mensaje={mensajeError(errorMesa, 'Se perdió la conexión con la mesa.')} /> : null}
       {errorCatalogo ? <ErrorBanner mensaje={mensajeError(errorCatalogo, 'No se pudo cargar el catálogo.')} onRetry={reintentarCatalogo} /> : null}
@@ -795,7 +821,7 @@ export default function PedidoScreen() {
         <>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} style={styles.chipsScroll}>
             {rubros.map((r) => (
-              <Chip key={r} label={r} active={rubro === r} onPress={() => setRubroElegido(r)} />
+              <Chip key={r} label={nombreRubro(r)} active={rubro === r} onPress={() => setRubroElegido(r)} />
             ))}
           </ScrollView>
           <View style={styles.grilla}>
@@ -803,7 +829,7 @@ export default function PedidoScreen() {
               <View key={par.map((p) => `${p.origen}:${p.id}`).join('|')} style={styles.grillaFila}>
                 {par.map((item) => (
                   <View key={`${item.origen}:${item.id}`} style={styles.flex1}>
-                    <ProductoCard item={item} enCuenta={cantidadEnCuenta(cuenta, item)} alertaLocal={config.alertaStock} onAgregar={agregar} />
+                    <ProductoCard item={item} enCuenta={cantidadEnCuenta(cuenta, item)} alertaLocal={config.alertaStock} onAgregar={agregar} bloqueado={guardando} />
                   </View>
                 ))}
                 {par.length === 1 ? <View style={styles.flex1} /> : null}
@@ -813,7 +839,7 @@ export default function PedidoScreen() {
         </>
       )}
 
-      <View style={styles.cuentaHeader}>
+      <View style={styles.cuentaHeader} onLayout={(e) => setYCuenta(e.nativeEvent.layout.y)}>
         <SectionLabel>Cuenta</SectionLabel>
       </View>
       {cuenta.length === 0 ? (
@@ -826,6 +852,7 @@ export default function PedidoScreen() {
             <View key={`${l.origen}:${l.itemId}`} style={[styles.linea, { borderBottomColor: colors.line }]}>
               <Stepper
                 value={l.cantidad}
+                disabled={guardando}
                 onIncrement={() => setCuenta((prev) => cambiarCantidad(prev, l, 1))}
                 onDecrement={() => setCuenta((prev) => cambiarCantidad(prev, l, -1))}
                 max={max}
@@ -908,6 +935,9 @@ const styles = StyleSheet.create({
   conflictoAccion: { fontFamily: Typography.fontFamily.bold, fontSize: 12.5, textDecorationLine: 'underline' },
   totalFila: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   totalLabel: { fontFamily: Typography.fontFamily.bold, fontSize: 10, letterSpacing: 1.6 },
+  totalIzquierda: { gap: 4 },
+  verCuenta: { minHeight: 28, justifyContent: 'center' },
+  verCuentaTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 12, textDecorationLine: 'underline' },
   total: { fontFamily: Typography.fontFamily.bold, fontSize: 27 },
   acciones: { flexDirection: 'row', gap: 8 },
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(20,16,13,0.55)' },

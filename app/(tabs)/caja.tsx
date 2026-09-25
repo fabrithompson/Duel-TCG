@@ -52,7 +52,7 @@ function CajaAdmin() {
   const { config } = useConfig();
   // null = la jornada en curso; si no, un día anterior elegido con las flechas.
   const [fechaElegida, setFechaElegida] = useState<string | null>(null);
-  const { resumen, hoy, esHoy, fechaHoy, inscripciones, cargando, error, reintentar } = useCaja(config.turnos, fechaElegida);
+  const { resumen, hoy, esHoy, fechaHoy, inscripciones, cargando, sinConexion, error, reintentar } = useCaja(config.turnos, fechaElegida);
 
   const volver = () => router.navigate('/(tabs)/hoy');
   const moverDia = (dias: number) => {
@@ -61,17 +61,17 @@ function CajaAdmin() {
     setFechaElegida(destino >= fechaHoy ? null : destino);
   };
   const navegacion = (
-    <View style={styles.navDias}>
+    <>
       <SmallButton label="‹ Anterior" onPress={() => moverDia(-1)} disabled={cargando} />
       {esHoy ? null : <SmallButton label="Siguiente ›" onPress={() => moverDia(1)} disabled={cargando} />}
-    </View>
+    </>
   );
 
   if (cargando && resumen.cobros === 0) return <LoadingScreen />;
 
   if (error) {
     return (
-      <Screen back="Hoy" onBack={volver} title="Cierre del día" subtitle={fechaLarga(hoy)} right={navegacion}>
+      <Screen back="Hoy" onBack={volver} title="Cierre del día" subtitle={fechaLarga(hoy)} acciones={navegacion}>
         <ErrorBanner mensaje={mensajeError(error, 'No se pudieron cargar las ventas.')} onRetry={reintentar} />
       </Screen>
     );
@@ -82,7 +82,7 @@ function CajaAdmin() {
   const variacion = resumen.variacionPct;
 
   return (
-    <Screen back="Hoy" onBack={volver} title="Cierre del día" subtitle={esHoy ? `${fechaLarga(hoy)} · jornada en curso` : fechaLarga(hoy)} right={navegacion}>
+    <Screen back="Hoy" onBack={volver} title="Cierre del día" subtitle={esHoy ? `${fechaLarga(hoy)} · jornada en curso` : fechaLarga(hoy)} acciones={navegacion}>
       <View style={styles.totalBloque}>
         <View style={styles.totalFila}>
           <Text
@@ -137,7 +137,11 @@ function CajaAdmin() {
         })}
       </View>
 
-      {resumen.cobros === 0 ? (
+      {resumen.cobros === 0 && sinConexion ? (
+        <View style={styles.seccion}>
+          <ErrorBanner mensaje="Sin conexión: no se pueden ver los cobros de ese día. Cuando vuelva la señal, se cargan solos." onRetry={reintentar} />
+        </View>
+      ) : resumen.cobros === 0 ? (
         <View style={styles.seccion}>
           <EmptyState
             title={esHoy ? 'Todavía no se cobró nada hoy' : 'Ese día no hubo cobros'}
@@ -191,7 +195,6 @@ export default function CajaScreen() {
 
 const styles = StyleSheet.create({
   totalBloque: { marginBottom: 16 },
-  navDias: { flexDirection: 'row', gap: 8, paddingTop: 4 },
   totalFila: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
   total: { flexShrink: 1, fontFamily: Typography.fontFamily.bold, fontSize: 40 },
   variacion: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5 },

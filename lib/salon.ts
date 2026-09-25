@@ -1,7 +1,6 @@
 import type { CatalogoItem, ItemPedido, MedioPago, OrigenItem, Rubro } from './pedido';
-import { RUBROS, coleccionDe } from './pedido';
-import { formatTimer } from './torneo';
-import type { Partida, Torneo } from './torneo';
+import { coleccionDe } from './pedido';
+import type { DueloEnMesa } from './torneo';
 
 // Sin Firebase a propósito: Salón y Pedido comparten esta lógica y se testea en Jest.
 
@@ -70,29 +69,12 @@ export function numeroMesaTexto(numero: number): string {
   return String(numero).padStart(2, '0');
 }
 
-export interface DueloEnMesa {
-  ronda: number;
-  partida: Partida;
-}
+// La lógica vive en lib/torneo (una sola implementación para Salón, Pedido y Hoy).
+export { duelosPorMesa, type DueloEnMesa } from './torneo';
 
-type TorneoParaDuelos = Pick<Torneo, 'estado' | 'rondaActual' | 'rondas'>;
-
-// El duelo no se guarda en la mesa: se deriva del torneo para que nunca quede "colgado" si alguien cierra la app.
-export function duelosPorMesa(torneo: TorneoParaDuelos | null | undefined): Map<string, DueloEnMesa> {
-  const mapa = new Map<string, DueloEnMesa>();
-  if (!torneo || torneo.estado !== 'en_curso' || !Array.isArray(torneo.rondas)) return mapa;
-  const ronda = torneo.rondas.find((r) => r && r.numero === torneo.rondaActual);
-  if (!ronda || !Array.isArray(ronda.partidas)) return mapa;
-  for (const partida of ronda.partidas) {
-    if (partida && typeof partida.mesaSalonId === 'string' && partida.mesaSalonId && partida.resultado === null) {
-      mapa.set(partida.mesaSalonId, { ronda: ronda.numero, partida });
-    }
-  }
-  return mapa;
-}
-
-export function etiquetaDuelo(ronda: number, segundos: number): string {
-  return segundos > 0 ? `R${ronda} · ${formatTimer(segundos)}` : `R${ronda} · tiempo`;
+/** "R3 · 12:40", "R3 · 12:40 · pausa", "R3 · tiempo cumplido": `reloj` es describirReloj(...).corto. */
+export function etiquetaDuelo(ronda: number, reloj: string): string {
+  return `R${ronda} · ${reloj}`;
 }
 
 export function contarSalon(
@@ -128,7 +110,7 @@ export function normalizarLineas(raw: unknown): ItemPedido[] {
       nombre: typeof r.nombre === 'string' && r.nombre ? r.nombre : 'Sin nombre',
       precio: typeof r.precio === 'number' && Number.isFinite(r.precio) ? r.precio : 0,
       cantidad,
-      rubro: typeof r.rubro === 'string' && (RUBROS as readonly string[]).includes(r.rubro) ? (r.rubro as Rubro) : 'Café',
+      rubro: typeof r.rubro === 'string' && r.rubro.trim() ? (r.rubro.trim().slice(0, 30) as Rubro) : 'Café',
       origen: typeof r.origen === 'string' && (ORIGENES as readonly string[]).includes(r.origen) ? (r.origen as OrigenItem) : 'productos',
     });
   }

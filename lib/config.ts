@@ -1,4 +1,5 @@
 import { minutosDelDia } from './fecha';
+import { RUBROS_CAFETERIA_POR_DEFECTO, normalizarRubrosCafeteria } from './rubros';
 
 // Configuración del local, editable desde Ajustes (solo admin).
 //  - `config/publico`: todo lo de abajo. Lectura pública (el splash muestra
@@ -59,6 +60,8 @@ export interface ConfigLocal {
   juegos: string[];
   /** Medios de pago que aparecen al cobrar. */
   mediosPago: MedioCobro[];
+  /** Rubros de cafetería (TCG y servicios son fijos del sistema). */
+  rubrosCafeteria: string[];
 }
 
 /** Un código filtrado deja de servir solo: el admin lo renueva cuando suma a alguien. */
@@ -96,6 +99,7 @@ export const CONFIG_DEFAULT: ConfigLocal = {
   descontarStock: true,
   juegos: [...JUEGOS_POR_DEFECTO],
   mediosPago: [...MEDIOS_COBRO],
+  rubrosCafeteria: [...RUBROS_CAFETERIA_POR_DEFECTO],
 };
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
@@ -183,6 +187,7 @@ export function normalizarConfig(raw: unknown): ConfigLocal {
     descontarStock: booleano(r.descontarStock, d.descontarStock),
     juegos: juegosValidos(r.juegos),
     mediosPago: mediosValidos(r.mediosPago),
+    rubrosCafeteria: normalizarRubrosCafeteria(r.rubrosCafeteria),
   };
 }
 

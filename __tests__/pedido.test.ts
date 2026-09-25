@@ -66,8 +66,10 @@ jest.mock('firebase/firestore', () => ({
   collection: (_db: unknown, nombre: string) => ({ tipo: 'col', nombre }),
   query: (col: { nombre: string }, ...filtros: unknown[]) => ({ tipo: 'query', nombre: col.nombre, filtros }),
   where: (campo: string, op: string, valor: unknown) => ({ campo, op, valor }),
-  onSnapshot: (ref: RefFalsa, next: (snap: unknown) => void) => {
-    next(mockSnapCol(ref.tipo === 'doc' ? ref.path : ref.nombre));
+  // Como el SDK: acepta onSnapshot(ref, next) y onSnapshot(ref, opciones, next).
+  onSnapshot: (ref: RefFalsa, a: unknown, b?: unknown) => {
+    const next = (typeof a === 'function' ? a : b) as (mockSnap: unknown) => void;
+    next({ ...mockSnapCol(ref.tipo === 'doc' ? ref.path : ref.nombre), metadata: { fromCache: false } });
     return () => undefined;
   },
   updateDoc: (ref: { path: string }, datos: Record<string, unknown>) => mockUpdateDoc(ref.path, datos),
@@ -525,6 +527,22 @@ describe('pantalla Stock', () => {
     await desmontar(r);
   });
 
+  it('los rubros de cafetería son los que define el local', async () => {
+    mockConfig = { ...CONFIG_DEFAULT, rubrosCafeteria: ['Café', 'Panadería'] };
+    mockColecciones.productos = [...(mockColecciones.productos ?? []), { id: 'pan', nombre: 'Pan de campo', precio: 2500, rubro: 'Panadería', controlStock: true, stock: 6 }];
+    mockPerfil = { ...mockPerfil, role: 'mozo' };
+    const r = await montar(React.createElement(StockScreen));
+    await tocarControl(r, 'Panadería');
+    const texto = textoDe(r);
+    expect(texto).toContain('Pan de campo');
+    expect(texto).not.toContain('Espresso');
+    // Pastelería ya no es un rubro del local, pero sus productos no desaparecen: siguen en Todo.
+    expect(() => control(r, 'Pastelería')).toThrow();
+    await tocarControl(r, 'Todo');
+    expect(textoDe(r)).toContain('Medialuna');
+    await desmontar(r);
+  });
+
   it('el juez ve solo TCG', async () => {
     mockPerfil = { ...mockPerfil, role: 'juez' };
     const r = await montar(React.createElement(StockScreen));
@@ -653,45 +671,53 @@ describe('pantalla Caja', () => {
   });
 
   it('arma el cierre con lo cobrado hoy', async () => {
-    const hoy = fechaLocal();
-    mockColecciones.ventas = [
-      {
-        id: 'v1',
-        mesaId: 'm4',
-        mesaNum: 4,
-        items: [{ itemId: 'a', nombre: 'Flat white', precio: 3000, cantidad: 2, rubro: 'Café', origen: 'productos' }],
-        subtotal: 6000,
-        creditoAplicado: 0,
-        creditoUid: null,
-        total: 6000,
-        medioPago: 'qr',
-        fecha: hoy,
-        hora: '19:31',
-      },
-      {
-        id: 'v2',
-        mesaId: 'm8',
-        mesaNum: 8,
-        items: [{ itemId: 'b', nombre: 'Medialuna', precio: 1000, cantidad: 2, rubro: 'Pastelería', origen: 'productos' }],
-        subtotal: 2000,
-        creditoAplicado: 0,
-        creditoUid: null,
-        total: 2000,
-        medioPago: 'efectivo',
-        fecha: hoy,
-        hora: '20:05',
-      },
-      { id: 'v3', mesaNum: 1, items: [], subtotal: 4000, creditoAplicado: 0, total: 4000, medioPago: 'efectivo', fecha: fechaLocal(sumarDias(new Date(), -7)), hora: '19:00' },
-    ];
-    const r = await montar(React.createElement(CajaScreen));
-    const texto = textoDe(r);
-    expect(texto).toContain('Cierre del día');
-    expect(texto).toContain('$8.000');
-    expect(r.root.findAll((n) => typeof n.props.accessibilityLabel === 'string' && /^100% más que el .+ pasado$/.test(n.props.accessibilityLabel)).length).toBeGreaterThan(0);
-    expect(texto).toContain('POR RUBRO');
-    expect(texto).toContain('POR MEDIO DE PAGO');
-    expect(r.root.findAll((n) => n.props.accessibilityLabel === '20:05, mesa 08, Efectivo, $2.000').length).toBeGreaterThan(0);
-    await desmontar(r);
+    // La variación compara contra la semana pasada hasta esta misma hora: se fija la hora para que no dependa
+    // de cuándo corre el test.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+    jest.setSystemTime(new Date(2026, 8, 24, 21, 0));
+    try {
+      const hoy = fechaLocal();
+      mockColecciones.ventas = [
+        {
+          id: 'v1',
+          mesaId: 'm4',
+          mesaNum: 4,
+          items: [{ itemId: 'a', nombre: 'Flat white', precio: 3000, cantidad: 2, rubro: 'Café', origen: 'productos' }],
+          subtotal: 6000,
+          creditoAplicado: 0,
+          creditoUid: null,
+          total: 6000,
+          medioPago: 'qr',
+          fecha: hoy,
+          hora: '19:31',
+        },
+        {
+          id: 'v2',
+          mesaId: 'm8',
+          mesaNum: 8,
+          items: [{ itemId: 'b', nombre: 'Medialuna', precio: 1000, cantidad: 2, rubro: 'Pastelería', origen: 'productos' }],
+          subtotal: 2000,
+          creditoAplicado: 0,
+          creditoUid: null,
+          total: 2000,
+          medioPago: 'efectivo',
+          fecha: hoy,
+          hora: '20:05',
+        },
+        { id: 'v3', mesaNum: 1, items: [], subtotal: 4000, creditoAplicado: 0, total: 4000, medioPago: 'efectivo', fecha: fechaLocal(sumarDias(new Date(), -7)), hora: '19:00' },
+      ];
+      const r = await montar(React.createElement(CajaScreen));
+      const texto = textoDe(r);
+      expect(texto).toContain('Cierre del día');
+      expect(texto).toContain('$8.000');
+      expect(r.root.findAll((n) => typeof n.props.accessibilityLabel === 'string' && /^100% más que el .+ pasado$/.test(n.props.accessibilityLabel)).length).toBeGreaterThan(0);
+      expect(texto).toContain('POR RUBRO');
+      expect(texto).toContain('POR MEDIO DE PAGO');
+      expect(r.root.findAll((n) => n.props.accessibilityLabel === '20:05, mesa 08, Efectivo, $2.000').length).toBeGreaterThan(0);
+      await desmontar(r);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('un día sin cobros lo dice en vez de mostrar tablas vacías', async () => {

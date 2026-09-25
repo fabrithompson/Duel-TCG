@@ -1,17 +1,5 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  Alert,
-  Animated,
-  KeyboardAvoidingView,
-  LayoutChangeEvent,
-  Modal,
-  PanResponder,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Animated, KeyboardAvoidingView, LayoutChangeEvent, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
@@ -33,7 +21,7 @@ import { mensajeError } from '../../../lib/errores';
 import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS } from '../../../lib/escritura';
 import { tocar } from '../../../lib/haptics';
 import { formatARS, subtotalDe } from '../../../lib/pedido';
-import { segundosRestantes } from '../../../lib/torneo';
+import { describirReloj } from '../../../lib/relojRonda';
 import { ahoraServidor } from '../../../lib/reloj';
 import {
   DueloEnMesa,
@@ -50,6 +38,7 @@ import {
   siguienteNumeroMesa,
   tamanoMesa,
 } from '../../../lib/salon';
+import { preguntar } from '../../../lib/dialogo';
 
 const PASO_PUNTOS = 16;
 const UMBRAL_ARRASTRE = 6;
@@ -321,8 +310,8 @@ function SalaModal({ visible, sala, salas, onCerrar, onGuardada }: SalaModalProp
   );
 }
 
-function infoMesa(mesa: Mesa, estado: EstadoMesaVisual, duelo: DueloEnMesa | undefined, segundos: number): string {
-  if (estado === 'duelo_en_curso' && duelo) return etiquetaDuelo(duelo.ronda, segundos);
+function infoMesa(mesa: Mesa, estado: EstadoMesaVisual, duelo: DueloEnMesa | undefined, reloj: string): string {
+  if (estado === 'duelo_en_curso' && duelo) return etiquetaDuelo(duelo.ronda, reloj);
   if (estado === 'consumo') return formatARS(subtotalDe(mesa.pedido));
   return 'libre';
 }
@@ -348,7 +337,7 @@ function SalonPantalla() {
 
   const duelos = useMemo(() => duelosPorMesa(torneo), [torneo]);
   const ahora = useAhora(duelos.size > 0 && torneo?.rondaPausada !== true);
-  const segundos = torneo && duelos.size > 0 ? segundosRestantes(torneo, ahora) : 0;
+  const reloj = torneo && duelos.size > 0 ? describirReloj(torneo, ahora).corto : '';
 
   const [salaElegida, setSalaElegida] = useState<string | null>(null);
   const [lienzo, setLienzo] = useState<Medidas | null>(null);
@@ -445,7 +434,7 @@ function SalonPantalla() {
 
   const agregarMesa = useCallback(() => {
     if (!salaActual) return;
-    Alert.alert('Nueva mesa', `¿Qué tipo de mesa agregás en ${salaActual.nombre}?`, [
+    preguntar('Nueva mesa', `¿Qué tipo de mesa agregás en ${salaActual.nombre}?`, [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Café', onPress: () => void crearMesa('cafe') },
       { text: 'Duelo', onPress: () => void crearMesa('duelo') },
@@ -469,7 +458,7 @@ function SalonPantalla() {
 
   const confirmarEliminarMesa = useCallback(
     (mesa: Mesa) => {
-      Alert.alert(`¿Eliminar la mesa ${numeroMesaTexto(mesa.numero)}?`, 'Desaparece del plano. No se puede deshacer.', [
+      preguntar(`¿Eliminar la mesa ${numeroMesaTexto(mesa.numero)}?`, 'Desaparece del plano. No se puede deshacer.', [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Eliminar',
@@ -505,7 +494,7 @@ function SalonPantalla() {
         : libre
           ? undefined
           : 'Para eliminarla tiene que estar libre (sin cuenta abierta).';
-      Alert.alert(`Mesa ${numeroMesaTexto(mesa.numero)}`, aviso, botones);
+      preguntar(`Mesa ${numeroMesaTexto(mesa.numero)}`, aviso, botones);
     },
     [duelos, cambiarTipo, confirmarEliminarMesa]
   );
@@ -515,11 +504,11 @@ function SalonPantalla() {
       const propias = mesas.filter((m) => m.salaId === sala.id);
       const ocupada = propias.some((m) => m.estado !== 'libre' || m.pedido.length > 0 || duelos.has(m.id));
       if (ocupada) {
-        Alert.alert('No se puede eliminar', `En ${sala.nombre} hay mesas con cuenta abierta o en duelo. Cerralas antes de eliminar la sala.`);
+        preguntar('No se puede eliminar', `En ${sala.nombre} hay mesas con cuenta abierta o en duelo. Cerralas antes de eliminar la sala.`);
         return;
       }
       const detalle = propias.length === 1 ? 'También se elimina su mesa.' : propias.length > 1 ? `También se eliminan sus ${propias.length} mesas.` : 'No tiene mesas.';
-      Alert.alert(`¿Eliminar ${sala.nombre}?`, `${detalle} No se puede deshacer.`, [
+      preguntar(`¿Eliminar ${sala.nombre}?`, `${detalle} No se puede deshacer.`, [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Eliminar',
@@ -549,7 +538,7 @@ function SalonPantalla() {
 
   const opcionesSala = useCallback(
     (sala: Sala) => {
-      Alert.alert(sala.nombre, undefined, [
+      preguntar(sala.nombre, undefined, [
         { text: 'Renombrar', onPress: () => setModalSala({ visible: true, sala }) },
         { text: 'Eliminar', style: 'destructive', onPress: () => eliminarSala(sala) },
         { text: 'Cancelar', style: 'cancel' },
@@ -636,7 +625,7 @@ function SalonPantalla() {
                         alto={t.alto}
                         lienzo={lienzo}
                         estado={estado}
-                        info={infoMesa(m, estado, duelo, segundos)}
+                        info={infoMesa(m, estado, duelo, reloj)}
                         puedeEditar={esAdmin}
                         onAbrir={abrirMesa}
                         onOpciones={opcionesMesa}

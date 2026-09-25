@@ -3,7 +3,8 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { aMilis, diaCorto, fechaDeNegocio, fechaLocal, horaLocal, minutoDeJornada, sumarDias, type HorarioTurno } from '../lib/fecha';
 import { normalizarTorneo, pozoCobrado } from '../lib/torneo';
-import { ItemPedido, MEDIOS_PAGO, MedioPago, RUBROS, Rubro, subtotalDe } from '../lib/pedido';
+import { ItemPedido, MEDIOS_PAGO, MedioPago, Rubro, subtotalDe } from '../lib/pedido';
+import { RUBRO_SERVICIOS } from '../lib/rubros';
 import { normalizarLineas } from '../lib/salon';
 
 export interface VentaCaja {
@@ -78,13 +79,6 @@ export interface ResumenCaja {
   ultimos: VentaCaja[];
 }
 
-const NOMBRE_RUBRO: Record<Rubro, string> = {
-  Café: 'Café',
-  Pastelería: 'Pastelería',
-  TCG: 'TCG',
-  Mesa: 'Servicios de mesa',
-};
-
 export function nombreMedio(medio: MedioPago | null): string {
   if (medio === 'credito_torneo') return 'Crédito de torneo';
   return MEDIOS_PAGO.find((m) => m.id === medio)?.nombre ?? 'Sin dato';
@@ -136,8 +130,9 @@ export function resumirCaja(ventas: readonly VentaCaja[], hoy: Date, opciones: O
   const rubros = new Map<Rubro, number>();
   for (const v of deHoy) for (const i of v.items) rubros.set(i.rubro, (rubros.get(i.rubro) ?? 0) + i.precio * i.cantidad);
   const totalRubros = [...rubros.values()].reduce((a, b) => a + b, 0);
-  const porRubro: FilaDesglose[] = RUBROS.filter((r) => (rubros.get(r) ?? 0) > 0)
-    .map((r) => ({ clave: r, nombre: NOMBRE_RUBRO[r], total: rubros.get(r) ?? 0, pct: porcentaje(rubros.get(r) ?? 0, totalRubros), tono: 'ink' as const }))
+  const porRubro: FilaDesglose[] = [...rubros.keys()]
+    .filter((r) => (rubros.get(r) ?? 0) > 0)
+    .map((r) => ({ clave: r, nombre: r === RUBRO_SERVICIOS ? 'Servicios de mesa' : r, total: rubros.get(r) ?? 0, pct: porcentaje(rubros.get(r) ?? 0, totalRubros), tono: 'ink' as const }))
     .sort((a, b) => b.total - a.total);
 
   // El crédito de torneo no entra a caja pero sí cubre consumo: se muestra aparte para que las filas sumen lo consumido.
@@ -155,8 +150,10 @@ export function resumirCaja(ventas: readonly VentaCaja[], hoy: Date, opciones: O
     porMedio.push({ clave: 'credito_torneo', nombre: 'Crédito de torneo', total: creditoAplicado, pct: porcentaje(creditoAplicado, consumo), tono: 'gold' });
   }
 
+  // Por la hora real: los cobros de la madrugada de un turno nocturno son los últimos del día, no los primeros.
+  const orden = (v: VentaCaja) => v.creadoEnMs ?? (minutoDeJornada(v.hora, turnos) ?? -1) * 60_000 - Number.MAX_SAFE_INTEGER / 2;
   const ultimos = [...deHoy]
-    .sort((a, b) => b.hora.localeCompare(a.hora) || (b.creadoEnMs ?? 0) - (a.creadoEnMs ?? 0))
+    .sort((a, b) => orden(b) - orden(a))
     .slice(0, 12);
 
   return {
@@ -195,6 +192,8 @@ interface UseCajaResult {
   /** Inscripciones de torneo marcadas como pagas ese día: las cobra el juez y no son ventas. */
   inscripciones: InscripcionesDia;
   cargando: boolean;
+  /** Lo que se ve salió de la caché (sin confirmar con el servidor). */
+  sinConexion: boolean;
   error: unknown;
   reintentar: () => void;
 }
@@ -210,6 +209,7 @@ export function useCaja(turnos: readonly HorarioTurno[], fechaElegida: string | 
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [intento, setIntento] = useState(0);
+  const [sinConexion, setSinConexion] = useState(false);
   const [ahora, setAhora] = useState(() => new Date());
 
   // Si la pantalla queda abierta al terminar la jornada, el cierre pasa al día nuevo.
@@ -232,12 +232,15 @@ export function useCaja(turnos: readonly HorarioTurno[], fechaElegida: string | 
     const q = query(
       collection(db, 'ventas'),
       where('fecha', '>=', fechaLocal(sumarDias(d, -7))),
-      where('fecha', '<=', dia)
+      where('fecha', '<=', fechaLocal(sumarDias(d, 1)))
     );
     const unsub = onSnapshot(
       q,
+      { includeMetadataChanges: true },
       (snap) => {
         setVentas(snap.docs.map((doc) => normalizarVenta(doc.id, doc.data(), turnos)));
+        // Sin señal, una consulta nueva devuelve la caché vacía: no es lo mismo que "no hubo cobros".
+        setSinConexion(snap.metadata.fromCache);
         setError(null);
         setCargando(false);
       },
@@ -272,5 +275,5 @@ export function useCaja(turnos: readonly HorarioTurno[], fechaElegida: string | 
   const resumen = useMemo(() => resumirCaja(ventas, hoy, { turnos, hastaMinuto }), [ventas, hoy, turnos, hastaMinuto]);
   const reintentar = useCallback(() => setIntento((n) => n + 1), []);
 
-  return { resumen, hoy, esHoy, fechaHoy, inscripciones, cargando, error, reintentar };
+  return { resumen, hoy, esHoy, fechaHoy, inscripciones, cargando, sinConexion, error, reintentar };
 }

@@ -178,6 +178,7 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('@react-navigation/native', () => ({
+  NavigationContext: jest.requireActual<typeof import('react')>('react').createContext(undefined),
   useNavigation: () => ({ dispatch: mockDispatch }),
   usePreventRemove: (activo: boolean, alSalir: (e: { data: { action: unknown } }) => void) => {
     mockPrevenir.activo = activo;
@@ -396,12 +397,12 @@ describe('duelosPorMesa', () => {
 
 describe('etiquetaDuelo', () => {
   it('muestra ronda y reloj', () => {
-    expect(etiquetaDuelo(3, 760)).toBe('R3 · 12:40');
-    expect(etiquetaDuelo(1, 59)).toBe('R1 · 00:59');
+    expect(etiquetaDuelo(3, '12:40')).toBe('R3 · 12:40');
+    expect(etiquetaDuelo(1, '12:40 · pausa')).toBe('R1 · 12:40 · pausa');
   });
 
   it('al llegar a cero avisa que terminó el tiempo', () => {
-    expect(etiquetaDuelo(3, 0)).toBe('R3 · tiempo');
+    expect(etiquetaDuelo(3, 'tiempo cumplido')).toBe('R3 · tiempo cumplido');
   });
 });
 
@@ -962,6 +963,33 @@ describe('pantalla Pedido', () => {
     await desmontar(r);
   });
 
+  it('una mesa vieja marcada ocupada con la cuenta vacía se puede liberar', async () => {
+    mockDocs['mesas/m1'] = { numero: 4, tipo: 'cafe', estado: 'ocupada', salaId: 's1', pedido: [] };
+    const r = await montar(React.createElement(PedidoScreen));
+    expect(deshabilitado(control(r, 'Liberar mesa'))).toBe(false);
+    await tocarControl(r, 'Liberar mesa');
+    expect(mockBatches[0]).toEqual([{ op: 'update', path: 'mesas/m1', datos: { pedido: [], estado: 'libre' } }]);
+    expect(mockMostrar).toHaveBeenCalledWith('Mesa 04 libre', 'ok');
+    await desmontar(r);
+  });
+
+  it('salir mientras se guarda espera la confirmación y no pierde lo cargado si falla', async () => {
+    const r = await montar(React.createElement(PedidoScreen));
+    await tocarControl(r, /^Espresso, /);
+    mockFallaTransaccion = { code: 'unavailable' };
+    // Se toca Guardar y, antes de que responda, atrás.
+    let guardado: Promise<void> = Promise.resolve();
+    await act(async () => {
+      guardado = Promise.resolve((control(r, 'Guardar').props.onPress as () => void)());
+      mockPrevenir.alSalir?.({ data: { action: { type: 'GO_BACK' } } });
+      await guardado;
+    });
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(textoDe(r)).toContain('Cobrar $4.400');
+    expect(mockMostrar).toHaveBeenCalledWith('Sin conexión: la mesa NO se guardó. Tus cambios siguen en pantalla.', 'error');
+    await desmontar(r);
+  });
+
   it('una mesa que ya no existe muestra un estado vacío', async () => {
     mockDocs['mesas/m1'] = null;
     const r = await montar(React.createElement(PedidoScreen));
@@ -1006,7 +1034,7 @@ describe('pantalla Salón', () => {
     const r = await montarSalon();
     const texto = textoDe(r);
     expect(texto).toContain('2 ocupadas · 1 en duelo');
-    expect(control(r, 'Mesa 04, duelo, duelo en curso, R3 · 12:40')).toBeTruthy();
+    expect(control(r, 'Mesa 04, duelo, duelo en curso, R3 · 12:40 · pausa')).toBeTruthy();
     expect(control(r, 'Mesa 08, café, cuenta abierta de $4.400')).toBeTruthy();
     expect(control(r, 'Mesa 09, café, libre')).toBeTruthy();
     expect(() => control(r, /^Mesa 12/)).toThrow();

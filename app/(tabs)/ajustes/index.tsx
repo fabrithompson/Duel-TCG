@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Linking, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -30,6 +30,8 @@ import {
   validarTurnos,
 } from '../../../lib/ajustes';
 import { DefaultsTorneo, LARGO_MAX_JUEGO, LIMITES, MAX_JUEGOS, MEDIOS_COBRO, MedioCobro, Turno } from '../../../lib/config';
+import { LARGO_MAX_RUBRO, MAX_RUBROS_CAFETERIA } from '../../../lib/rubros';
+import EditorListaTextos from '../../../components/EditorListaTextos';
 import { mensajeError } from '../../../lib/errores';
 import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS, esperarConfirmacion } from '../../../lib/escritura';
 import { fechaDeNegocio, horaLocal } from '../../../lib/fecha';
@@ -37,6 +39,7 @@ import { ahoraServidor } from '../../../lib/reloj';
 import { advertencia, tocar } from '../../../lib/haptics';
 import { borrarLogo, mensajeErrorLogo, subirLogo } from '../../../lib/logo';
 import { MEDIOS_PAGO, formatARS } from '../../../lib/pedido';
+import { preguntar } from '../../../lib/dialogo';
 
 const MARCA_DIA = require('../../../assets/brand/duel-mark.png');
 const MARCA_NOCHE = require('../../../assets/brand/duel-mark-dark.png');
@@ -336,7 +339,7 @@ function Identidad() {
       mostrar('Sin acceso a tus fotos no se puede cambiar el logo.', 'error');
       return;
     }
-    Alert.alert('Sin acceso a tus fotos', 'Para cambiar el logo, habilitá el acceso a las fotos en los ajustes del teléfono.', [
+    preguntar('Sin acceso a tus fotos', 'Para cambiar el logo, habilitá el acceso a las fotos en los ajustes del teléfono.', [
       { text: 'Ahora no', style: 'cancel' },
       {
         text: 'Abrir ajustes',
@@ -396,7 +399,7 @@ function Identidad() {
       void elegirLogo();
       return;
     }
-    Alert.alert('Logo del local', undefined, [
+    preguntar('Logo del local', undefined, [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Volver al de Duel', style: 'destructive', onPress: () => void volverAlLogoDeDuel() },
       { text: 'Cambiar logo', onPress: () => void elegirLogo() },
@@ -711,13 +714,25 @@ function Stock() {
   const { config } = useConfig();
   const guardar = useGuardarConfig();
   return (
-    <Grupo titulo="Stock" sub="Cuándo avisa que hay que reponer.">
+    <Grupo titulo="Stock" sub="Cuándo avisa que hay que reponer y cómo se agrupa el catálogo.">
       <FilaNumero
         label="Aviso de stock bajo"
         sub="Avisa al quedar esta cantidad o menos, salvo que el producto tenga su propio aviso"
         valor={config.alertaStock}
         lim={LIMITES.alertaStock}
         onGuardar={(n) => guardar({ alertaStock: n })}
+      />
+      <EditorListaTextos
+        titulo="Rubros de cafetería"
+        ayuda="Cómo se agrupan los productos en el pedido, el stock y la caja. TCG y Servicios los maneja la app. Tocá uno para quitarlo."
+        valores={config.rubrosCafeteria}
+        que="rubro"
+        placeholder="Ej.: Panadería"
+        maximo={MAX_RUBROS_CAFETERIA}
+        largoMaximo={LARGO_MAX_RUBRO}
+        alQuitar="Deja de aparecer como filtro. Los productos de ese rubro no se borran: siguen en el pedido y en Todo."
+        reservados={['tcg', 'mesa', 'servicios']}
+        onGuardar={(rubrosCafeteria, aviso) => guardar({ rubrosCafeteria }, aviso)}
       />
     </Grupo>
   );
@@ -782,68 +797,21 @@ function Torneos() {
 
 function Juegos() {
   const { config } = useConfig();
-  const { colors } = useTheme();
-  const { mostrar } = useToast();
   const guardar = useGuardarConfig();
-  const [nuevo, setNuevo] = useState('');
-  const [guardando, setGuardando] = useState(false);
-  const lleno = config.juegos.length >= MAX_JUEGOS;
-
-  const agregar = async () => {
-    const limpio = limpiarTexto(nuevo).slice(0, LARGO_MAX_JUEGO);
-    if (!limpio || guardando) return;
-    if (config.juegos.some((j) => j.toLowerCase() === limpio.toLowerCase())) {
-      mostrar(`${limpio} ya está en la lista`, 'info');
-      return;
-    }
-    setGuardando(true);
-    const ok = await guardar({ juegos: [...config.juegos, limpio] }, `${limpio} agregado`);
-    setGuardando(false);
-    if (ok) setNuevo('');
-  };
-
-  const quitar = (juego: string) => {
-    if (config.juegos.length <= 1) {
-      mostrar('Tiene que quedar al menos un juego', 'info');
-      return;
-    }
-    Alert.alert(`Quitar ${juego}`, 'Deja de aparecer al crear torneos. Los torneos ya jugados no cambian.', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Quitar', style: 'destructive', onPress: () => void guardar({ juegos: config.juegos.filter((j) => j !== juego) }, `${juego} quitado`) },
-    ]);
-  };
-
   return (
-    <View style={[styles.bloque, { borderTopColor: colors.line }]}>
-      <Text style={[styles.filaLabel, { color: colors.ink }]}>Juegos</Text>
-      <Text style={[styles.ayuda, { color: colors.dim }]}>Los que se eligen al crear un torneo. Mantené apretado uno para quitarlo.</Text>
-      <View style={styles.chipsJuegos}>
-        {config.juegos.map((j) => (
-          <Chip key={j} label={j} active={false} onPress={() => quitar(j)} onLongPress={() => quitar(j)} accessibilityHint="Tocá para quitarlo de la lista" />
-        ))}
-      </View>
-      {lleno ? (
-        <Text style={[styles.ayuda, { color: colors.dim }]}>Hasta {MAX_JUEGOS} juegos.</Text>
-      ) : (
-        <View style={styles.agregarJuego}>
-          <FormField
-            label="Agregar juego"
-            placeholder="Ej.: Lorcana"
-            value={nuevo}
-            onChangeText={setNuevo}
-            maxLength={LARGO_MAX_JUEGO}
-            returnKeyType="done"
-            onSubmitEditing={() => void agregar()}
-            containerStyle={styles.flex1}
-            editable={!guardando}
-          />
-          <SmallButton label={guardando ? 'Guardando…' : 'Agregar'} onPress={() => void agregar()} disabled={!limpiarTexto(nuevo) || guardando} />
-        </View>
-      )}
-    </View>
+    <EditorListaTextos
+      titulo="Juegos"
+      ayuda="Los que se eligen al crear un torneo. Tocá uno para quitarlo."
+      valores={config.juegos}
+      que="juego"
+      placeholder="Ej.: Lorcana"
+      maximo={MAX_JUEGOS}
+      largoMaximo={LARGO_MAX_JUEGO}
+      alQuitar="Deja de aparecer al crear torneos. Los torneos ya jugados no cambian."
+      onGuardar={(juegos, aviso) => guardar({ juegos }, aviso)}
+    />
   );
 }
-
 // ─── 7. Cobro ──────────────────────────────────────────────────────────────
 
 function Cobro() {
@@ -934,7 +902,7 @@ function Temporada() {
   };
 
   const confirmarInicio = () => {
-    Alert.alert(
+    preguntar(
       '¿Empezar temporada nueva hoy?',
       'El ranking va a contar los torneos que se creen desde ahora. Los de hoy que ya se jugaron quedan en la temporada anterior y todo sigue en el historial.',
       [

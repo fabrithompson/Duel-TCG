@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConfig } from '../../contexts/ConfigContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -17,13 +17,13 @@ import { mensajeError } from '../../lib/errores';
 import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS } from '../../lib/escritura';
 import { fechaDeNegocio } from '../../lib/fecha';
 import { tocar } from '../../lib/haptics';
-import { CatalogoItem, Rubro, UNIDADES, Unidad, formatARS, formatCantidad, rubrosDeStock, stockBajo } from '../../lib/pedido';
+import { CatalogoItem, Rubro, UNIDADES, Unidad, formatARS, formatCantidad, stockBajo } from '../../lib/pedido';
+import { RUBRO_SERVICIOS, RUBRO_TCG, nombreRubro, veRubroEnStock } from '../../lib/rubros';
+import type { Role } from '../../constants/roles';
 import { coincideBusqueda, esperarConfirmacion } from '../../lib/salon';
 import {
   FormIngreso,
   LIMITES_STOCK,
-  RUBROS_MERCADERIA,
-  RubroMercaderia,
   actualizarProducto,
   admiteDecimales,
   crearServicio,
@@ -32,36 +32,25 @@ import {
   validarIngreso,
   validarProducto,
 } from '../../lib/stock';
+import { preguntar } from '../../lib/dialogo';
 
-type Filtro = 'Todo' | RubroMercaderia | 'Servicios';
+/** 'Todo', 'Servicios' o el nombre de un rubro. */
+type Filtro = string;
 
 const MAX_RESULTADOS = 6;
 
 interface VistaRol {
   titulo: string;
   sub: string;
-  rubros: readonly Rubro[];
   filtros: readonly Filtro[];
 }
 
-const VISTA_ADMIN: VistaRol = {
-  titulo: 'Depósito',
-  sub: 'Todo lo que entra y sale del local',
-  rubros: rubrosDeStock('admin'),
-  filtros: ['Todo', 'Café', 'Pastelería', 'TCG', 'Servicios'],
-};
-const VISTA_MOZO: VistaRol = {
-  titulo: 'Stock cafetería',
-  sub: 'Solo consulta: el ingreso lo carga el admin',
-  rubros: rubrosDeStock('mozo'),
-  filtros: ['Todo', 'Café', 'Pastelería'],
-};
-const VISTA_JUEZ: VistaRol = {
-  titulo: 'Stock TCG',
-  sub: 'Sellado y accesorios del torneo',
-  rubros: rubrosDeStock('juez'),
-  filtros: ['TCG'],
-};
+// Los filtros salen de los rubros del local (Ajustes > Stock).
+function vistaDe(role: Role | undefined, cafeteria: readonly string[]): VistaRol {
+  if (role === 'juez') return { titulo: 'Stock TCG', sub: 'Sellado y accesorios del torneo', filtros: [RUBRO_TCG] };
+  if (role === 'mozo') return { titulo: 'Stock cafetería', sub: 'Solo consulta: el ingreso lo carga el admin', filtros: ['Todo', ...cafeteria] };
+  return { titulo: 'Depósito', sub: 'Todo lo que entra y sale del local', filtros: ['Todo', ...cafeteria, RUBRO_TCG, 'Servicios'] };
+}
 
 function pasaFiltro(item: CatalogoItem, filtro: Filtro): boolean {
   if (filtro === 'Servicios') return item.rubro === 'Mesa';
@@ -69,12 +58,6 @@ function pasaFiltro(item: CatalogoItem, filtro: Filtro): boolean {
   return item.rubro === filtro;
 }
 
-// Los productos de cafetería pueden pasar de un rubro a otro; los TCG viven en su propia colección.
-const RUBROS_CAFETERIA: readonly Rubro[] = ['Café', 'Pastelería', 'Mesa'];
-
-function nombreRubro(r: Rubro): string {
-  return r === 'Mesa' ? 'Servicio' : r;
-}
 
 function partesCantidad(stock: number, unidad: Unidad): { numero: string; unidad: string } {
   const texto = formatCantidad(stock, unidad);
@@ -127,7 +110,7 @@ function FilaStock({ item, alertaLocal, editable, onPress }: FilaStockProps) {
             <Text style={[styles.filaUnidad, { color: colors.dim }]}>{cantidad.unidad}</Text>
           </>
         ) : (
-          <Text style={[styles.filaSinControl, { color: colors.dim }]}>{item.rubro === 'Mesa' ? 'Servicio' : 'Sin control'}</Text>
+          <Text style={[styles.filaSinControl, { color: colors.dim }]}>{item.rubro === RUBRO_SERVICIOS ? 'Servicio' : 'Sin control'}</Text>
         )}
       </View>
       {item.stock !== null ? (
@@ -169,7 +152,8 @@ function PanelIngreso({ catalogo, uid }: PanelIngresoProps) {
   const { colors } = useTheme();
   const { config } = useConfig();
   const toast = useToast();
-  const [form, setForm] = useState<FormIngreso>(FORM_INGRESO_VACIO);
+  // El rubro inicial es el primero del local (si quitó "Café" de Ajustes, no se propone).
+  const [form, setForm] = useState<FormIngreso>(() => ({ ...FORM_INGRESO_VACIO, rubro: config.rubrosCafeteria[0] ?? FORM_INGRESO_VACIO.rubro }));
   const [busqueda, setBusqueda] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -292,7 +276,7 @@ function PanelIngreso({ catalogo, uid }: PanelIngresoProps) {
           />
           <Text style={[styles.miniEtiqueta, { color: colors.dim }]}>RUBRO</Text>
           <View style={styles.chipsFila} accessibilityRole="radiogroup">
-            {RUBROS_MERCADERIA.map((r) => (
+            {[...config.rubrosCafeteria, RUBRO_TCG].map((r) => (
               <Chip key={r} label={r} active={form.rubro === r} onPress={() => cambiar({ rubro: r })} />
             ))}
           </View>
@@ -357,6 +341,7 @@ interface ProductoModalProps {
 
 function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalProps) {
   const { colors } = useTheme();
+  const { config } = useConfig();
   const insets = useSafeAreaInsets();
   const toast = useToast();
   const item = modo?.tipo === 'editar' ? modo.item : null;
@@ -390,7 +375,9 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
   if (!modo) return null;
 
   const esTcg = item?.origen === 'tcg';
-  const rubro: Rubro = item && !esTcg ? rubroElegido : item?.rubro ?? 'Mesa';
+  const rubro: Rubro = item && !esTcg ? rubroElegido : item?.rubro ?? RUBRO_SERVICIOS;
+  // Los de cafetería del local, el que ya tenía (aunque se haya quitado de Ajustes) y servicios.
+  const opcionesRubro = [...new Set([...config.rubrosCafeteria, ...(item && !esTcg ? [item.rubro] : []), RUBRO_SERVICIOS])];
   const unidad: Unidad = item?.unidad ?? 'u';
   const muestraAlerta = esTcg || controlStock;
 
@@ -422,7 +409,7 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
 
   const eliminar = () => {
     if (!item) return;
-    Alert.alert(`¿Eliminar ${item.nombre}?`, 'Deja de aparecer en el pedido y en el depósito. Las ventas ya cobradas no cambian. No se puede deshacer.', [
+    preguntar(`¿Eliminar ${item.nombre}?`, 'Deja de aparecer en el pedido y en el depósito. Las ventas ya cobradas no cambian. No se puede deshacer.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Eliminar',
@@ -476,7 +463,7 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
               />
               {item && !esTcg ? (
                 <View style={styles.rubros} accessibilityRole="radiogroup" accessibilityLabel="Rubro">
-                  {RUBROS_CAFETERIA.map((r) => (
+                  {opcionesRubro.map((r) => (
                     <Chip key={r} label={nombreRubro(r)} accessibilityLabel={`Rubro ${nombreRubro(r)}`} active={rubro === r} onPress={() => setRubroElegido(r)} />
                   ))}
                 </View>
@@ -539,14 +526,15 @@ function StockPantalla() {
   const { user, profile } = useUserProfileContext();
   const { items, loading, error, reintentar } = useCatalogo();
   const esAdmin = profile?.role === 'admin';
-  const vista = profile?.role === 'juez' ? VISTA_JUEZ : profile?.role === 'mozo' ? VISTA_MOZO : VISTA_ADMIN;
+  const vista = useMemo(() => vistaDe(profile?.role, config.rubrosCafeteria), [profile?.role, config.rubrosCafeteria]);
 
   const [filtro, setFiltro] = useState<Filtro>(vista.filtros[0]);
   const [panelAbierto, setPanelAbierto] = useState(false);
   const [modal, setModal] = useState<ModalProducto>(null);
 
   const filtroActual: Filtro = vista.filtros.includes(filtro) ? filtro : vista.filtros[0];
-  const visibles = useMemo(() => items.filter((i) => vista.rubros.includes(i.rubro)), [items, vista]);
+  const role = profile?.role ?? 'jugador';
+  const visibles = useMemo(() => items.filter((i) => veRubroEnStock(role, i.rubro)), [items, role]);
   const bajos = useMemo(() => visibles.filter((i) => i.activo && stockBajo(i, config.alertaStock)).length, [visibles, config.alertaStock]);
   const lista = useMemo(
     () => visibles.filter((i) => pasaFiltro(i, filtroActual)).sort((a, b) => Number(b.activo) - Number(a.activo)),

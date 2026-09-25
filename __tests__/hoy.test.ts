@@ -2,7 +2,7 @@ jest.mock('../config/firebase', () => ({ auth: {}, db: {} }));
 jest.mock('firebase/firestore', () => ({}));
 jest.mock('firebase/auth', () => ({}));
 
-import { armarPendientes, EntradaPendientes, normalizarCobro, normalizarTorneoHoy, TorneoHoy } from '../hooks/useHoy';
+import { armarPendientes, EntradaPendientes, normalizarCobro, normalizarTorneoHoy, ordenCobro, TorneoHoy } from '../hooks/useHoy';
 import { normalizarPerfil } from '../hooks/useUserProfile';
 import type { Mesa } from '../hooks/useMesas';
 import type { CatalogoItem } from '../lib/pedido';
@@ -225,5 +225,22 @@ describe('normalizarPerfil', () => {
     const perfil = normalizarPerfil('u', { role: 'jugador', estadoAprobacion: 'aprobado', email: 'a@b.com', creditoCafeteria: 5000 });
     expect(perfil).toMatchObject({ nombre: 'a' });
     expect(perfil).not.toHaveProperty('creditoCafeteria');
+  });
+});
+
+describe('ordenCobro', () => {
+  const turnos = [{ apertura: '15:00', cierre: '02:00' }];
+
+  it('con hora del servidor manda esa marca', () => {
+    expect(ordenCobro({ creadoMs: 2000, hora: '00:40' }, turnos)).toBeGreaterThan(ordenCobro({ creadoMs: 1000, hora: '23:55' }, turnos));
+  });
+
+  it('sin marca, la madrugada del turno va después de las 23:59', () => {
+    const lista = [
+      { creadoMs: null, hora: '23:55' },
+      { creadoMs: null, hora: '00:40' },
+      { creadoMs: null, hora: '21:10' },
+    ];
+    expect([...lista].sort((a, b) => ordenCobro(b, turnos) - ordenCobro(a, turnos)).map((c) => c.hora)).toEqual(['00:40', '23:55', '21:10']);
   });
 });

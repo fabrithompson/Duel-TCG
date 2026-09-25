@@ -12,9 +12,10 @@ import {
 import type { Href } from 'expo-router';
 import { db } from '../config/firebase';
 import type { Role } from '../constants/roles';
-import { aMilis, fechaDeNegocio, type HorarioTurno } from '../lib/fecha';
+import { aMilis, fechaDeNegocio, minutoDeJornada, type HorarioTurno } from '../lib/fecha';
 import { ahoraServidor } from '../lib/reloj';
-import { CatalogoItem, formatARS, formatCantidad, MEDIOS_PAGO, rubrosDeStock, stockBajo } from '../lib/pedido';
+import { CatalogoItem, formatARS, formatCantidad, MEDIOS_PAGO, stockBajo } from '../lib/pedido';
+import { veRubroEnStock } from '../lib/rubros';
 import { mesasSalonEnDuelo, normalizarTorneo, premiosPorEntregar, segundosRestantes, type Torneo } from '../lib/torneo';
 import { normalizarProducto, normalizarProductoTcg } from './useCatalogo';
 import { estadoVisual, Mesa, normalizarMesa } from './useMesas';
@@ -92,6 +93,15 @@ const NOMBRE_MEDIO: Record<string, string> = {
 
 function numeroFinito(valor: unknown, fallback = 0): number {
   return typeof valor === 'number' && Number.isFinite(valor) ? valor : fallback;
+}
+
+/**
+ * Para ordenar cobros del más nuevo al más viejo: la hora del servidor si está; si no, el minuto de la
+ * jornada ("00:40" de un turno nocturno va después de "23:55", no antes).
+ */
+export function ordenCobro(c: { creadoMs: number | null; hora: string }, turnos: readonly HorarioTurno[]): number {
+  if (c.creadoMs !== null) return c.creadoMs;
+  return (minutoDeJornada(c.hora, turnos) ?? -1) * 60_000 - Number.MAX_SAFE_INTEGER / 2;
 }
 
 export function pad2(n: number): string {
@@ -375,15 +385,14 @@ export function useHoy(role: Role, alertaStock: number, conCredito = true, turno
   const torneoEnCurso = ultimoTorneo?.estado === 'en_curso' ? ultimoTorneo : null;
   const enDuelo = new Set(torneoEnCurso?.mesasEnDuelo ?? []);
 
-  const rubros = rubrosDeStock(role);
   const catalogo = [...productos.datos, ...tcg.datos].filter((i) => i.activo);
   const bajos = catalogo
-    .filter((i) => rubros.includes(i.rubro))
+    .filter((i) => veRubroEnStock(role, i.rubro))
     .filter((i) => stockBajo(i, alertaStock))
     .sort((a, b) => (a.stock ?? 0) - (b.stock ?? 0) || a.nombre.localeCompare(b.nombre, 'es'));
 
   const cobrosRecientes = [...ventas.datos]
-    .sort((a, b) => b.hora.localeCompare(a.hora) || (b.creadoMs ?? Number.MAX_SAFE_INTEGER) - (a.creadoMs ?? Number.MAX_SAFE_INTEGER))
+    .sort((a, b) => ordenCobro(b, turnos) - ordenCobro(a, turnos))
     .slice(0, MAX_COBROS);
 
   return {

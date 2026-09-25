@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { CatalogoItem, RUBROS, Rubro, Unidad, UNIDADES } from '../lib/pedido';
+import { CatalogoItem, Rubro, Unidad, UNIDADES } from '../lib/pedido';
 
-const RUBROS_VALIDOS: readonly string[] = RUBROS;
-
-/** Mapeo de las categorías viejas de cafetería al rubro nuevo. */
+/** El rubro guardado (lo define el local); los docs viejos con `categoria` se mapean al rubro nuevo. */
 function rubroDe(data: Record<string, unknown>): Rubro {
-  if (typeof data.rubro === 'string' && RUBROS_VALIDOS.includes(data.rubro)) return data.rubro as Rubro;
+  if (typeof data.rubro === 'string' && data.rubro.trim()) return data.rubro.trim().slice(0, 30);
   return data.categoria === 'Bebidas' ? 'Café' : 'Pastelería';
 }
 
