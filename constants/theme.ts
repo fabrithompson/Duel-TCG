@@ -15,6 +15,12 @@ export interface ThemeTokens {
   ok: string;
   dg: string;
   shade: string;
+  /** Texto sobre un relleno br (botón principal, contador). */
+  onBr: string;
+  /** Texto sobre un relleno gold (resultado elegido). */
+  onGold: string;
+  /** Texto sobre un relleno ok (resultado confirmado). */
+  onOk: string;
 }
 
 interface BaseTokens {
@@ -59,8 +65,11 @@ const NIGHT: BaseTokens = {
   brsDefault: '#2C1F16',
 };
 
-/** Opciones de color de marca ofrecidas en Ajustes → Apariencia. */
-export const BRAND_COLORS = ['#C2703A', '#B68235', '#7A5C3E', '#3F6B58', '#8A3B4C'] as const;
+/**
+ * Opciones de color de marca ofrecidas en Ajustes → Apariencia. Ninguna se parece al dorado
+ * competitivo (gold): naranja/marca es operación del café, dorado es torneo.
+ */
+export const BRAND_COLORS = ['#C2703A', '#4A5A80', '#7A5C3E', '#3F6B58', '#8A3B4C'] as const;
 export type BrandColor = (typeof BRAND_COLORS)[number];
 
 // ---- Mezcla en espacio OKLab (equivalente a color-mix(in oklab, …) del prototipo) ----
@@ -131,29 +140,81 @@ function mixOklab(hexA: string, pct: number, hexB: string): string {
   return rgbToHex(r, g, bl);
 }
 
+// ---- Contraste (WCAG 2.x) ----
+
+function luminancia(hex: string): number {
+  const [r, g, b] = hexToRgb(hex).map(srgbToLinear);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** Relación de contraste entre dos colores opacos (1 a 21). */
+export function contraste(a: string, b: string): number {
+  const la = luminancia(a);
+  const lb = luminancia(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/** DESIGN.md §5: todo texto chico con al menos 4,5:1. */
+export const CONTRASTE_MINIMO = 4.5;
+
+/**
+ * Corre la luminosidad (OKLab, mismo tono y croma) lo justo para que el color llegue al
+ * contraste mínimo contra todos los fondos: más oscuro de día, más claro de noche. Si ya
+ * llega, queda igual (los colores del diseño que cumplen no se tocan).
+ */
+function legibleSobre(hex: string, fondos: readonly string[], aclarar: boolean): string {
+  const cumple = (c: string) => fondos.every((f) => contraste(c, f) >= CONTRASTE_MINIMO);
+  if (cumple(hex)) return hex;
+  const [r, g, b] = hexToRgb(hex);
+  const [L, A, B] = rgbToOklab(r, g, b);
+  for (let paso = 1; paso <= 60; paso++) {
+    const nuevoL = aclarar ? Math.min(1, L + paso * 0.01) : Math.max(0, L - paso * 0.01);
+    const candidato = rgbToHex(...oklabToRgb(nuevoL, A, B));
+    if (cumple(candidato)) return candidato;
+  }
+  return aclarar ? '#FFFFFF' : '#000000';
+}
+
+const TEXTO_CLARO = '#FFFFFF';
+const TEXTO_OSCURO = '#14100D';
+
+/** Blanco u oscuro, el que más contraste dé sobre un relleno de color. */
+function textoSobre(relleno: string): string {
+  return contraste(TEXTO_CLARO, relleno) >= contraste(TEXTO_OSCURO, relleno) ? TEXTO_CLARO : TEXTO_OSCURO;
+}
+
 /**
  * Tokens completos para un modo y una marca dados.
  * El prototipo sólo recalcula `--brs` en modo día (16% de la marca mezclado
- * sobre el fondo claro); en modo noche siempre usa el mismo suave oscuro,
- * sea cual sea la marca elegida.
+ * sobre el fondo claro); de noche el suave se deriva de la marca sobre el fondo oscuro.
+ * Los acentos que se usan como texto (br, gold, ok, dg) se ajustan para leerse con
+ * 4,5:1 sobre bg, sf y el suave, en cualquier marca y modo.
  */
 export function getTheme(mode: ThemeMode, brand?: string): ThemeTokens {
   const base = mode === 'day' ? DAY : NIGHT;
   const esDefault = !brand || brand.toUpperCase() === DAY.brDefault;
-  const br = esDefault ? base.brDefault : brand;
-  const brs = mode === 'day' && !esDefault ? mixOklab(brand, 0.16, DAY.bg) : base.brsDefault;
+  const noche = mode === 'night';
+  const marca = esDefault ? base.brDefault : brand;
+  const brs = esDefault ? base.brsDefault : noche ? mixOklab(brand, 0.2, NIGHT.bg) : mixOklab(brand, 0.16, DAY.bg);
+  const fondos = [base.bg, base.sf];
+  const br = legibleSobre(marca, [...fondos, brs], noche);
+  const gold = legibleSobre(base.gold, fondos, noche);
+  const ok = legibleSobre(base.ok, fondos, noche);
   return {
     bg: base.bg,
     sf: base.sf,
     ink: base.ink,
     dim: base.dim,
     line: base.line,
-    gold: base.gold,
-    ok: base.ok,
-    dg: base.dg,
+    gold,
+    ok,
+    dg: legibleSobre(base.dg, fondos, noche),
     shade: base.shade,
     br,
     brs,
+    onBr: textoSobre(br),
+    onGold: textoSobre(gold),
+    onOk: textoSobre(ok),
   };
 }
 

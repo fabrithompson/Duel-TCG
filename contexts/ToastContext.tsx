@@ -1,9 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from './ThemeContext';
 import { Typography } from '../constants/theme';
 import { exito, fallo } from '../lib/haptics';
+import { MargenToastProvider, useMargenToast } from './MargenToastContext';
 
 export type TonoToast = 'ok' | 'error' | 'info';
 
@@ -20,6 +21,8 @@ interface ToastContextValue {
 const ToastContext = createContext<ToastContextValue | null>(null);
 
 const DURACION_MS = 2600;
+// Un error se lee con más calma: suele decir qué hacer.
+const DURACION_ERROR_MS = 4200;
 
 /** Avisos no bloqueantes (reemplazan a los Alert de "listo, guardado"). */
 export function ToastProvider({ children }: { readonly children: React.ReactNode }) {
@@ -31,14 +34,18 @@ export function ToastProvider({ children }: { readonly children: React.ReactNode
     setToast({ id: contador.current, mensaje, tono });
     if (tono === 'ok') exito();
     if (tono === 'error') fallo();
+    // En iOS accessibilityLiveRegion no existe: sin esto VoiceOver no lee los avisos.
+    AccessibilityInfo.announceForAccessibility(mensaje);
   }, []);
 
   const value = useMemo(() => ({ mostrar }), [mostrar]);
 
   return (
     <ToastContext.Provider value={value}>
-      {children}
-      {toast && <ToastView key={toast.id} toast={toast} onFin={() => setToast(null)} />}
+      <MargenToastProvider>
+        {children}
+        {toast && <ToastView key={toast.id} toast={toast} onFin={() => setToast(null)} />}
+      </MargenToastProvider>
     </ToastContext.Provider>
   );
 }
@@ -46,22 +53,23 @@ export function ToastProvider({ children }: { readonly children: React.ReactNode
 function ToastView({ toast, onFin }: { readonly toast: ToastState; readonly onFin: () => void }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const margenFooter = useMargenToast();
   const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.sequence([
       Animated.timing(anim, { toValue: 1, duration: 180, useNativeDriver: true }),
-      Animated.delay(DURACION_MS),
+      Animated.delay(toast.tono === 'error' ? DURACION_ERROR_MS : DURACION_MS),
       Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }),
     ]).start(({ finished }) => {
       if (finished) onFin();
     });
-  }, [anim, onFin]);
+  }, [anim, onFin, toast.tono]);
 
   const acento = toast.tono === 'error' ? colors.dg : toast.tono === 'ok' ? colors.ok : colors.br;
 
   return (
-    <View pointerEvents="none" style={[styles.wrap, { bottom: insets.bottom + 72 }]}>
+    <View pointerEvents="none" style={[styles.wrap, { bottom: insets.bottom + 72 + margenFooter }]}>
       <Animated.View
         accessibilityLiveRegion="polite"
         accessibilityRole="alert"

@@ -19,7 +19,7 @@ export default function Button({ label, onPress, variant = 'primary', loading = 
   const bloqueado = disabled || loading;
 
   const fondo = variant === 'primary' ? { backgroundColor: colors.br } : { borderWidth: 1.5, borderColor: variant === 'danger' ? colors.dg : colors.line, backgroundColor: 'transparent' };
-  const colorTexto = variant === 'primary' ? '#FFFFFF' : variant === 'danger' ? colors.dg : colors.ink;
+  const colorTexto = variant === 'primary' ? colors.onBr : variant === 'danger' ? colors.dg : colors.ink;
 
   return (
     <TouchableOpacity

@@ -11,9 +11,11 @@ interface ChipProps {
   readonly onLongPress?: () => void;
   readonly tone?: 'br' | 'gold';
   readonly accessibilityHint?: string;
+  /** Si el texto solo no alcanza fuera de contexto ("Pastelería" como filtro o como rubro). */
+  readonly accessibilityLabel?: string;
 }
 
-export default function Chip({ label, active, onPress, onLongPress, tone = 'br', accessibilityHint }: ChipProps) {
+export default function Chip({ label, active, onPress, onLongPress, tone = 'br', accessibilityHint, accessibilityLabel }: ChipProps) {
   const { colors } = useTheme();
   const accent = colors[tone];
   return (
@@ -21,7 +23,7 @@ export default function Chip({ label, active, onPress, onLongPress, tone = 'br',
       style={[
         styles.chip,
         // Dorado sobre naranja suave mezclaría las dos paletas en un mismo bloque.
-        { borderColor: active ? accent : colors.line, backgroundColor: active ? (tone === 'gold' ? colors.shade : colors.brs) : 'transparent' },
+        { borderColor: active ? accent : 'transparent', backgroundColor: active ? (tone === 'gold' ? colors.shade : colors.brs) : 'transparent' },
       ]}
       onPress={() => {
         tocar();
@@ -31,7 +33,7 @@ export default function Chip({ label, active, onPress, onLongPress, tone = 'br',
       activeOpacity={0.7}
       hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ selected: active }}
     >

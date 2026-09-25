@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../contexts/ThemeContext';
+import { useFooterParaToast } from '../contexts/MargenToastContext';
 import { Typography } from '../constants/theme';
 
 interface ScreenProps {
@@ -59,6 +60,10 @@ export default function Screen({
 }: ScreenProps) {
   const router = useRouter();
   const { colors } = useTheme();
+  const [altoFooter, setAltoFooter] = useState<number | null>(null);
+  useFooterParaToast(footer ? altoFooter : null);
+
+  const pie = footer ? <View onLayout={(e) => setAltoFooter(Math.round(e.nativeEvent.layout.height))}>{footer}</View> : null;
 
   const header = (back || title || eyebrow) && (
     <View style={[styles.headerWrap, divider && [styles.headerDivider, { borderBottomColor: colors.line }]]}>
@@ -115,12 +120,12 @@ export default function Screen({
       {keyboard ? (
         <KeyboardAvoidingView style={styles.flex} behavior="padding">
           {body}
-          {footer}
+          {pie}
         </KeyboardAvoidingView>
       ) : (
         <>
           {body}
-          {footer}
+          {pie}
         </>
       )}
     </SafeAreaView>
