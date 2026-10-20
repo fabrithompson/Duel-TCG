@@ -14,7 +14,10 @@
     "test:rules": "pnpm dlx firebase-tools@15 emulators:exec --only firestore,storage --project demo-duel \"jest -c firestore-tests/jest.config.js --runInBand\"",
     "qa:ui": "tsx scripts/qa/index.ts",
     "firebase": "pnpm dlx firebase-tools@15",
-    "desplegar": "tsx scripts/desplegar.ts"
+    "desplegar": "tsx scripts/desplegar.ts",
+    "eas": "pnpm dlx eas-cli@24.11.0",
+    "apk": "pnpm dlx eas-cli@24.11.0 build --platform android --profile preview",
+    "testflight": "pnpm dlx eas-cli@24.11.0 build --platform ios --profile production --auto-submit"
   },
   "jest": {
     "preset": "jest-expo",

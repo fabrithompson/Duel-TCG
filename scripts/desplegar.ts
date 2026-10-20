@@ -1,5 +1,6 @@
 // `pnpm desplegar`: sube reglas e índices al proyecto de Firebase del .env (el mismo que usa la app).
-// Sin argumentos despliega todo; `pnpm desplegar firestore:rules` despliega solo eso.
+// Sin argumentos despliega reglas, índices y Storage; `pnpm desplegar firestore:rules` despliega solo eso.
+// `pnpm desplegar hosting` arma la versión web (dist/) y la publica en <proyecto>.web.app.
 // Antes, una vez: `pnpm firebase login`.
 
 import { spawnSync } from 'node:child_process';
@@ -21,15 +22,24 @@ function proyectoDelEnv(): string {
   return id;
 }
 
-try {
-  const solo = process.argv.slice(2).join(',') || 'firestore:rules,firestore:indexes,storage';
-  const args = ['dlx', 'firebase-tools@15', 'deploy', '--only', solo, '--project', proyectoDelEnv()];
-  // En Windows pnpm es un .cmd y necesita la consola (los argumentos no llevan espacios).
+// En Windows pnpm es un .cmd y necesita la consola (los argumentos no llevan espacios).
+function pnpm(args: string[], env: NodeJS.ProcessEnv = process.env): number {
   const r =
     process.platform === 'win32'
-      ? spawnSync(['pnpm', ...args].join(' '), { cwd: RAIZ, stdio: 'inherit', shell: true })
-      : spawnSync('pnpm', args, { cwd: RAIZ, stdio: 'inherit' });
-  process.exit(r.status ?? 1);
+      ? spawnSync(['pnpm', ...args].join(' '), { cwd: RAIZ, stdio: 'inherit', shell: true, env })
+      : spawnSync('pnpm', args, { cwd: RAIZ, stdio: 'inherit', env });
+  return r.status ?? 1;
+}
+
+try {
+  const solo = process.argv.slice(2).join(',') || 'firestore:rules,firestore:indexes,storage';
+  const proyecto = proyectoDelEnv();
+  if (solo.split(',').includes('hosting')) {
+    console.log('Armando la versión web en dist/…');
+    const build = pnpm(['exec', 'expo', 'export', '--platform', 'web', '--output-dir', 'dist', '--clear'], { ...process.env, CI: '1' });
+    if (build !== 0) process.exit(build);
+  }
+  process.exit(pnpm(['dlx', 'firebase-tools@15', 'deploy', '--only', solo, '--project', proyecto]));
 } catch (e) {
   console.error(e instanceof Error ? e.message : e);
   process.exit(1);

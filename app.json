@@ -8,9 +8,14 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "ar.duel.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "ar.duel.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FBF6EF"
@@ -18,7 +23,12 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "name": "Duel",
+      "shortName": "Duel",
+      "lang": "es",
+      "themeColor": "#FBF6EF",
+      "backgroundColor": "#FBF6EF"
     },
     "experiments": {
       "tsconfigPaths": true,
@@ -48,6 +58,13 @@
         }
       ],
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b3de08d5-2231-4aa2-a344-a2fa59f49e0e"
+      }
+    },
+    "owner": "fabrithompson"
   }
 }
