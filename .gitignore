@@ -50,3 +50,7 @@ ui-debug.log
 database-debug.log
 storage-debug.log
 *-debug.log
+
+# QA de interfaz (pnpm qa:ui)
+.qa/
+qa-reporte/

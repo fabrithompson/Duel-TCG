@@ -107,9 +107,9 @@ Para sumar otro admin más adelante, que se registre como mozo o juez, aprobalo 
 
 Nada del negocio está fijo en el código: todo sale de Firestore y se edita desde la app con la cuenta de admin.
 
-- Ajustes: nombre del local, logo, color de marca, modo oscuro por defecto, turnos, alerta de stock, rubros de cafetería, valores por defecto de los torneos (rondas, minutos, tiempo extra, inscripción, cupo), juegos que se ofrecen al crear un torneo, medios de pago que aparecen al cobrar, temporada del ranking y los interruptores de reporte de resultados por el jugador, premios con crédito y descuento de stock al cobrar. Se guarda en `config/publico`. Mientras no exista, la app usa los valores por defecto de `lib/config.ts`.
+- Ajustes: nombre del local, logo, turnos, alerta de stock, rubros de cafetería, valores por defecto de los torneos (rondas, minutos, tiempo extra, inscripción, cupo), juegos que se ofrecen al crear un torneo, medios de pago que aparecen al cobrar, temporada del ranking y los interruptores de reporte de resultados por el jugador, premios con crédito y descuento de stock al cobrar. Se guarda en `config/publico`. Mientras no exista, la app usa los valores por defecto de `lib/config.ts`.
 - Turnos: definen la jornada de caja. Si un turno cruza la medianoche (por ejemplo 15:00 a 00:30), lo cobrado después de las 00:00 cuenta para el día en que empezó el turno, así el cierre de la noche no se parte en dos fechas.
-- Color de marca: cualquier color se ajusta solo (de día y de noche) para que los textos lleguen a un contraste de 4,5:1.
+- Personalización: solo nombre y logo, desde "Editar" en Ajustes. Los colores son los de Duel y cada persona elige día, noche o automático (sigue al teléfono) en Mi cuenta.
 - Salón: salas y mesas (de café o de duelo) con su posición en el plano.
 - Stock: productos de cada rubro e ingresos de mercadería. Los rubros de cafetería los define el local (por defecto Café y Pastelería); TCG y Servicios (alquiler, agua) son fijos de la app. Un producto de cafetería puede cambiar de rubro desde su ficha, y quitar un rubro de Ajustes no borra sus productos.
 
@@ -127,7 +127,7 @@ Colecciones de Firestore (contrato completo en `lib/pedido.ts`, `lib/torneo.ts`,
 
 | Colección | Campos | Notas |
 | --- | --- | --- |
-| `config/publico` | `nombreLocal`, `logoUrl`, `marca`, `oscuroPorDefecto`, `turnos`, `alertaStock`, `torneo`, `temporada` (`nombre`, `inicio`, `inicioMs`), `reporteJugador`, `creditoPremio`, `descontarStock`, `juegos`, `mediosPago`, `rubrosCafeteria` | Lectura pública (el splash la usa antes del login). |
+| `config/publico` | `nombreLocal`, `logoUrl`, `turnos`, `alertaStock`, `torneo`, `temporada` (`nombre`, `inicio`, `inicioMs`), `reporteJugador`, `creditoPremio`, `descontarStock`, `juegos`, `mediosPago`, `rubrosCafeteria` | Lectura pública (el splash la usa antes del login). |
 | `config/privado` | `codigoInvitacion`, `codigoVenceEn` | Solo admin. |
 | `users/{uid}` | `uid`, `nombre`, `email`, `role` (`admin`, `mozo`, `juez`, `jugador`), `estadoAprobacion` (`pendiente`, `aprobado`, `rechazado`), `codigoInvitacion?`, `emailVerificado?`, `fotoUrl?`, `creadoEn` | Privado: el propio usuario y el admin. El ID es el UID de Authentication. |
 | `jugadores/{uid}` | `uid`, `nombre`, `nombreBusqueda` (minúsculas, sin tildes), `creditoCafeteria`, `ultimaVenta?`, `ultimoPremio?`, `activo?`, `fotoUrl?`, `creadoEn` | Directorio público para el staff: buscar jugadores y mover crédito sin ver emails. Se crea con el alta del jugador (o solo, al abrir la app, si faltaba). |
@@ -186,8 +186,31 @@ Nadie puede crearse como admin, aprobarse solo, cambiarse el rol, inflar un cré
 | `pnpm test` | Tests unitarios con Jest (preset `jest-expo`). |
 | `pnpm qa` | Tipos y tests unitarios, lo mismo que debería pasar antes de cada commit. |
 | `pnpm test:rules` | Levanta los emuladores de Firestore y Storage y corre `firestore-tests/` contra `firestore.rules` y `storage.rules`. Necesita Java 21 o superior en el `PATH`. |
+| `pnpm qa:ui` | Prueba la app entera en un navegador, rol por rol: botones, diseño en 8 tamaños de pantalla, modo noche, velocidad y fluidez. Ver [QA de interfaz](#qa-de-interfaz). |
 
 Los tests de reglas usan el proyecto ficticio `demo-duel` (el prefijo `demo-` es el que los emuladores reservan para eso), así que no tocan ningún proyecto real ni necesitan credenciales.
+
+## QA de interfaz
+
+`pnpm qa:ui` levanta los emuladores de Firebase con datos de prueba (un local con mesas, carta, ventas de la semana, un torneo en curso y dos cerrados, y una cuenta por rol), arma la versión web apuntando a ellos y la recorre en Edge o Chrome sin ventana. No toca el proyecto de Firebase del `.env`. Necesita Java 21 o superior, como `pnpm test:rules`.
+
+En cada pantalla de cada rol:
+
+- Diseño, en 8 tamaños (de un iPhone SE de 320 px a un iPad, y un iPhone acostado) y en modo noche: botones que se salen de la pantalla, quedan tapados, se pisan o no se alcanzan con scroll; scroll de costado; textos cortados; letra de menos de 10 px; contraste menor a 4,5:1; fuentes que no son las de Duel; imágenes rotas.
+- Botones: toca cada uno y mira si cambió algo en pantalla y cuánto tardó. Las confirmaciones se cancelan y "Cerrar sesión" no se toca.
+- Velocidad y fluidez, con el procesador frenado 4 veces (como un celular de gama media): tiempo de carga, bloqueos, saltos de diseño y cuadros lentos al scrollear.
+- Errores de la consola y pedidos de red fallidos.
+
+Deja el reporte en `qa-reporte/index.html` (capturas de cada pantalla en cada tamaño, problemas y tiempos) y termina con error si encontró algún error (los avisos, como poco contraste, letra chica, textos cortados, botones sin efecto o carga lenta, quedan en el reporte pero no hacen fallar la corrida). Tarda unos 15 minutos; para una pasada corta:
+
+```bash
+pnpm qa:ui --rapido                  # 3 tamaños y sin tocar botones
+pnpm qa:ui --sector admin,mozo       # solo esos roles (sin-sesion, admin, juez, mozo, jugador)
+pnpm qa:ui --pantalla hoy,stock      # solo esas pantallas
+pnpm qa:ui --sin-build               # reusa la versión web de la corrida anterior
+```
+
+Lo que tiene que ver una persona con el celular en la mano está en [docs/pruebas-por-rol.md](docs/pruebas-por-rol.md): la lista de cada sector para probar antes de cada versión.
 
 ## Estructura
 
@@ -205,4 +228,6 @@ firestore.rules      Reglas de Firestore
 storage.rules        Reglas de Storage
 firestore.indexes.json
 firestore-tests/     Tests de reglas contra los emuladores
+scripts/qa/          QA de interfaz (pnpm qa:ui): datos de prueba, recorrido y reporte
+docs/                Lista de pruebas por rol
 ```
