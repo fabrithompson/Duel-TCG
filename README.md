@@ -83,6 +83,21 @@ Las reglas de Storage leen el perfil del usuario en Firestore para saber si es a
 
 Para usar `pnpm firebase deploy` directo, pasale `--project <id-del-proyecto>` o creá un `.firebaserc` con `{ "projects": { "default": "<id-del-proyecto>" } }`.
 
+## Distribución
+
+Mientras la app no esté en las tiendas, se instala desde links:
+
+| Para | Cómo | Comando |
+| --- | --- | --- |
+| Android | APK que se descarga desde un link de expo.dev (o su QR). La primera vez el celular pide permitir instalar apps de origen desconocido. | `pnpm apk` |
+| Cualquier celular o compu | Versión web en `https://<proyecto>.web.app`. En el iPhone: Safari → Compartir → Agregar a inicio; en Android: Chrome → Instalar app. Se abre sin la barra del navegador. | `pnpm desplegar hosting` |
+| iPhone (app) | TestFlight, con link público para hasta 10.000 personas. Hace falta la cuenta de Apple Developer (USD 99 por año). | `pnpm testflight` |
+
+- Los builds corren en la nube de Expo (EAS), así que no hace falta Mac ni Android Studio. El proyecto es `@fabrithompson/duel` en expo.dev.
+- Las credenciales de Firebase de los builds están en las variables de EAS (el `.env` no se sube). Si cambian: `pnpm eas env:push --environment preview --environment production --path .env --force`.
+- La clave que firma el APK y los certificados de Apple los guarda EAS: cada APK nuevo se instala encima del anterior sin perder la sesión.
+- `pnpm testflight` arma la versión de iPhone y la sube a App Store Connect. La primera vez pide iniciar sesión con el Apple ID (con el código de verificación) para crear los certificados. Después, en App Store Connect → TestFlight: grupo externo, link público y revisión de Apple de la primera versión. Cada build de TestFlight dura 90 días.
+
 ## Primera cuenta de admin
 
 La app no deja crear administradores, así que el primero se da de alta a mano (la consola de Firebase no pasa por las reglas):
@@ -180,7 +195,8 @@ Nadie puede crearse como admin, aprobarse solo, cambiarse el rol, inflar un cré
 | Comando | Qué hace |
 | --- | --- |
 | `pnpm start` | Levanta Expo (`expo start`). |
-| `pnpm desplegar [partes]` | Sube reglas e índices al proyecto del `.env`. |
+| `pnpm desplegar [partes]` | Sube reglas e índices al proyecto del `.env`; `pnpm desplegar hosting` publica la versión web. |
+| `pnpm apk` / `pnpm testflight` | APK para Android con link de descarga / versión de iPhone a TestFlight. Ver [Distribución](#distribución). |
 | `pnpm firebase <comando>` | Firebase CLI 15 sin instalarla global (login, deploy). |
 | `pnpm typecheck` | Chequeo de tipos con `tsc --noEmit`. |
 | `pnpm test` | Tests unitarios con Jest (preset `jest-expo`). |
