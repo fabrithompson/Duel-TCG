@@ -16,6 +16,7 @@ interface PendingCardProps {
 
 export default function PendingCard({ titulo, subtitulo, color, onPress, accessibilityHint }: PendingCardProps) {
   const { colors } = useTheme();
+  const etiqueta = subtitulo ? `${titulo}. ${subtitulo}` : titulo;
 
   const contenido = (
     <>
@@ -38,7 +39,7 @@ export default function PendingCard({ titulo, subtitulo, color, onPress, accessi
 
   if (!onPress) {
     return (
-      <View style={estilo} accessible accessibilityLabel={`${titulo}. ${subtitulo}`}>
+      <View style={estilo} accessible accessibilityLabel={etiqueta}>
         {contenido}
       </View>
     );
@@ -53,7 +54,7 @@ export default function PendingCard({ titulo, subtitulo, color, onPress, accessi
       }}
       activeOpacity={0.7}
       accessibilityRole="button"
-      accessibilityLabel={`${titulo}. ${subtitulo}`}
+      accessibilityLabel={etiqueta}
       accessibilityHint={accessibilityHint}
     >
       {contenido}

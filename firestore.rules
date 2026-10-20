@@ -119,9 +119,9 @@ service cloud.firestore {
     // ---------- Config del local ----------
 
     function camposConfigPublica() {
-      return ['nombreLocal', 'logoUrl', 'marca', 'oscuroPorDefecto', 'turnos', 'alertaStock',
-              'torneo', 'temporada', 'reporteJugador', 'creditoPremio', 'descontarStock',
-              'juegos', 'mediosPago', 'rubrosCafeteria'];
+      return ['nombreLocal', 'logoUrl', 'turnos', 'alertaStock', 'torneo', 'temporada',
+              'reporteJugador', 'creditoPremio', 'descontarStock', 'juegos', 'mediosPago',
+              'rubrosCafeteria'];
     }
 
     function defaultsTorneoValidos(t) {
@@ -147,9 +147,6 @@ service cloud.firestore {
         && (opcional(d, ks, 'nombreLocal') || texto(d.nombreLocal, 1, 60))
         && (opcional(d, ks, 'logoUrl') || d.logoUrl == null
             || (d.logoUrl is string && d.logoUrl.size() <= 2048 && d.logoUrl.matches('^https://.+')))
-        && (opcional(d, ks, 'marca') || d.marca == null
-            || (d.marca is string && d.marca.matches('^#[0-9A-Fa-f]{6}$')))
-        && (opcional(d, ks, 'oscuroPorDefecto') || d.oscuroPorDefecto is bool)
         && (opcional(d, ks, 'turnos') || (d.turnos is list && d.turnos.size() <= 8))
         && (opcional(d, ks, 'alertaStock') || numeroEntre(d.alertaStock, 0, 1000))
         && (opcional(d, ks, 'torneo') || defaultsTorneoValidos(d.torneo))

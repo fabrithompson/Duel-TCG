@@ -29,7 +29,7 @@ export interface FormatoInfo {
 }
 
 export const FORMATOS: readonly FormatoInfo[] = [
-  { id: 'suizo', nombre: 'Suizo', descripcion: 'Todos juegan todas las rondas · el más usado' },
+  { id: 'suizo', nombre: 'Suizo', descripcion: 'Todos juegan todas las rondas' },
   { id: 'eliminacion', nombre: 'Eliminación directa', descripcion: 'Llave a partir de los inscriptos' },
   { id: 'suizo_top_cut', nombre: 'Suizo + top cut', descripcion: 'Rondas y después llave de los mejores' },
   { id: 'casual', nombre: 'Casual / mesa libre', descripcion: 'Sin puntaje · solo reloj y mesas' },

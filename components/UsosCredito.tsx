@@ -70,7 +70,6 @@ export default function UsosCredito({ uid }: { readonly uid: string }) {
           <Text style={[styles.monto, { color: colors.gold }, tabularNums(12.5)]}>−{formatARS(u.monto)}</Text>
         </View>
       ))}
-      <Text style={[styles.nota, { color: colors.dim }]}>Si ves un uso que no reconocés, avisale al encargado del local.</Text>
     </View>
   );
 }

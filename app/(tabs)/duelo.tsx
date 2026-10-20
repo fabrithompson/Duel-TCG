@@ -240,7 +240,7 @@ function Enfrentamiento({ yo, rival, nombreRival, conPuntos }: EnfrentamientoPro
       </Text>
       {nombreRival ? (
         <View style={[styles.vsCard, { borderColor: colors.line, borderWidth: 1 }]} accessible accessibilityLabel={`Contra ${nombreRival}, ${recordRival}`}>
-          <Text style={[styles.vsNombre, { color: colors.ink }]} numberOfLines={1}>
+          <Text style={[styles.vsNombre, { color: colors.ink }]} numberOfLines={2}>
             {nombreRival}
           </Text>
           <Text style={[styles.vsRecord, { color: colors.dim }, tabularNums(11)]}>{recordRival}</Text>
@@ -348,7 +348,7 @@ function ReporteResultado({ torneo, mia, uid, habilitado, nombreRival }: Reporte
   const mio = reportes.mio ? resultadoParaJugador(reportes.mio, soyJugador1) : null;
   const delRival = reportes.rival ? resultadoParaJugador(reportes.rival, soyJugador1) : null;
 
-  let estado = 'Cargá el resultado cuando termine la partida.';
+  let estado: string | null = null;
   if (confirmado) {
     estado = `El juez confirmó ${marcador(confirmado)}. ${esVictoria(confirmado) ? 'Ganaste esta ronda.' : 'Perdiste esta ronda.'}`;
   } else if (!habilitado) {
@@ -446,9 +446,11 @@ function ReporteResultado({ torneo, mia, uid, habilitado, nombreRival }: Reporte
           })}
         </View>
       ) : null}
-      <Text style={[styles.estadoReporte, { color: colors.dim }]} accessibilityLiveRegion="polite">
-        {estado}
-      </Text>
+      {estado ? (
+        <Text style={[styles.estadoReporte, { color: colors.dim }]} accessibilityLiveRegion="polite">
+          {estado}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -463,9 +465,6 @@ function CreditoBarra({ monto }: { readonly monto: number }) {
     >
       <View style={styles.flex}>
         <Text style={[styles.creditoTitulo, { color: colors.ink }]}>Tu crédito en la barra</Text>
-        <Text style={[styles.creditoSub, { color: colors.dim }]}>
-          {monto > 0 ? 'Ganado en torneos anteriores' : 'Se suma cuando ganás crédito en un torneo'}
-        </Text>
       </View>
       <Text style={[styles.creditoMonto, { color: colors.br }, tabularNums(19)]}>{formatARS(monto)}</Text>
     </View>
@@ -510,6 +509,5 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   creditoTitulo: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5 },
-  creditoSub: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 2 },
   creditoMonto: { fontFamily: Typography.display.bold, fontSize: 19 },
 });

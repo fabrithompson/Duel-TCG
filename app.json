@@ -30,7 +30,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Duel usa tus fotos solo para cargar el logo del local.",
+          "photosPermission": "Duel usa tus fotos solo para tu foto de perfil y el logo del local.",
           "cameraPermission": false,
           "microphonePermission": false
         }
@@ -39,12 +39,12 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#FBF6EF",
-          "image": "./assets/brand/isotipo.png",
+          "image": "./assets/brand/duel-logo.png",
           "dark": {
             "backgroundColor": "#14100D",
-            "image": "./assets/brand/duel-mark-dark.png"
+            "image": "./assets/brand/duel-logo.png"
           },
-          "imageWidth": 140
+          "imageWidth": 200
         }
       ],
       "expo-status-bar"

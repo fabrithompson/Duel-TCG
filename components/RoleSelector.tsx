@@ -52,6 +52,7 @@ export default function RoleSelector({ value, onChange, variant = 'list', disabl
               accessibilityLabel={r.nombre}
               accessibilityHint={r.descripcion}
               accessibilityState={{ checked: active, selected: active, disabled }}
+              aria-checked={active}
             >
               <Ionicons name={ICONO[r.id]} size={16} color={tinta} />
               <Text style={[styles.gridLabel, { color: tinta }]}>{r.nombre}</Text>
@@ -81,13 +82,13 @@ export default function RoleSelector({ value, onChange, variant = 'list', disabl
             accessibilityRole="radio"
             accessibilityLabel={`${r.nombre}. ${r.descripcion}`}
             accessibilityState={{ checked: active, selected: active, disabled }}
+            aria-checked={active}
           >
             <View style={[styles.listIconBox, { borderColor: colors.line, backgroundColor: active ? colors.sf : colors.shade }]}>
               <Ionicons name={ICONO[r.id]} size={17} color={tinta} />
             </View>
             <View style={styles.listTexts}>
               <Text style={[styles.listName, { color: tinta }]}>{r.nombre}</Text>
-              <Text style={[styles.listDesc, { color: colors.dim }]}>{r.descripcion}</Text>
             </View>
             <View style={[styles.dot, { borderColor: active ? colors.br : colors.line, backgroundColor: active ? colors.br : 'transparent' }]} />
           </TouchableOpacity>
@@ -103,7 +104,6 @@ const styles = StyleSheet.create({
   listIconBox: { width: 36, height: 36, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   listTexts: { flex: 1 },
   listName: { fontFamily: Typography.fontFamily.semibold, fontSize: 14.5 },
-  listDesc: { fontFamily: Typography.fontFamily.regular, fontSize: 11, marginTop: 2 },
   dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5 },
   grid: { flexDirection: 'row', gap: 8 },
   gridCard: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1.5, borderRadius: 12, paddingVertical: 14, minHeight: 64 },

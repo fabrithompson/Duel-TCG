@@ -568,7 +568,7 @@ describe('pantalla Stock', () => {
   it('ingresa mercadería de un producto existente con increment y renglón de ingreso', async () => {
     const r = await montar(React.createElement(StockScreen));
     await tocarControl(r, '+ Ingreso');
-    expect(textoDe(r)).toContain('INGRESO DE MERCADERÍA · SOLO ADMIN');
+    expect(textoDe(r)).toContain('INGRESO DE MERCADERÍA');
     await tocarControl(r, 'Guardar ingreso');
     expect(textoDe(r)).toContain('Elegí qué producto entró.');
     expect(mockBatches).toHaveLength(0);

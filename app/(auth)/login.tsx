@@ -341,7 +341,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: { flexGrow: 1, paddingHorizontal: 26, paddingTop: 14, paddingBottom: 30 },
-  back: { alignSelf: 'flex-start', marginBottom: 16, minHeight: 24, justifyContent: 'center' },
+  back: { alignSelf: 'flex-start', marginBottom: 12, minHeight: 32, justifyContent: 'center' },
   backText: { fontFamily: Typography.fontFamily.semibold, fontSize: 12 },
   title: { fontFamily: Typography.display.bold, fontSize: 27, letterSpacing: -0.8 },
   subtitle: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, lineHeight: 19, marginTop: 6, marginBottom: 20 },

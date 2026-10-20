@@ -472,7 +472,7 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
             </SettingRow>
           )}
           {formatoId === 'suizo_top_cut' ? (
-            <SettingRow label="Top cut" sub={`Llave final de los mejores del suizo · ${totalRondas} rondas en total`}>
+            <SettingRow label="Top cut" sub={`${totalRondas} rondas en total`}>
               <View style={styles.chipsFila}>
                 {TOP_CUTS.map((k) => (
                   <Chip key={k} label={`Top ${k}`} active={topCut === k} onPress={() => setTopCut(k)} />
@@ -480,7 +480,7 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
               </View>
             </SettingRow>
           ) : null}
-          <SettingRow label="Minutos por ronda" sub="Reloj de sala">
+          <SettingRow label="Minutos por ronda">
             <Stepper
               value={minutos}
               min={LIMITES.minutos.min}
@@ -490,7 +490,7 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
               accessibilityLabel="minutos por ronda"
             />
           </SettingRow>
-          <SettingRow label="Minutos extra" sub="Los suma el juez al llegar a cero">
+          <SettingRow label="Minutos extra">
             <Stepper
               value={extra}
               min={LIMITES.extra.min}
@@ -500,7 +500,7 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
               accessibilityLabel="minutos extra"
             />
           </SettingRow>
-          <SettingRow label="Inscripción" sub="Cobrable desde el salón">
+          <SettingRow label="Inscripción">
             <Stepper
               value={inscripcion}
               min={LIMITES.inscripcion.min}
@@ -531,9 +531,6 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
               accessibilityLabel="cupo máximo"
             />
           </SettingRow>
-          <Card dashed>
-            <Text style={[styles.nota, { color: colors.dim }]}>Tomados de los ajustes del local. Cambiarlos acá afecta solo a este torneo.</Text>
-          </Card>
         </View>
       ) : null}
 
@@ -656,7 +653,7 @@ function Asistente({ defaults, creditoPremio, juegos }: AsistenteProps) {
 
           <View style={styles.bloque}>
             <SectionLabel>Reparto</SectionLabel>
-            <SettingRow label="Puestos premiados" sub={`Del 1º al ${puestosEfectivos}º`}>
+            <SettingRow label="Puestos premiados">
               <Stepper
                 value={puestosEfectivos}
                 min={1}

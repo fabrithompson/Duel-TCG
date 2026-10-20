@@ -371,12 +371,14 @@ function PremiosTorneo({ torneo, otros, onElegir }: PremiosTorneoProps) {
                     ) : (
                       <View />
                     )}
-                    <SmallButton
-                      label={entregando === p.puesto ? 'Entregando…' : 'Entregar'}
-                      tone="gold"
-                      disabled={!nombre || !porEntregar || entregando !== null}
-                      onPress={() => confirmarEntrega(p)}
-                    />
+                    {nombre ? (
+                      <SmallButton
+                        label={entregando === p.puesto ? 'Entregando…' : 'Entregar'}
+                        tone="gold"
+                        disabled={!porEntregar || entregando !== null}
+                        onPress={() => confirmarEntrega(p)}
+                      />
+                    ) : null}
                   </View>
                 ) : null}
               </View>
@@ -422,7 +424,7 @@ function PremiosTorneo({ torneo, otros, onElegir }: PremiosTorneoProps) {
           return (
             <View key={clave} style={styles.resumenBloque}>
               <View style={styles.resumenFila}>
-                <Text style={[styles.resumenTexto, styles.flex1, { color: colors.ink }]} numberOfLines={1}>
+                <Text style={[styles.resumenTexto, styles.flex1, { color: colors.ink }]} numberOfLines={2}>
                   {g.item?.nombre ?? g.nombre ?? (catalogo.loading ? '…' : 'Producto borrado')}
                 </Text>
                 <Text style={[styles.resumenValor, { color: colors.ink }, tabularNums(12.5)]}>

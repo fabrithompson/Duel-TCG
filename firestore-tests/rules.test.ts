@@ -210,8 +210,6 @@ async function sembrar(): Promise<void> {
     b.set(doc(db, 'config', 'publico'), {
       nombreLocal: 'Duel Test',
       logoUrl: null,
-      marca: null,
-      oscuroPorDefecto: false,
       turnos: [{ nombre: 'Mañana', apertura: '08:00', cierre: '15:00' }],
       alertaStock: 5,
       torneo: { rondas: 5, minutos: 50, extra: 3, inscripcion: 6000, cupo: 16 },
@@ -308,10 +306,12 @@ describe('config', () => {
 
   test('config/publico valida campos, tipos y rangos', async () => {
     const db = como(U.admin);
-    await assertSucceeds(setDoc(doc(db, 'config', 'publico'), { torneo: { rondas: 6 }, marca: '#3F6B57' }, { merge: true }));
+    await assertSucceeds(setDoc(doc(db, 'config', 'publico'), { torneo: { rondas: 6 }, alertaStock: 8 }, { merge: true }));
     await assertFails(setDoc(doc(db, 'config', 'publico'), { alertaStock: -1 }, { merge: true }));
     await assertFails(setDoc(doc(db, 'config', 'publico'), { alertaStock: 5000 }, { merge: true }));
-    await assertFails(setDoc(doc(db, 'config', 'publico'), { marca: 'rojo' }, { merge: true }));
+    // El color de marca y el modo noche del local ya no existen.
+    await assertFails(setDoc(doc(db, 'config', 'publico'), { marca: '#3F6B57' }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'config', 'publico'), { oscuroPorDefecto: true }, { merge: true }));
     await assertFails(setDoc(doc(db, 'config', 'publico'), { codigoInvitacion: 'FILTRADO' }, { merge: true }));
     await assertFails(setDoc(doc(db, 'config', 'publico'), { torneo: { rondas: 99 } }, { merge: true }));
     await assertFails(setDoc(doc(db, 'config', 'publico'), { logoUrl: 'http://inseguro.test/logo.png' }, { merge: true }));

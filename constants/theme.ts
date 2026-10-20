@@ -29,12 +29,12 @@ interface BaseTokens {
   ink: string;
   dim: string;
   line: string;
+  br: string;
+  brs: string;
   gold: string;
   ok: string;
   dg: string;
   shade: string;
-  brDefault: string;
-  brsDefault: string;
 }
 
 const DAY: BaseTokens = {
@@ -47,8 +47,8 @@ const DAY: BaseTokens = {
   ok: '#5E8A57',
   dg: '#C1553F',
   shade: 'rgba(36,26,19,0.04)',
-  brDefault: '#C2703A',
-  brsDefault: '#F7E7D6',
+  br: '#C2703A',
+  brs: '#F7E7D6',
 };
 
 const NIGHT: BaseTokens = {
@@ -61,18 +61,11 @@ const NIGHT: BaseTokens = {
   ok: '#8FA97B',
   dg: '#D9705A',
   shade: 'rgba(255,255,255,0.04)',
-  brDefault: '#E08A4C',
-  brsDefault: '#2C1F16',
+  br: '#E08A4C',
+  brs: '#2C1F16',
 };
 
-/**
- * Opciones de color de marca ofrecidas en Ajustes → Apariencia. Ninguna se parece al dorado
- * competitivo (gold): naranja/marca es operación del café, dorado es torneo.
- */
-export const BRAND_COLORS = ['#C2703A', '#4A5A80', '#7A5C3E', '#3F6B58', '#8A3B4C'] as const;
-export type BrandColor = (typeof BRAND_COLORS)[number];
-
-// ---- Mezcla en espacio OKLab (equivalente a color-mix(in oklab, …) del prototipo) ----
+// ---- Espacio OKLab: corrige la luminosidad sin cambiar el tono ----
 
 function srgbToLinear(c: number): number {
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
@@ -127,19 +120,6 @@ function oklabToRgb(L: number, a: number, b: number): [number, number, number] {
   return [linearToSrgb(lr), linearToSrgb(lg), linearToSrgb(lb)];
 }
 
-/** Mezcla `hexA` en proporción `pct` (0–1) sobre `hexB`, replicando color-mix(in oklab, …). */
-function mixOklab(hexA: string, pct: number, hexB: string): string {
-  const [ar, ag, ab] = hexToRgb(hexA);
-  const [br, bg, bb] = hexToRgb(hexB);
-  const [aL, aa, aB] = rgbToOklab(ar, ag, ab);
-  const [bL, ba, bB] = rgbToOklab(br, bg, bb);
-  const L = aL * pct + bL * (1 - pct);
-  const a = aa * pct + ba * (1 - pct);
-  const b = aB * pct + bB * (1 - pct);
-  const [r, g, bl] = oklabToRgb(L, a, b);
-  return rgbToHex(r, g, bl);
-}
-
 // ---- Contraste (WCAG 2.x) ----
 
 function luminancia(hex: string): number {
@@ -175,6 +155,16 @@ function legibleSobre(hex: string, fondos: readonly string[], aclarar: boolean):
   return aclarar ? '#FFFFFF' : '#000000';
 }
 
+/** Color opaco que se ve al poner `capa` (rgba) sobre `fondo`. */
+function componer(capa: string, fondo: string): string {
+  const m = /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(capa);
+  if (!m) return fondo;
+  const a = Number(m[4]);
+  const [r, g, b] = hexToRgb(fondo);
+  const mezcla = (c: string, f: number) => (Number(c) / 255) * a + f * (1 - a);
+  return rgbToHex(mezcla(m[1], r), mezcla(m[2], g), mezcla(m[3], b));
+}
+
 const TEXTO_CLARO = '#FFFFFF';
 const TEXTO_OSCURO = '#14100D';
 
@@ -184,27 +174,23 @@ function textoSobre(relleno: string): string {
 }
 
 /**
- * Tokens completos para un modo y una marca dados.
- * El prototipo sólo recalcula `--brs` en modo día (16% de la marca mezclado
- * sobre el fondo claro); de noche el suave se deriva de la marca sobre el fondo oscuro.
- * Los acentos que se usan como texto (br, gold, ok, dg) se ajustan para leerse con
- * 4,5:1 sobre bg, sf y el suave, en cualquier marca y modo.
+ * Tokens completos para un modo. Los acentos que se usan como texto (br, gold, ok, dg, dim)
+ * se ajustan para leerse con 4,5:1 sobre bg, sf, el suave y la sombra (mesas en duelo,
+ * chips dorados, solicitudes del equipo).
  */
-export function getTheme(mode: ThemeMode, brand?: string): ThemeTokens {
+export function getTheme(mode: ThemeMode): ThemeTokens {
   const base = mode === 'day' ? DAY : NIGHT;
-  const esDefault = !brand || brand.toUpperCase() === DAY.brDefault;
   const noche = mode === 'night';
-  const marca = esDefault ? base.brDefault : brand;
-  const brs = esDefault ? base.brsDefault : noche ? mixOklab(brand, 0.2, NIGHT.bg) : mixOklab(brand, 0.16, DAY.bg);
-  const fondos = [base.bg, base.sf];
-  const br = legibleSobre(marca, [...fondos, brs], noche);
+  const brs = base.brs;
+  const fondos = [base.bg, base.sf, brs, componer(base.shade, base.bg), componer(base.shade, base.sf)];
+  const br = legibleSobre(base.br, fondos, noche);
   const gold = legibleSobre(base.gold, fondos, noche);
   const ok = legibleSobre(base.ok, fondos, noche);
   return {
     bg: base.bg,
     sf: base.sf,
     ink: base.ink,
-    dim: legibleSobre(base.dim, [...fondos, brs], noche),
+    dim: legibleSobre(base.dim, fondos, noche),
     line: base.line,
     gold,
     ok,

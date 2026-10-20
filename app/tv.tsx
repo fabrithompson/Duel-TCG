@@ -26,7 +26,8 @@ import { mensajeError } from '../lib/errores';
 // Pantalla de solo lectura para la tele del local: siempre en paleta noche.
 
 const ANCHO_DOS_COLUMNAS = 700;
-const ISOTIPO = require('../assets/brand/duel-mark-dark.png');
+const LOGO_DUEL = require('../assets/brand/duel-logo.png');
+const COLORES = getTheme('night');
 
 export default function ModoTvScreen() {
   const router = useRouter();
@@ -41,10 +42,9 @@ export default function ModoTvScreen() {
       };
     }, [])
   );
-  const { config } = useConfig();
   const { user, profile, loading } = useUserProfileContext();
   useSincronizarReloj(profile?.estadoAprobacion === 'aprobado' ? profile.uid : null);
-  const colors = useMemo(() => getTheme('night', config.marca ?? undefined), [config.marca]);
+  const colors = COLORES;
 
   const salir = () => {
     if (router.canGoBack()) router.back();
@@ -122,14 +122,14 @@ function TvTorneo({ colors, onSalir }: { readonly colors: ThemeTokens; readonly 
   return <TableroTorneo torneo={torneo} colors={colors} onSalir={onSalir} />;
 }
 
-/** El logo que cargó el local (la tele es lo más visible del local); si no hay o falla, el isotipo de Duel. */
+/** El logo que cargó el local (la tele es lo más visible del local); si no hay o falla, el de Duel. */
 function LogoLocal({ tamano }: { readonly tamano: number }) {
   const { config } = useConfig();
   const [falla, setFalla] = useState(false);
   const propio = !!config.logoUrl && !falla;
   return (
     <Image
-      source={propio && config.logoUrl ? { uri: config.logoUrl } : ISOTIPO}
+      source={propio && config.logoUrl ? { uri: config.logoUrl } : LOGO_DUEL}
       onError={() => setFalla(true)}
       resizeMode="contain"
       style={{ width: tamano, height: tamano, borderRadius: propio ? Math.round(tamano * 0.22) : 0 }}

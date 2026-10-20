@@ -79,6 +79,8 @@ function TorneoPantalla() {
 
 function SinTorneo({ ultimo }: { readonly ultimo: Torneo | null }) {
   const router = useRouter();
+  // El juez tiene Premios en la barra de abajo: el atajo es solo para el admin.
+  const esAdmin = useUserProfileContext().profile?.role === 'admin';
   return (
     <Screen title="Torneo">
       <EmptyState
@@ -87,7 +89,7 @@ function SinTorneo({ ultimo }: { readonly ultimo: Torneo | null }) {
         action={
           <View style={styles.emptyActions}>
             <Button label="Nuevo torneo" onPress={() => router.push('/torneo/nuevo')} />
-            {ultimo ? (
+            {ultimo && esAdmin ? (
               <View style={styles.centrado}>
                 <SmallButton label="Premios del último torneo" tone="gold" onPress={() => router.push('/premios')} />
               </View>
@@ -372,7 +374,7 @@ function TorneoEnCurso({ torneo }: { readonly torneo: Torneo }) {
       acciones={
         <>
           <SmallButton label="Modo TV" tone="gold" onPress={() => router.push('/tv')} />
-          <SmallButton label="Premios" tone="gold" onPress={() => router.push('/premios')} />
+          {esAdmin ? <SmallButton label="Premios" tone="gold" onPress={() => router.push('/premios')} /> : null}
         </>
       }
     >

@@ -2,8 +2,8 @@ import { minutosDelDia } from './fecha';
 import { RUBROS_CAFETERIA_POR_DEFECTO, normalizarRubrosCafeteria } from './rubros';
 
 // Configuración del local, editable desde Ajustes (solo admin).
-//  - `config/publico`: todo lo de abajo. Lectura pública (el splash muestra
-//    el nombre y el color antes de iniciar sesión).
+//  - `config/publico`: todo lo de abajo. Lectura pública (el inicio muestra
+//    el logo del local antes de iniciar sesión).
 //  - `config/privado`: `{ codigoInvitacion }`. Solo admin la lee; las reglas
 //    de Firestore la usan para validar el registro de mozo/juez.
 
@@ -43,9 +43,6 @@ export const LARGO_MAX_JUEGO = 40;
 export interface ConfigLocal {
   nombreLocal: string;
   logoUrl: string | null;
-  /** Hex #RRGGBB; null = color de marca por defecto del tema. */
-  marca: string | null;
-  oscuroPorDefecto: boolean;
   turnos: Turno[];
   alertaStock: number;
   torneo: DefaultsTorneo;
@@ -85,8 +82,6 @@ export const LIMITES = {
 export const CONFIG_DEFAULT: ConfigLocal = {
   nombreLocal: 'Duel',
   logoUrl: null,
-  marca: null,
-  oscuroPorDefecto: false,
   turnos: [
     { nombre: 'Mañana', apertura: '08:00', cierre: '15:00' },
     { nombre: 'Tarde', apertura: '15:00', cierre: '00:30' },
@@ -102,7 +97,6 @@ export const CONFIG_DEFAULT: ConfigLocal = {
   rubrosCafeteria: [...RUBROS_CAFETERIA_POR_DEFECTO],
 };
 
-const HEX = /^#[0-9A-Fa-f]{6}$/;
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
 function numeroEn(valor: unknown, fallback: number, lim: { min: number; max: number }): number {
@@ -166,8 +160,6 @@ export function normalizarConfig(raw: unknown): ConfigLocal {
   return {
     nombreLocal: texto(r.nombreLocal, d.nombreLocal),
     logoUrl: typeof r.logoUrl === 'string' && r.logoUrl.startsWith('https://') ? r.logoUrl : null,
-    marca: typeof r.marca === 'string' && HEX.test(r.marca) ? r.marca.toUpperCase() : null,
-    oscuroPorDefecto: booleano(r.oscuroPorDefecto, d.oscuroPorDefecto),
     turnos: turnosValidos(r.turnos),
     alertaStock: numeroEn(r.alertaStock, d.alertaStock, LIMITES.alertaStock),
     torneo: {

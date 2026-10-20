@@ -41,15 +41,14 @@ const MAX_RESULTADOS = 6;
 
 interface VistaRol {
   titulo: string;
-  sub: string;
   filtros: readonly Filtro[];
 }
 
 // Los filtros salen de los rubros del local (Ajustes > Stock).
 function vistaDe(role: Role | undefined, cafeteria: readonly string[]): VistaRol {
-  if (role === 'juez') return { titulo: 'Stock TCG', sub: 'Sellado y accesorios del torneo', filtros: [RUBRO_TCG] };
-  if (role === 'mozo') return { titulo: 'Stock cafetería', sub: 'Solo consulta: el ingreso lo carga el admin', filtros: ['Todo', ...cafeteria] };
-  return { titulo: 'Depósito', sub: 'Todo lo que entra y sale del local', filtros: ['Todo', ...cafeteria, RUBRO_TCG, 'Servicios'] };
+  if (role === 'juez') return { titulo: 'Stock TCG', filtros: [RUBRO_TCG] };
+  if (role === 'mozo') return { titulo: 'Stock cafetería', filtros: ['Todo', ...cafeteria] };
+  return { titulo: 'Depósito', filtros: ['Todo', ...cafeteria, RUBRO_TCG, 'Servicios'] };
 }
 
 function pasaFiltro(item: CatalogoItem, filtro: Filtro): boolean {
@@ -122,11 +121,7 @@ function FilaStock({ item, alertaLocal, editable, onPress }: FilaStockProps) {
         <Text style={[styles.meta, { color: colors.dim }, tabularNums(11)]}>
           {nombreRubro(item.rubro)} · {formatARS(item.precio)}
         </Text>
-        {item.stock !== null ? (
-          <Text style={[styles.meta, { color: bajo ? colors.dg : colors.dim }, tabularNums(11)]}>
-            {bajo ? 'Stock bajo' : `Alerta en ${formatCantidad(alerta, item.unidad).replace(/ u$/, '')}${item.alerta === null ? ' (local)' : ''}`}
-          </Text>
-        ) : null}
+        {item.stock !== null && bajo ? <Text style={[styles.meta, { color: colors.dg }, tabularNums(11)]}>Stock bajo</Text> : null}
       </View>
     </Pressable>
   );
@@ -203,7 +198,7 @@ function PanelIngreso({ catalogo, uid }: PanelIngresoProps) {
 
   return (
     <View style={[styles.panel, { borderColor: colors.br, backgroundColor: colors.brs }]}>
-      <Text style={[styles.panelEtiqueta, { color: colors.br }]}>INGRESO DE MERCADERÍA · SOLO ADMIN</Text>
+      <Text style={[styles.panelEtiqueta, { color: colors.br }]}>INGRESO DE MERCADERÍA</Text>
 
       <View style={styles.chipsFila} accessibilityRole="radiogroup">
         <Chip label="Producto existente" active={form.modo === 'existente'} onPress={() => cambiar({ modo: 'existente' })} />
@@ -445,9 +440,7 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
                   {nombreRubro(item.rubro)}
                   {item.stock !== null ? ` · hay ${formatCantidad(item.stock, item.unidad)}` : ''}
                 </Text>
-              ) : (
-                <Text style={[styles.nota, { color: colors.dim }]}>Alquiler de mesa, inscripción, agua: se cobran en el pedido sin descontar stock.</Text>
-              )}
+              ) : null}
 
               <FormField
                 label="Nombre"
@@ -476,7 +469,7 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
                 maxLength={10}
               />
               {item && !esTcg ? (
-                <ToggleRow label="Controlar stock" sub="Descuenta al cobrar y avisa cuando queda poco" value={controlStock} onChange={setControlStock} disabled={enviando} />
+                <ToggleRow label="Controlar stock" value={controlStock} onChange={setControlStock} disabled={enviando} />
               ) : null}
               {muestraAlerta ? (
                 <FormField
@@ -492,7 +485,7 @@ function ProductoModal({ modo, catalogo, alertaLocal, onCerrar }: ProductoModalP
                 />
               ) : null}
               {item ? (
-                <ToggleRow label="Activo" sub="Si lo pausás, no aparece en el pedido" value={activo} onChange={setActivo} disabled={enviando} />
+                <ToggleRow label="Activo" value={activo} onChange={setActivo} disabled={enviando} />
               ) : null}
 
               {error ? (
@@ -545,7 +538,7 @@ function StockPantalla() {
 
   if (loading && items.length === 0) return <LoadingScreen />;
 
-  const subtitulo = bajos > 0 ? `${bajos} con stock bajo` : vista.sub;
+  const subtitulo = bajos > 0 ? `${bajos} con stock bajo` : undefined;
 
   return (
     <Screen
@@ -620,7 +613,7 @@ const styles = StyleSheet.create({
   panelEtiqueta: { fontFamily: Typography.fontFamily.bold, fontSize: 10, letterSpacing: 1.4 },
   chipsFila: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   bloque: { gap: 10 },
-  miniEtiqueta: { fontFamily: Typography.fontFamily.semibold, fontSize: 9.5, letterSpacing: 1.3 },
+  miniEtiqueta: { fontFamily: Typography.fontFamily.semibold, fontSize: 10, letterSpacing: 1.2 },
   elegido: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1.5, borderRadius: 12, padding: 12, minHeight: 52 },
   elegidoNombre: { fontFamily: Typography.fontFamily.semibold, fontSize: 14 },
   cambiar: { fontFamily: Typography.fontFamily.semibold, fontSize: 12 },

@@ -13,7 +13,6 @@ import { preguntar } from '../lib/dialogo';
 
 interface EditorListaTextosProps {
   readonly titulo: string;
-  readonly ayuda: string;
   readonly valores: readonly string[];
   /** Singular para los avisos: "juego", "rubro". */
   readonly que: string;
@@ -28,7 +27,7 @@ interface EditorListaTextosProps {
 }
 
 export default function EditorListaTextos(props: EditorListaTextosProps) {
-  const { titulo, ayuda, valores, que, placeholder, maximo, largoMaximo, alQuitar, reservados = [], onGuardar } = props;
+  const { titulo, valores, que, placeholder, maximo, largoMaximo, alQuitar, reservados = [], onGuardar } = props;
   const { colors } = useTheme();
   const { mostrar } = useToast();
   const [nuevo, setNuevo] = useState('');
@@ -66,7 +65,6 @@ export default function EditorListaTextos(props: EditorListaTextosProps) {
   return (
     <View style={[styles.bloque, { borderTopColor: colors.line }]}>
       <Text style={[styles.titulo, { color: colors.ink }]}>{titulo}</Text>
-      <Text style={[styles.ayuda, { color: colors.dim }]}>{ayuda}</Text>
       <View style={styles.chips}>
         {valores.map((v) => (
           <Chip key={v} label={v} active={false} onPress={() => quitar(v)} onLongPress={() => quitar(v)} accessibilityLabel={`${v}, quitar`} />

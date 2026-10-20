@@ -36,6 +36,8 @@ export default function Chip({ label, active, onPress, onLongPress, tone = 'br',
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ selected: active }}
+      // react-native-web ignora accessibilityState: sin esto, en la web nadie sabe qué chip está elegido.
+      aria-selected={active}
     >
       <Text style={[styles.text, { color: active ? accent : colors.dim }]}>{label}</Text>
     </TouchableOpacity>

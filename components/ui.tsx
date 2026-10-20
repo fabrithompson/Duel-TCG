@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
   section: { fontFamily: Typography.fontFamily.bold, fontSize: 10, letterSpacing: 1.6 },
   card: { borderRadius: 13, padding: 13 },
   badge: { borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start' },
-  badgeText: { fontFamily: Typography.fontFamily.semibold, fontSize: 9, letterSpacing: 1.1 },
+  badgeText: { fontFamily: Typography.fontFamily.semibold, fontSize: 10, letterSpacing: 1 },
   settingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 11, minHeight: 56 },
   settingTexts: { flex: 1 },
   settingLabel: { fontFamily: Typography.fontFamily.semibold, fontSize: 13 },

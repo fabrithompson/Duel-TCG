@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Screen, { LoadingScreen } from '../../../components/Screen';
 import Button from '../../../components/Button';
@@ -218,10 +218,20 @@ function CodigoInvitacion() {
   const compartir = async () => {
     if (!codigo || compartiendo.current) return;
     compartiendo.current = true;
+    const mensaje = `Código para registrarte en ${config.nombreLocal}: ${codigo}`;
     try {
-      await Share.share({ message: `Código para registrarte en ${config.nombreLocal}: ${codigo}` });
+      await Share.share({ message: mensaje });
     } catch {
-      mostrar('No se pudo abrir el menú para compartir.', 'error');
+      // La mayoría de los navegadores de escritorio no tienen menú para compartir: se copia.
+      const copiado =
+        Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard
+          ? await navigator.clipboard.writeText(mensaje).then(
+              () => true,
+              () => false
+            )
+          : false;
+      if (copiado) mostrar('Código copiado', 'ok');
+      else mostrar('No se pudo abrir el menú para compartir.', 'error');
     } finally {
       compartiendo.current = false;
     }
@@ -229,7 +239,12 @@ function CodigoInvitacion() {
 
   let cuerpo: React.ReactNode;
   if (privada.cargando) {
-    cuerpo = <ActivityIndicator color={colors.br} accessibilityLabel="Cargando el código" />;
+    // Con el alto del código y sus dos botones: al llegar no empuja hacia abajo el resto de la pantalla.
+    cuerpo = (
+      <View style={styles.codigoCargando}>
+        <ActivityIndicator color={colors.br} accessibilityLabel="Cargando el código" />
+      </View>
+    );
   } else if (privada.error) {
     cuerpo = <ErrorBanner mensaje={mensajeError(privada.error, 'No se pudo leer el código de invitación.')} onRetry={privada.reintentar} />;
   } else {
@@ -243,9 +258,6 @@ function CodigoInvitacion() {
               accessibilityLabel={`Código ${codigo.split('').join(' ')}`}
             >
               {codigo}
-            </Text>
-            <Text style={[styles.codigoSub, { color: colors.dim }]}>
-              Mozos y jueces lo escriben al crear su cuenta.
             </Text>
             <Text style={[styles.codigoSub, { color: vencido ? colors.dg : colors.dim }]}>
               {venceMs === null || vencido ? 'Venció: generá uno nuevo.' : `Sirve hasta el ${fechaConAnio(fechaLocal(new Date(venceMs)))}.`}
@@ -307,7 +319,7 @@ function Solicitud({ miembro, ocupado, onAprobar, onRechazar }: SolicitudProps) 
             </Text>
           ) : null}
           <Text style={[styles.sub, { color: miembro.emailVerificado ? colors.ok : colors.dim }]}>
-            {miembro.emailVerificado ? 'Email verificado' : 'Email sin verificar: confirmá que sea de alguien del equipo'}
+            {miembro.emailVerificado ? 'Email verificado' : 'Email sin verificar'}
           </Text>
         </View>
       </View>
@@ -334,7 +346,7 @@ function FilaMiembro({ miembro, esYo, ocupado, onPress }: FilaMiembroProps) {
   const { colors } = useTheme();
   const tono = tonoDeRol(miembro.role);
   const bloqueado = esYo || ocupado;
-  const detalle = esYo ? 'Sos vos · tu cuenta no se cambia desde acá' : miembro.email || 'Sin email';
+  const detalle = esYo ? 'Sos vos' : miembro.email || 'Sin email';
 
   return (
     <TouchableOpacity
@@ -392,6 +404,7 @@ const styles = StyleSheet.create({
   lista: { gap: 9 },
 
   codigoBloque: { gap: 6 },
+  codigoCargando: { minHeight: 180, alignItems: 'center', justifyContent: 'center' },
   codigo: { fontFamily: Typography.display.semibold, fontSize: 30 },
   codigoEspaciado: { letterSpacing: 3 },
   codigoSub: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 17 },

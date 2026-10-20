@@ -8,8 +8,8 @@ import Button from '../../../components/Button';
 import Chip from '../../../components/Chip';
 import FormField from '../../../components/FormField';
 import Stepper from '../../../components/Stepper';
-import { Badge, Card, EmptyState, ErrorBanner, SectionLabel, SmallButton } from '../../../components/ui';
-import { BRAND_COLORS, BrandColor, Radii, Typography, getTheme, tabularNums } from '../../../constants/theme';
+import { Badge, Card, EmptyState, ErrorBanner, SmallButton } from '../../../components/ui';
+import { Radii, Typography, tabularNums } from '../../../constants/theme';
 import { CambiosConfig, useConfig } from '../../../contexts/ConfigContext';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useToast } from '../../../contexts/ToastContext';
@@ -41,21 +41,12 @@ import { borrarLogo, mensajeErrorLogo, subirLogo } from '../../../lib/logo';
 import { MEDIOS_PAGO, formatARS } from '../../../lib/pedido';
 import { preguntar } from '../../../lib/dialogo';
 
-const MARCA_DIA = require('../../../assets/brand/duel-mark.png');
-const MARCA_NOCHE = require('../../../assets/brand/duel-mark-dark.png');
+const LOGO_DUEL = require('../../../assets/brand/duel-logo.png');
 
 const EJEMPLOS_TURNO = ['Mañana', 'Tarde', 'Noche', 'Trasnoche'];
 
 // Espera antes de guardar un stepper: tocar "+" cinco veces escribe una vez y avisa una vez.
 const ESPERA_STEPPER_MS = 600;
-
-const NOMBRE_COLOR: Record<BrandColor, string> = {
-  '#C2703A': 'terracota',
-  '#4A5A80': 'azul pizarra',
-  '#7A5C3E': 'café',
-  '#3F6B58': 'verde',
-  '#8A3B4C': 'bordó',
-};
 
 export default function AjustesScreen() {
   const { profile, loading } = useUserProfileContext();
@@ -78,13 +69,9 @@ export default function AjustesScreen() {
 }
 
 function AjustesAdmin() {
-  const { colors } = useTheme();
   const { error, reintentar } = useConfig();
   return (
-    <Screen
-      title="Ajustes del local"
-      keyboard
-    >
+    <Screen title="Ajustes del local" keyboard>
       <View style={styles.contenido}>
         {error ? (
           <ErrorBanner
@@ -93,17 +80,12 @@ function AjustesAdmin() {
           />
         ) : null}
         <Identidad />
-        <ColorMarca />
-        <Apariencia />
         <Turnos />
         <Stock />
         <Torneos />
         <Cobro />
         <Temporada />
         <AccesoEquipo />
-        <Text style={[styles.notaPie, { color: colors.dim }]}>
-          El plano de salas y mesas se edita desde Salón (mantené apretada una sala o una mesa).
-        </Text>
       </View>
     </Screen>
   );
@@ -131,7 +113,7 @@ function useGuardarConfig() {
 
 // ─── Piezas de fila ────────────────────────────────────────────────────────
 
-function Grupo({ titulo, sub, children }: { readonly titulo: string; readonly sub?: string; readonly children: React.ReactNode }) {
+function Grupo({ titulo, children }: { readonly titulo: string; readonly children: React.ReactNode }) {
   const { colors } = useTheme();
   return (
     <View style={[styles.grupo, { borderColor: colors.line, backgroundColor: colors.sf }]}>
@@ -139,20 +121,18 @@ function Grupo({ titulo, sub, children }: { readonly titulo: string; readonly su
         <Text style={[styles.grupoTitulo, { color: colors.ink }]} accessibilityRole="header">
           {titulo}
         </Text>
-        {sub ? <Text style={[styles.grupoSub, { color: colors.dim }]}>{sub}</Text> : null}
       </View>
       {children}
     </View>
   );
 }
 
-function Fila({ label, sub, children }: { readonly label: string; readonly sub?: string; readonly children?: React.ReactNode }) {
+function Fila({ label, children }: { readonly label: string; readonly children?: React.ReactNode }) {
   const { colors } = useTheme();
   return (
     <View style={[styles.fila, { borderTopColor: colors.line }]}>
       <View style={styles.filaTextos}>
         <Text style={[styles.filaLabel, { color: colors.ink }]}>{label}</Text>
-        {sub ? <Text style={[styles.filaSub, { color: colors.dim }]}>{sub}</Text> : null}
       </View>
       {children}
     </View>
@@ -161,15 +141,14 @@ function Fila({ label, sub, children }: { readonly label: string; readonly sub?:
 
 interface FilaToggleProps {
   readonly label: string;
-  readonly sub?: string;
   readonly value: boolean;
   readonly onChange: (v: boolean) => void;
 }
 
-function FilaToggle({ label, sub, value, onChange }: FilaToggleProps) {
+function FilaToggle({ label, value, onChange }: FilaToggleProps) {
   const { colors } = useTheme();
   return (
-    <Fila label={label} sub={sub}>
+    <Fila label={label}>
       <Switch
         value={value}
         onValueChange={(v) => {
@@ -180,7 +159,6 @@ function FilaToggle({ label, sub, value, onChange }: FilaToggleProps) {
         thumbColor="#FFFFFF"
         ios_backgroundColor={colors.line}
         accessibilityLabel={label}
-        accessibilityHint={sub}
       />
     </Fila>
   );
@@ -188,7 +166,6 @@ function FilaToggle({ label, sub, value, onChange }: FilaToggleProps) {
 
 interface FilaNumeroProps {
   readonly label: string;
-  readonly sub?: string;
   readonly valor: number;
   readonly lim: { readonly min: number; readonly max: number };
   readonly paso?: number;
@@ -196,7 +173,7 @@ interface FilaNumeroProps {
   readonly onGuardar: (n: number) => Promise<boolean>;
 }
 
-function FilaNumero({ label, sub, valor, lim, paso = 1, formato, onGuardar }: FilaNumeroProps) {
+function FilaNumero({ label, valor, lim, paso = 1, formato, onGuardar }: FilaNumeroProps) {
   const [borrador, setBorrador] = useState<number | null>(null);
   const pendiente = useRef<number | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -238,7 +215,7 @@ function FilaNumero({ label, sub, valor, lim, paso = 1, formato, onGuardar }: Fi
   };
 
   return (
-    <Fila label={label} sub={sub}>
+    <Fila label={label}>
       <Stepper
         value={mostrado}
         min={lim.min}
@@ -291,7 +268,7 @@ function MensajeError({ texto }: { readonly texto: string | null }) {
 
 function Identidad() {
   const { config, guardarConfig } = useConfig();
-  const { colors, mode } = useTheme();
+  const { colors } = useTheme();
   const { mostrar } = useToast();
   const guardar = useGuardarConfig();
 
@@ -393,65 +370,41 @@ function Identidad() {
     if (ok && anterior) void borrarLogo(anterior);
   };
 
-  const tocarLogo = () => {
-    if (!config.logoUrl) {
-      void elegirLogo();
-      return;
-    }
-    preguntar('Logo del local', undefined, [
+  // El logo propio se borra de Storage: un toque de más no lo tiene que perder.
+  const confirmarLogoDeDuel = () => {
+    preguntar('¿Volver al logo de Duel?', undefined, [
       { text: 'Cancelar', style: 'cancel' },
-      { text: 'Volver al de Duel', style: 'destructive', onPress: () => void volverAlLogoDeDuel() },
-      { text: 'Cambiar logo', onPress: () => void elegirLogo() },
+      { text: 'Usar el de Duel', style: 'destructive', onPress: () => void volverAlLogoDeDuel() },
     ]);
   };
 
   const logoPropio = config.logoUrl && config.logoUrl !== urlFallida ? config.logoUrl : null;
-  const subtitulo = logoOcupado
-    ? 'Actualizando el logo…'
-    : !config.logoUrl
-      ? 'Logo de Duel · tocá para cargar el tuyo'
-      : logoPropio
-        ? 'Logo cargado · tocá para cambiarlo'
-        : 'No se pudo mostrar el logo · tocá para cambiarlo';
+  const logoRoto = !!config.logoUrl && !logoPropio;
 
   return (
     <View style={[styles.identidad, { borderColor: colors.line, backgroundColor: colors.sf }]}>
       <View style={styles.identidadFila}>
-        <TouchableOpacity
-          style={styles.identidadToque}
-          onPress={() => {
-            tocar();
-            tocarLogo();
-          }}
-          disabled={logoOcupado}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel={`Cambiar logo de ${config.nombreLocal}`}
-          accessibilityHint={subtitulo}
-          accessibilityState={{ disabled: logoOcupado, busy: logoOcupado }}
-        >
-          <View style={[styles.logoCaja, { borderColor: colors.line, backgroundColor: colors.shade }]}>
-            {logoOcupado ? (
-              <ActivityIndicator color={colors.br} />
-            ) : logoPropio ? (
-              <Image
-                source={{ uri: logoPropio }}
-                style={styles.logoPropio}
-                resizeMode="cover"
-                onError={() => setUrlFallida(logoPropio)}
-                accessibilityIgnoresInvertColors
-              />
-            ) : (
-              <Image source={mode === 'night' ? MARCA_NOCHE : MARCA_DIA} style={styles.logoMarca} resizeMode="contain" />
-            )}
-          </View>
-          <View style={styles.identidadTextos}>
-            <Text style={[styles.nombreLocal, { color: colors.ink }]} numberOfLines={2}>
-              {config.nombreLocal}
-            </Text>
-            <Text style={[styles.identidadSub, { color: colors.dim }]}>{subtitulo}</Text>
-          </View>
-        </TouchableOpacity>
+        <View style={[styles.logoCaja, { borderColor: colors.line, backgroundColor: colors.shade }]}>
+          {logoOcupado ? (
+            <ActivityIndicator color={colors.br} />
+          ) : logoPropio ? (
+            <Image
+              source={{ uri: logoPropio }}
+              style={styles.logoPropio}
+              resizeMode="cover"
+              onError={() => setUrlFallida(logoPropio)}
+              accessibilityIgnoresInvertColors
+            />
+          ) : (
+            <Image source={LOGO_DUEL} style={styles.logoMarca} resizeMode="contain" accessibilityIgnoresInvertColors />
+          )}
+        </View>
+        <View style={styles.identidadTextos}>
+          <Text style={[styles.nombreLocal, { color: colors.ink }]} numberOfLines={2}>
+            {config.nombreLocal}
+          </Text>
+          {logoRoto && !logoOcupado ? <Text style={[styles.identidadSub, { color: colors.dg }]}>No se pudo mostrar el logo</Text> : null}
+        </View>
         {!editando ? (
           <TouchableOpacity
             style={styles.editar}
@@ -460,7 +413,7 @@ function Identidad() {
               empezarEdicion();
             }}
             accessibilityRole="button"
-            accessibilityLabel="Editar el nombre del local"
+            accessibilityLabel="Editar nombre y logo del local"
           >
             <Text style={[styles.editarTexto, { color: colors.br }]}>Editar</Text>
           </TouchableOpacity>
@@ -483,6 +436,10 @@ function Identidad() {
             onSubmitEditing={() => void guardarNombre()}
             error={errorNombreLocal ?? undefined}
           />
+          <View style={styles.logoAcciones}>
+            <SmallButton label={config.logoUrl ? 'Cambiar logo' : 'Cargar logo'} onPress={() => void elegirLogo()} disabled={logoOcupado} />
+            {config.logoUrl ? <SmallButton label="Usar el de Duel" onPress={confirmarLogoDeDuel} disabled={logoOcupado} /> : null}
+          </View>
           <BotonesEdicion onCancelar={() => setEditando(false)} onGuardar={() => void guardarNombre()} guardando={guardandoNombre} />
         </View>
       ) : null}
@@ -490,72 +447,7 @@ function Identidad() {
   );
 }
 
-// ─── 2. Color de la marca ──────────────────────────────────────────────────
-
-function ColorMarca() {
-  const { config } = useConfig();
-  const { colors } = useTheme();
-  const guardar = useGuardarConfig();
-  const actual = config.marca;
-
-  const elegir = (marca: string | null) => {
-    if (marca === actual) return;
-    void guardar({ marca }, 'Color de la marca actualizado');
-  };
-
-  return (
-    <View>
-      <SectionLabel>Color de la marca</SectionLabel>
-      <View style={styles.swatches} accessibilityRole="radiogroup" accessibilityLabel="Color de la marca">
-        {BRAND_COLORS.map((color) => {
-          const elegido = actual === color;
-          return (
-            <TouchableOpacity
-              key={color}
-              style={[styles.swatch, { backgroundColor: color, borderColor: elegido ? colors.ink : 'transparent' }]}
-              onPress={() => {
-                tocar();
-                elegir(color);
-              }}
-              activeOpacity={0.8}
-              accessibilityRole="radio"
-              accessibilityLabel={`Color ${NOMBRE_COLOR[color]}`}
-              accessibilityState={{ checked: elegido, selected: elegido }}
-            >
-              {elegido ? <Text style={[styles.tilde, { color: getTheme('day', color).onBr }]}>✓</Text> : null}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <View style={styles.porDefecto}>
-        <Chip
-          label="Por defecto"
-          active={actual === null}
-          onPress={() => elegir(null)}
-          accessibilityHint="Vuelve al color original de Duel"
-        />
-      </View>
-    </View>
-  );
-}
-
-// ─── 3. Apariencia ─────────────────────────────────────────────────────────
-
-function Apariencia() {
-  const { config } = useConfig();
-  const guardar = useGuardarConfig();
-  return (
-    <Grupo titulo="Apariencia">
-      <FilaToggle
-        label="Modo noche por defecto"
-        value={config.oscuroPorDefecto}
-        onChange={(v) => void guardar({ oscuroPorDefecto: v })}
-      />
-    </Grupo>
-  );
-}
-
-// ─── 4. Turnos y horarios ──────────────────────────────────────────────────
+// ─── 2. Turnos y horarios ──────────────────────────────────────────────────
 
 function Turnos() {
   const { config } = useConfig();
@@ -687,9 +579,7 @@ function Turnos() {
         <MensajeError texto={error} />
         <View style={styles.turnosAgregar}>
           <SmallButton label="+ Agregar turno" onPress={agregar} disabled={borrador.length >= MAX_TURNOS || guardando} />
-          <Text style={[styles.ayuda, styles.flex1, { color: colors.dim }]}>
-            {borrador.length >= MAX_TURNOS ? `Hasta ${MAX_TURNOS} turnos.` : 'Un turno puede terminar después de la medianoche.'}
-          </Text>
+          {borrador.length >= MAX_TURNOS ? <Text style={[styles.ayuda, styles.flex1, { color: colors.dim }]}>Hasta {MAX_TURNOS} turnos.</Text> : null}
         </View>
         {sucio ? (
           <BotonesEdicion
@@ -705,7 +595,7 @@ function Turnos() {
   );
 }
 
-// ─── 5. Stock ──────────────────────────────────────────────────────────────
+// ─── 3. Stock ──────────────────────────────────────────────────────────────
 
 function Stock() {
   const { config } = useConfig();
@@ -714,14 +604,12 @@ function Stock() {
     <Grupo titulo="Stock">
       <FilaNumero
         label="Aviso de stock bajo"
-        sub="Avisa al quedar esta cantidad o menos, salvo que el producto tenga su propio aviso"
         valor={config.alertaStock}
         lim={LIMITES.alertaStock}
         onGuardar={(n) => guardar({ alertaStock: n })}
       />
       <EditorListaTextos
         titulo="Rubros de cafetería"
-        ayuda="Cómo se agrupan los productos en el pedido, el stock y la caja. TCG y Servicios los maneja la app. Tocá uno para quitarlo."
         valores={config.rubrosCafeteria}
         que="rubro"
         placeholder="Ej.: Panadería"
@@ -735,7 +623,7 @@ function Stock() {
   );
 }
 
-// ─── 6. Torneos ────────────────────────────────────────────────────────────
+// ─── 4. Torneos ────────────────────────────────────────────────────────────
 
 const enMinutos = (n: number) => `${n} min`;
 
@@ -746,11 +634,10 @@ function Torneos() {
   const guardarCampo = (campo: keyof DefaultsTorneo) => (n: number) => guardar({ torneo: { [campo]: n } as Partial<DefaultsTorneo> });
 
   return (
-    <Grupo titulo="Torneos" sub="Valores con los que arranca cada torneo nuevo.">
-      <FilaNumero label="Rondas" sub="Por torneo" valor={config.torneo.rondas} lim={LIMITES.rondas} onGuardar={guardarCampo('rondas')} />
+    <Grupo titulo="Torneos">
+      <FilaNumero label="Rondas" valor={config.torneo.rondas} lim={LIMITES.rondas} onGuardar={guardarCampo('rondas')} />
       <FilaNumero
         label="Minutos por ronda"
-        sub="Reloj de la sala"
         valor={config.torneo.minutos}
         lim={LIMITES.minutos}
         paso={5}
@@ -759,7 +646,6 @@ function Torneos() {
       />
       <FilaNumero
         label="Tiempo extra"
-        sub="Lo que suma el juez al llegar a cero"
         valor={config.torneo.extra}
         lim={LIMITES.extra}
         formato={enMinutos}
@@ -767,23 +653,20 @@ function Torneos() {
       />
       <FilaNumero
         label="Inscripción"
-        sub="Lo que paga cada jugador"
         valor={config.torneo.inscripcion}
         lim={LIMITES.inscripcion}
         paso={500}
         formato={formatARS}
         onGuardar={guardarCampo('inscripcion')}
       />
-      <FilaNumero label="Cupo" sub="Máximo de jugadores" valor={config.torneo.cupo} lim={LIMITES.cupo} onGuardar={guardarCampo('cupo')} />
+      <FilaNumero label="Cupo de jugadores" valor={config.torneo.cupo} lim={LIMITES.cupo} onGuardar={guardarCampo('cupo')} />
       <FilaToggle
         label="Los jugadores reportan su resultado"
-        sub="Desde su celular; si no coinciden, decide el juez"
         value={config.reporteJugador}
         onChange={(v) => void guardar({ reporteJugador: v })}
       />
       <FilaToggle
         label="Premios con crédito de cafetería"
-        sub="Se acredita a la cuenta del jugador al entregar el premio"
         value={config.creditoPremio}
         onChange={(v) => void guardar({ creditoPremio: v })}
       />
@@ -798,7 +681,6 @@ function Juegos() {
   return (
     <EditorListaTextos
       titulo="Juegos"
-      ayuda="Los que se eligen al crear un torneo. Tocá uno para quitarlo."
       valores={config.juegos}
       que="juego"
       placeholder="Ej.: Lorcana"
@@ -809,7 +691,8 @@ function Juegos() {
     />
   );
 }
-// ─── 7. Cobro ──────────────────────────────────────────────────────────────
+
+// ─── 5. Cobro ──────────────────────────────────────────────────────────────
 
 function Cobro() {
   const { config } = useConfig();
@@ -830,13 +713,11 @@ function Cobro() {
     <Grupo titulo="Cobro">
       <FilaToggle
         label="Cobrar descuenta stock"
-        sub="Lo vendido baja del stock solo"
         value={config.descontarStock}
         onChange={(v) => void guardar({ descontarStock: v })}
       />
       <View style={[styles.bloque, { borderTopColor: colors.line }]}>
         <Text style={[styles.filaLabel, { color: colors.ink }]}>Medios de pago</Text>
-        <Text style={[styles.ayuda, { color: colors.dim }]}>Los que el mozo ve al cobrar. El crédito de torneo se aplica aparte.</Text>
         <View style={styles.chipsJuegos}>
           {MEDIOS_COBRO.map((id) => {
             const activo = config.mediosPago.includes(id);
@@ -849,7 +730,7 @@ function Cobro() {
   );
 }
 
-// ─── 8. Temporada ──────────────────────────────────────────────────────────
+// ─── 6. Temporada ──────────────────────────────────────────────────────────
 
 function Temporada() {
   const { config } = useConfig();
@@ -940,9 +821,9 @@ function Temporada() {
           />
         ) : null}
       </View>
-      <Fila label="Inicio" sub={inicio ? 'Cuentan los torneos desde ese momento' : undefined}>
+      <Fila label="Inicio">
         <Text style={[styles.valorTexto, { color: colors.gold }, tabularNums(12.5)]}>
-          {inicio ? `${fechaConAnio(inicio)}${horaInicio ? ` · ${horaInicio}` : ''}` : 'Cuentan todos los torneos'}
+          {inicio ? `${fechaConAnio(inicio)}${horaInicio ? ` · ${horaInicio}` : ''}` : 'Sin fecha'}
         </Text>
       </Fila>
       <View style={[styles.bloque, { borderTopColor: colors.line }]}>
@@ -958,27 +839,26 @@ function Temporada() {
   );
 }
 
-// ─── 9. Equipo ─────────────────────────────────────────────────────────────
+// ─── 7. Equipo ─────────────────────────────────────────────────────────────
 
 function AccesoEquipo() {
   const router = useRouter();
   const { colors } = useTheme();
   const { pendientes, error } = useEquipo({ soloPendientes: true });
   const cantidad = pendientes.length;
-  const sub = error
-    ? 'No se pudo ver si hay solicitudes nuevas'
-    : cantidad > 0
-      ? `${cantidad === 1 ? 'Una persona espera' : `${cantidad} personas esperan`} tu aprobación`
-      : 'Aprobaciones, roles y código de invitación';
+  const pendientesTexto = cantidad === 1 ? '1 pendiente' : `${cantidad} pendientes`;
 
   return (
-    <Card onPress={() => router.push('/(tabs)/ajustes/equipo')} accessibilityLabel={`Equipo. ${sub}`}>
+    <Card
+      onPress={() => router.push('/(tabs)/ajustes/equipo')}
+      accessibilityLabel={`Equipo${cantidad > 0 ? `, ${pendientesTexto}` : ''}`}
+    >
       <View style={styles.equipoFila}>
         <View style={styles.filaTextos}>
           <Text style={[styles.grupoTitulo, { color: colors.ink }]}>Equipo</Text>
-          <Text style={[styles.filaSub, { color: error ? colors.dg : colors.dim }]}>{sub}</Text>
+          {error ? <Text style={[styles.filaSub, { color: colors.dg }]}>No se pudo ver si hay solicitudes nuevas</Text> : null}
         </View>
-        {cantidad > 0 ? <Badge label={cantidad === 1 ? '1 pendiente' : `${cantidad} pendientes`} tone="br" /> : null}
+        {cantidad > 0 ? <Badge label={pendientesTexto} tone="br" /> : null}
         <Ionicons name="chevron-forward" size={18} color={colors.dim} />
       </View>
     </Card>
@@ -988,12 +868,10 @@ function AccesoEquipo() {
 const styles = StyleSheet.create({
   flex1: { flex: 1 },
   contenido: { gap: 16 },
-  notaPie: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 18, textAlign: 'center', paddingHorizontal: 8 },
 
   grupo: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 15, paddingTop: 4, paddingBottom: 6 },
   grupoCabeza: { paddingTop: 12, paddingBottom: 10 },
   grupoTitulo: { fontFamily: Typography.fontFamily.bold, fontSize: 14.5, letterSpacing: -0.15 },
-  grupoSub: { fontFamily: Typography.fontFamily.regular, fontSize: 11, lineHeight: 16, marginTop: 3 },
 
   fila: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderTopWidth: 1, minHeight: 56 },
   filaTextos: { flex: 1 },
@@ -1003,7 +881,6 @@ const styles = StyleSheet.create({
 
   bloque: { borderTopWidth: 1, paddingVertical: 12, gap: 8 },
   chipsJuegos: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  agregarJuego: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
   botones: { flexDirection: 'row', gap: 8 },
   botonChico: { flex: 1 },
   botonGrande: { flex: 1.6 },
@@ -1011,8 +888,7 @@ const styles = StyleSheet.create({
   ayuda: { fontFamily: Typography.fontFamily.regular, fontSize: 11, lineHeight: 16 },
 
   identidad: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 12 },
-  identidadFila: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  identidadToque: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 },
+  identidadFila: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 },
   logoCaja: {
     width: 44,
     height: 44,
@@ -1030,11 +906,7 @@ const styles = StyleSheet.create({
   editar: { minHeight: 44, minWidth: 44, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
   editarTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 12 },
   edicion: { gap: 8 },
-
-  swatches: { flexDirection: 'row', gap: 9 },
-  swatch: { flex: 1, height: 44, borderRadius: 12, borderWidth: 2.5, alignItems: 'center', justifyContent: 'center' },
-  tilde: { fontFamily: Typography.fontFamily.bold, fontSize: 15 },
-  porDefecto: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
+  logoAcciones: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 
   turno: { borderTopWidth: 1, paddingVertical: 12, gap: 8 },
   turnoFila: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },

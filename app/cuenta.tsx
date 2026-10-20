@@ -80,6 +80,7 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
   const [repetir, setRepetir] = useState('');
   const [erroresPass, setErroresPass] = useState<ErroresPassword>({});
   const [guardandoPass, setGuardandoPass] = useState(false);
+  const [cambiandoPass, setCambiandoPass] = useState(false);
 
   const [cerrandoSesion, setCerrandoSesion] = useState(false);
   const [subiendoFoto, setSubiendoFoto] = useState(false);
@@ -241,9 +242,7 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
         }
         return;
       }
-      setActual('');
-      setNueva('');
-      setRepetir('');
+      cerrarPassword();
       mostrar('Contraseña actualizada.', 'ok');
     } finally {
       setGuardandoPass(false);
@@ -274,6 +273,14 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
         },
       },
     ]);
+  };
+
+  const cerrarPassword = () => {
+    setActual('');
+    setNueva('');
+    setRepetir('');
+    setErroresPass({});
+    setCambiandoPass(false);
   };
 
   const limpiarErrorPass = (campo: keyof ErroresPassword) => {
@@ -334,77 +341,89 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
             void guardarNombre();
           }}
         />
-        <Button
-          label="Guardar nombre"
-          variant="secondary"
-          onPress={() => {
-            void guardarNombre();
-          }}
-          loading={guardandoNombre}
-          disabled={!nombreCambiado}
-        />
+        {nombreCambiado || guardandoNombre ? (
+          <Button
+            label="Guardar nombre"
+            onPress={() => {
+              void guardarNombre();
+            }}
+            loading={guardandoNombre}
+          />
+        ) : null}
       </View>
 
       <View style={styles.seccion}>
         <SectionLabel>Contraseña</SectionLabel>
-        <FormField
-          label="Contraseña actual"
-          value={actual}
-          onChangeText={(t) => {
-            setActual(t);
-            limpiarErrorPass('actual');
-          }}
-          error={erroresPass.actual}
-          secureToggle
-          autoCapitalize="none"
-          autoCorrect={false}
-          autoComplete="current-password"
-          textContentType="password"
-          maxLength={128}
-          editable={!guardandoPass}
-        />
-        <FormField
-          label="Contraseña nueva"
-          value={nueva}
-          onChangeText={(t) => {
-            setNueva(t);
-            limpiarErrorPass('nueva');
-          }}
-          error={erroresPass.nueva}
-          placeholder={`Mínimo ${PASSWORD_MIN} caracteres`}
-          secureToggle
-          autoCapitalize="none"
-          autoCorrect={false}
-          autoComplete="new-password"
-          textContentType="newPassword"
-          maxLength={128}
-          editable={!guardandoPass}
-        />
-        <FormField
-          label="Repetir contraseña nueva"
-          value={repetir}
-          onChangeText={(t) => {
-            setRepetir(t);
-            limpiarErrorPass('repetir');
-          }}
-          error={erroresPass.repetir}
-          secureToggle
-          autoCapitalize="none"
-          autoCorrect={false}
-          autoComplete="new-password"
-          textContentType="newPassword"
-          maxLength={128}
-          editable={!guardandoPass}
-        />
-        <Button
-          label="Cambiar contraseña"
-          variant="secondary"
-          onPress={() => {
-            void cambiarPassword();
-          }}
-          loading={guardandoPass}
-          disabled={!actual && !nueva && !repetir}
-        />
+        {cambiandoPass ? (
+          <>
+            <FormField
+              label="Contraseña actual"
+              autoFocus
+              value={actual}
+              onChangeText={(t) => {
+                setActual(t);
+                limpiarErrorPass('actual');
+              }}
+              error={erroresPass.actual}
+              secureToggle
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="current-password"
+              textContentType="password"
+              maxLength={128}
+              editable={!guardandoPass}
+            />
+            <FormField
+              label="Contraseña nueva"
+              value={nueva}
+              onChangeText={(t) => {
+                setNueva(t);
+                limpiarErrorPass('nueva');
+              }}
+              error={erroresPass.nueva}
+              placeholder={`Mínimo ${PASSWORD_MIN} caracteres`}
+              secureToggle
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="new-password"
+              textContentType="newPassword"
+              maxLength={128}
+              editable={!guardandoPass}
+            />
+            <FormField
+              label="Repetir contraseña nueva"
+              value={repetir}
+              onChangeText={(t) => {
+                setRepetir(t);
+                limpiarErrorPass('repetir');
+              }}
+              error={erroresPass.repetir}
+              secureToggle
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="new-password"
+              textContentType="newPassword"
+              maxLength={128}
+              editable={!guardandoPass}
+            />
+            <View style={styles.botones}>
+              <View style={styles.flex1}>
+                <Button label="Cancelar" variant="secondary" onPress={cerrarPassword} disabled={guardandoPass} />
+              </View>
+              <View style={styles.flex16}>
+                <Button
+                  label="Guardar contraseña"
+                  onPress={() => {
+                    void cambiarPassword();
+                  }}
+                  loading={guardandoPass}
+                />
+              </View>
+            </View>
+          </>
+        ) : (
+          <Button label="Cambiar contraseña" variant="secondary" onPress={() => setCambiandoPass(true)} />
+        )}
       </View>
 
       <View style={styles.seccion}>
@@ -436,6 +455,9 @@ const styles = StyleSheet.create({
   creditoLabel: { fontFamily: Typography.fontFamily.bold, fontSize: 10, letterSpacing: 1.6 },
   creditoValor: { fontFamily: Typography.display.semibold, fontSize: 28 },
   seccion: { marginTop: 24, gap: 10 },
+  botones: { flexDirection: 'row', gap: 8 },
+  flex1: { flex: 1 },
+  flex16: { flex: 1.6 },
   chips: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   version: { fontFamily: Typography.fontFamily.regular, fontSize: 11, textAlign: 'center', marginTop: 28 },
 });

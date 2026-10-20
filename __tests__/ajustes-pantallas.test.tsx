@@ -179,26 +179,42 @@ describe('Ajustes', () => {
   it('muestra todas las secciones y el contador de pendientes', async () => {
     const r = await montar(<AjustesScreen />);
     const texto = textoDe(r);
-    for (const seccion of ['Ajustes del local', 'COLOR DE LA MARCA', 'Apariencia', 'Turnos y horarios', 'Stock', 'Torneos', 'Cobro', 'Temporada', 'Equipo']) {
+    for (const seccion of ['Ajustes del local', 'Turnos y horarios', 'Stock', 'Torneos', 'Cobro', 'Temporada', 'Equipo']) {
       expect(texto).toContain(seccion);
     }
+    // Personalización básica: nombre y logo. Ni color de marca ni modo noche del local.
+    for (const quitado of ['COLOR DE LA MARCA', 'Apariencia', 'Modo noche por defecto']) {
+      expect(texto).not.toContain(quitado);
+    }
     expect(texto).toContain('1 PENDIENTE');
-    expect(texto).toContain('Cuentan todos los torneos');
-    await tocar(r, 'Equipo. Una persona espera tu aprobación');
+    expect(texto).toContain('Sin fecha');
+    await tocar(r, 'Equipo, 1 pendiente');
     expect(mockPush).toHaveBeenCalledWith('/(tabs)/ajustes/equipo');
     await desmontar(r);
   });
 
-  it('elige color de marca y vuelve al de por defecto', async () => {
+  it('el logo se cambia desde Editar, junto con el nombre', async () => {
     const r = await montar(<AjustesScreen />);
-    await tocar(r, 'Color verde');
-    expect(mockGuardarConfig).toHaveBeenCalledWith({ marca: '#3F6B58' });
+    expect(r.root.findAll((n) => n.props.accessibilityLabel === 'Cargar logo')).toHaveLength(0);
+    await tocar(r, 'Editar nombre y logo del local');
+    expect(r.root.findAll((n) => n.props.accessibilityLabel === 'Cargar logo').length).toBeGreaterThan(0);
+    // Sin logo propio no hay a qué volver.
+    expect(r.root.findAll((n) => n.props.accessibilityLabel === 'Usar el de Duel')).toHaveLength(0);
     await desmontar(r);
 
-    mockConfig = { ...CONFIG_DEFAULT, marca: '#3F6B58' };
+    mockConfig = { ...CONFIG_DEFAULT, logoUrl: 'https://logo.test/l.png' };
+    const alerta = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     const r2 = await montar(<AjustesScreen />);
-    await tocar(r2, 'Por defecto');
-    expect(mockGuardarConfig).toHaveBeenLastCalledWith({ marca: null });
+    await tocar(r2, 'Editar nombre y logo del local');
+    await tocar(r2, 'Usar el de Duel');
+    // Borra el logo propio: primero pregunta.
+    expect(mockGuardarConfig).not.toHaveBeenCalled();
+    const botones = alerta.mock.calls[0][2] as AlertButton[];
+    await act(async () => {
+      botones.find((b) => b.style === 'destructive')?.onPress?.();
+    });
+    expect(mockGuardarConfig).toHaveBeenCalledWith({ logoUrl: null });
+    alerta.mockRestore();
     await desmontar(r2);
   });
 
@@ -249,7 +265,7 @@ describe('Ajustes', () => {
 
   it('valida el nombre del local', async () => {
     const r = await montar(<AjustesScreen />);
-    await tocar(r, 'Editar el nombre del local');
+    await tocar(r, 'Editar nombre y logo del local');
     const campo = r.root.findAll((n) => n.props.accessibilityLabel === 'Nombre del local' && typeof n.props.onChangeText === 'function')[0];
     await act(async () => {
       (campo.props.onChangeText as (t: string) => void)('   ');

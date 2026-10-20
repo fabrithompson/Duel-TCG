@@ -462,8 +462,6 @@ function CobroSheet(props: CobroSheetProps) {
                 </Text>
               ) : bloqueo ? (
                 <Text style={[styles.aviso, { color: colors.dg }]}>{bloqueo}</Text>
-              ) : total > 0 && medioFinal === null ? (
-                <Text style={[styles.nota, { color: colors.dim }]}>Elegí el medio de pago para confirmar.</Text>
               ) : null}
               <Button label={`Confirmar cobro ${formatARS(total)}`} onPress={() => void confirmar()} loading={enviando} disabled={!puedeConfirmar} />
             </View>
@@ -499,6 +497,21 @@ export default function PedidoScreen() {
   const [salida, setSalida] = useState<Salida | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const [yCuenta, setYCuenta] = useState(0);
+  // "Ver cuenta" solo hace falta cuando la cuenta quedó abajo, fuera de la vista.
+  const [cuentaFuera, setCuentaFuera] = useState(true);
+  const yCuentaRef = useRef(0);
+  const vistaScroll = useRef({ y: 0, alto: 0 });
+  const recalcularCuentaFuera = useCallback(() => {
+    const v = vistaScroll.current;
+    setCuentaFuera(v.alto === 0 || yCuentaRef.current > v.y + v.alto - 48);
+  }, []);
+  const onVista = useCallback(
+    (y: number, alto: number) => {
+      vistaScroll.current = { y, alto };
+      recalcularCuentaFuera();
+    },
+    [recalcularCuentaFuera]
+  );
 
   const [baseVista, setBaseVista] = useState<ItemPedido[] | null>(null);
   const base = useRef<ItemPedido[] | null>(null);
@@ -763,7 +776,7 @@ export default function PedidoScreen() {
       <View style={styles.totalFila}>
         <View style={styles.totalIzquierda}>
           <Text style={[styles.totalLabel, { color: colors.dim }]}>TOTAL</Text>
-          {cuenta.length > 0 ? (
+          {cuenta.length > 0 && cuentaFuera ? (
             // Con un catálogo largo la cuenta queda abajo de todo: un toque para ir a revisarla.
             <Pressable
               onPress={() => scrollRef.current?.scrollTo({ y: Math.max(0, yCuenta - 12), animated: true })}
@@ -811,6 +824,7 @@ export default function PedidoScreen() {
       }
       footer={footer}
       scrollRef={scrollRef}
+      onVista={onVista}
     >
       {errorMesa ? <ErrorBanner mensaje={mensajeError(errorMesa, 'Se perdió la conexión con la mesa.')} /> : null}
       {errorCatalogo ? <ErrorBanner mensaje={mensajeError(errorCatalogo, 'No se pudo cargar el catálogo.')} onRetry={reintentarCatalogo} /> : null}
@@ -839,11 +853,18 @@ export default function PedidoScreen() {
         </>
       )}
 
-      <View style={styles.cuentaHeader} onLayout={(e) => setYCuenta(e.nativeEvent.layout.y)}>
+      <View
+        style={styles.cuentaHeader}
+        onLayout={(e) => {
+          setYCuenta(e.nativeEvent.layout.y);
+          yCuentaRef.current = e.nativeEvent.layout.y;
+          recalcularCuentaFuera();
+        }}
+      >
         <SectionLabel>Cuenta</SectionLabel>
       </View>
       {cuenta.length === 0 ? (
-        <Text style={[styles.nota, { color: colors.dim }]}>La cuenta está vacía. Tocá un producto para sumarlo.</Text>
+        <Text style={[styles.nota, { color: colors.dim }]}>La cuenta está vacía.</Text>
       ) : (
         cuenta.map((l) => {
           const producto = buscarEnCatalogo(catalogo, l);
@@ -936,7 +957,7 @@ const styles = StyleSheet.create({
   totalFila: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   totalLabel: { fontFamily: Typography.fontFamily.bold, fontSize: 10, letterSpacing: 1.6 },
   totalIzquierda: { gap: 4 },
-  verCuenta: { minHeight: 28, justifyContent: 'center' },
+  verCuenta: { minHeight: 32, justifyContent: 'center' },
   verCuentaTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 12, textDecorationLine: 'underline' },
   total: { fontFamily: Typography.display.bold, fontSize: 27 },
   acciones: { flexDirection: 'row', gap: 8 },

@@ -9,14 +9,12 @@ describe('normalizarConfig', () => {
   it('respeta valores válidos', () => {
     const c = normalizarConfig({
       nombreLocal: '  Duel · Palermo  ',
-      marca: '#3f6b58',
       alertaStock: 12,
       torneo: { rondas: 6, minutos: 45, extra: 5, inscripcion: 7000, cupo: 32 },
       temporada: { nombre: 'T2', inicio: '2026-07-01' },
       reporteJugador: false,
     });
     expect(c.nombreLocal).toBe('Duel · Palermo');
-    expect(c.marca).toBe('#3F6B58');
     expect(c.alertaStock).toBe(12);
     expect(c.torneo).toEqual({ rondas: 6, minutos: 45, extra: 5, inscripcion: 7000, cupo: 32 });
     expect(c.temporada).toEqual({ nombre: 'T2', inicio: '2026-07-01', inicioMs: null });
@@ -26,7 +24,6 @@ describe('normalizarConfig', () => {
   it('descarta valores inválidos o maliciosos', () => {
     const c = normalizarConfig({
       nombreLocal: '',
-      marca: 'red; background:url(x)',
       logoUrl: 'http://inseguro.com/logo.png',
       alertaStock: -40,
       torneo: { rondas: 999, minutos: 'mucho', cupo: 1 },
@@ -35,7 +32,6 @@ describe('normalizarConfig', () => {
       descontarStock: 'sí',
     });
     expect(c.nombreLocal).toBe(CONFIG_DEFAULT.nombreLocal);
-    expect(c.marca).toBeNull();
     expect(c.logoUrl).toBeNull();
     expect(c.alertaStock).toBe(LIMITES.alertaStock.min);
     expect(c.torneo.rondas).toBe(LIMITES.rondas.max);
@@ -44,6 +40,13 @@ describe('normalizarConfig', () => {
     expect(c.temporada.inicio).toBeNull();
     expect(c.turnos).toEqual(CONFIG_DEFAULT.turnos);
     expect(c.descontarStock).toBe(CONFIG_DEFAULT.descontarStock);
+  });
+
+  it('ignora el color de marca y el modo noche del local de versiones anteriores', () => {
+    const c = normalizarConfig({ marca: '#3F6B58', oscuroPorDefecto: true });
+    expect(c).toEqual(CONFIG_DEFAULT);
+    expect('marca' in c).toBe(false);
+    expect('oscuroPorDefecto' in c).toBe(false);
   });
 
   it('limita la cantidad de turnos y recorta nombres', () => {

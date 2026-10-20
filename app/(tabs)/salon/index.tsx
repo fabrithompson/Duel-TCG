@@ -1,5 +1,17 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Animated, KeyboardAvoidingView, LayoutChangeEvent, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Animated,
+  KeyboardAvoidingView,
+  LayoutChangeEvent,
+  Modal,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
@@ -43,6 +55,10 @@ import { preguntar } from '../../../lib/dialogo';
 const PASO_PUNTOS = 16;
 const UMBRAL_ARRASTRE = 6;
 const BORDE_LIENZO = 1;
+// Con el celular acostado el plano no entra junto a la leyenda y "+ Mesa": la pantalla pasa a
+// scrollear y el plano toma un alto fijo en el que las mesas no se pisan.
+const ALTO_VENTANA_SIN_SCROLL = 520;
+const ALTO_LIENZO_PLEGADO = 400;
 const SIN_CONEXION = ` ${AVISO_SIN_SENAL}`;
 
 interface Medidas {
@@ -103,6 +119,8 @@ interface MesaEnLienzoProps {
   readonly onAbrir: (mesa: Mesa) => void;
   readonly onOpciones: (mesa: Mesa) => void;
   readonly onSoltar: (mesa: Mesa, left: number, top: number) => Promise<boolean>;
+  /** Avisa cuándo empieza y termina un arrastre, para frenar el scroll de la pantalla mientras tanto. */
+  readonly onArrastre: (activo: boolean) => void;
 }
 
 const MesaEnLienzo = memo(function MesaEnLienzo(props: MesaEnLienzoProps) {
@@ -141,12 +159,14 @@ const MesaEnLienzo = memo(function MesaEnLienzo(props: MesaEnLienzoProps) {
       onPanResponderGrant: () => {
         tocar();
         setArrastrando(true);
+        ultimo.current.onArrastre(true);
       },
       onPanResponderMove: (_, g) => {
         pan.setValue(limitar(g.dx, g.dy));
       },
       onPanResponderRelease: (_, g) => {
         setArrastrando(false);
+        ultimo.current.onArrastre(false);
         const d = limitar(g.dx, g.dy);
         const p = ultimo.current;
         p.onSoltar(p.mesa, p.left + d.x, p.top + d.y)
@@ -157,6 +177,7 @@ const MesaEnLienzo = memo(function MesaEnLienzo(props: MesaEnLienzoProps) {
       },
       onPanResponderTerminate: () => {
         setArrastrando(false);
+        ultimo.current.onArrastre(false);
         volver();
       },
     });
@@ -330,6 +351,9 @@ function SalonPantalla() {
   const toast = useToast();
   const { profile } = useUserProfileContext();
   const esAdmin = profile?.role === 'admin';
+  const plegado = useWindowDimensions().height < ALTO_VENTANA_SIN_SCROLL;
+  // En iOS el scroll nativo no respeta al PanResponder de la mesa: se apaga mientras se arrastra.
+  const [moviendoMesa, setMoviendoMesa] = useState(false);
 
   const { salas, cargando: cargandoSalas, error: errorSalas, reintentar: reintentarSalas } = useSalas();
   const { mesas, cargando: cargandoMesas, error: errorMesas, reintentar: reintentarMesas } = useMesas('todas');
@@ -550,6 +574,10 @@ function SalonPantalla() {
   if (cargandoSalas || (cargandoMesas && mesas.length === 0 && !errorMesas)) return <LoadingScreen />;
 
   const errorVisible = errorSalas ?? errorMesas;
+  const Cuerpo = plegado ? ScrollView : View;
+  const propsCuerpo = plegado
+    ? { style: styles.flex1, contentContainerStyle: styles.cuerpoPlegado, scrollEnabled: !moviendoMesa }
+    : { style: styles.cuerpo };
   const resumen = `${ocupadas} ${ocupadas === 1 ? 'ocupada' : 'ocupadas'}${enDuelo > 0 ? ` · ${enDuelo} en duelo` : ''}`;
 
   return (
@@ -562,7 +590,7 @@ function SalonPantalla() {
         </Text>
       }
     >
-      <View style={styles.cuerpo}>
+      <Cuerpo {...propsCuerpo}>
         {errorVisible ? (
           <ErrorBanner
             mensaje={mensajeError(errorVisible, 'No se pudo cargar el salón.')}
@@ -600,7 +628,7 @@ function SalonPantalla() {
               ) : null}
             </ScrollView>
 
-            <View style={[styles.lienzo, { borderColor: colors.line }]} onLayout={onLayoutLienzo}>
+            <View style={[styles.lienzo, plegado ? styles.lienzoPlegado : styles.lienzoLleno, { borderColor: colors.line }]} onLayout={onLayoutLienzo}>
               {lienzo ? <PuntosLienzo ancho={lienzo.ancho} alto={lienzo.alto} color={colors.shade} /> : null}
               {lienzo && mesasSala.length === 0 ? (
                 <View style={styles.lienzoVacio}>
@@ -630,6 +658,7 @@ function SalonPantalla() {
                         onAbrir={abrirMesa}
                         onOpciones={opcionesMesa}
                         onSoltar={soltarMesa}
+                        onArrastre={setMoviendoMesa}
                       />
                     );
                   })
@@ -659,7 +688,7 @@ function SalonPantalla() {
             ) : null}
           </>
         )}
-      </View>
+      </Cuerpo>
 
       {esAdmin ? (
         <SalaModal
@@ -679,10 +708,13 @@ function SalonPantalla() {
 
 const styles = StyleSheet.create({
   cuerpo: { flex: 1, paddingHorizontal: 20, paddingBottom: 14 },
+  cuerpoPlegado: { paddingHorizontal: 20, paddingBottom: 14 },
   resumen: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, paddingTop: 10 },
   chipsScroll: { flexGrow: 0 },
   chips: { gap: 8, paddingVertical: 4 },
-  lienzo: { flex: 1, minHeight: 260, marginTop: 12, borderWidth: BORDE_LIENZO, borderRadius: Radii.roomBoard, overflow: 'hidden' },
+  lienzo: { marginTop: 12, borderWidth: BORDE_LIENZO, borderRadius: Radii.roomBoard, overflow: 'hidden' },
+  lienzoLleno: { flex: 1, minHeight: 260 },
+  lienzoPlegado: { height: ALTO_LIENZO_PLEGADO },
   punto: { position: 'absolute', width: 2, height: 2, borderRadius: 1 },
   lienzoVacio: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', padding: 24 },
   lienzoVacioTitulo: { fontFamily: Typography.fontFamily.semibold, fontSize: 14, textAlign: 'center' },
@@ -690,7 +722,7 @@ const styles = StyleSheet.create({
   mesa: { position: 'absolute', borderWidth: 1.5 },
   mesaPress: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   mesaNumero: { fontFamily: Typography.display.semibold, fontSize: 18, lineHeight: 20 },
-  mesaTipo: { fontFamily: Typography.fontFamily.semibold, fontSize: 8.5, letterSpacing: 1, marginTop: 3 },
+  mesaTipo: { fontFamily: Typography.fontFamily.semibold, fontSize: 10, letterSpacing: 0.8, marginTop: 3 },
   mesaInfo: { fontFamily: Typography.fontFamily.semibold, fontSize: 11, marginTop: 2 },
   leyenda: { flexDirection: 'row', flexWrap: 'wrap', gap: 18, marginTop: 12 },
   leyendaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },

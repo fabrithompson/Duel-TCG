@@ -179,7 +179,7 @@ function resumenStock(items: readonly CatalogoItem[]): { titulo: string; subtitu
     const stock = item.stock ?? 0;
     return {
       titulo: stock <= 0 ? `${item.nombre}: sin stock` : `Quedan ${formatCantidad(stock, item.unidad)} de ${item.nombre}`,
-      subtitulo: 'Por debajo del mínimo de alerta',
+      subtitulo: '',
     };
   }
   const agotados = items.filter((i) => (i.stock ?? 0) <= 0).length;
@@ -266,7 +266,7 @@ export function armarPendientes({ role, mesas, torneos, stockBajo: bajos, staffP
       pendientes.push({
         id: 'mesas-resto',
         titulo: `${resto} ${plural(resto, 'mesa más', 'mesas más')} con cuenta abierta`,
-        subtitulo: 'Miralas en el plano del salón',
+        subtitulo: '',
         tono: 'br',
         destino: '/(tabs)/salon',
         hint: 'Abre el Salón',

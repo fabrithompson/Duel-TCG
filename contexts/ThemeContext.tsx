@@ -2,9 +2,8 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getTheme, ThemeMode, ThemeTokens } from '../constants/theme';
-import { useConfig } from './ConfigContext';
 
-/** 'auto' = sigue la preferencia del local (o la del sistema si el local no fija una). */
+/** 'auto' = sigue al modo claro u oscuro del teléfono. */
 export type PreferenciaTema = ThemeMode | 'auto';
 
 const CLAVE_TEMA = 'duel.preferenciaTema';
@@ -21,7 +20,6 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { readonly children: React.ReactNode }) {
   const system = useColorScheme();
-  const { config } = useConfig();
   const [preferencia, setPreferenciaState] = useState<PreferenciaTema>('auto');
 
   useEffect(() => {
@@ -37,9 +35,9 @@ export function ThemeProvider({ children }: { readonly children: React.ReactNode
     AsyncStorage.setItem(CLAVE_TEMA, p).catch(() => undefined);
   }, []);
 
-  const modoAuto: ThemeMode = config.oscuroPorDefecto || system === 'dark' ? 'night' : 'day';
+  const modoAuto: ThemeMode = system === 'dark' ? 'night' : 'day';
   const mode: ThemeMode = preferencia === 'auto' ? modoAuto : preferencia;
-  const colors = useMemo(() => getTheme(mode, config.marca ?? undefined), [mode, config.marca]);
+  const colors = useMemo(() => getTheme(mode), [mode]);
 
   const toggleMode = useCallback(() => {
     setPreferencia(mode === 'day' ? 'night' : 'day');

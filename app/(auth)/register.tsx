@@ -326,11 +326,13 @@ export default function RegisterScreen() {
             ) : null}
           </View>
 
-          <View style={[styles.note, styles.noteGap, { borderColor: colors.gold }]}>
-            <Text style={[styles.noteText, { color: colors.ink }]}>
-              <Text style={[styles.noteFuerte, { color: colors.gold }]}>Mozo y juez</Text> quedan pendientes hasta que el admin los apruebe.
-            </Text>
-          </View>
+          {necesitaCodigo ? (
+            <View style={[styles.note, styles.noteGap, { borderColor: colors.gold }]}>
+              <Text style={[styles.noteText, { color: colors.ink }]}>Tu cuenta queda pendiente hasta que el admin la apruebe.</Text>
+            </View>
+          ) : (
+            <View style={styles.sinNota} />
+          )}
 
           {errorGeneral ? <ErrorBanner mensaje={errorGeneral} /> : null}
 
@@ -362,7 +364,7 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: { flexGrow: 1, paddingHorizontal: 26, paddingTop: 14, paddingBottom: 30 },
-  back: { alignSelf: 'flex-start', marginBottom: 16, minHeight: 24, justifyContent: 'center' },
+  back: { alignSelf: 'flex-start', marginBottom: 12, minHeight: 32, justifyContent: 'center' },
   backText: { fontFamily: Typography.fontFamily.semibold, fontSize: 12 },
   title: { fontFamily: Typography.display.bold, fontSize: 27, letterSpacing: -0.8 },
   titleGap: { marginBottom: 20 },
@@ -370,6 +372,7 @@ const styles = StyleSheet.create({
   campos: { gap: 12, marginTop: 20 },
   note: { borderWidth: 1, borderStyle: 'dashed', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14 },
   noteGap: { marginTop: 16, marginBottom: 18 },
+  sinNota: { height: 18 },
   noteText: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 18.4 },
   noteFuerte: { fontFamily: Typography.fontFamily.semibold },
   loginBox: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', marginTop: 10, paddingHorizontal: 8 },

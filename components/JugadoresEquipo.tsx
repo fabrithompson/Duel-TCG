@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { collection, doc, limit, onSnapshot, query, where, writeBatch } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useTheme } from '../contexts/ThemeContext';
@@ -67,7 +68,7 @@ export default function JugadoresEquipo() {
   const confirmarBloqueo = (j: JugadorDirectorio) => {
     preguntar(
       `¿Bloquear a ${etiquetas.get(j.uid) ?? j.nombre}?`,
-      'No va a poder entrar a la app y deja de aparecer en las búsquedas del staff. Su historial y su crédito se conservan: podés reactivarlo cuando quieras.',
+      'No va a poder entrar a la app. Su historial y su crédito se conservan.',
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Bloquear', style: 'destructive', onPress: () => void cambiarAcceso(j, true) },
@@ -75,24 +76,37 @@ export default function JugadoresEquipo() {
     );
   };
 
-  const fila = (j: JugadorDirectorio, bloqueado: boolean) => (
+  const datos = (j: JugadorDirectorio, bloqueado: boolean) => (
+    <View style={styles.textos}>
+      <Text style={[styles.nombre, { color: bloqueado ? colors.dim : colors.ink }]} numberOfLines={1}>
+        {etiquetas.get(j.uid) ?? j.nombre}
+      </Text>
+      <Text style={[styles.meta, { color: colors.dim }, tabularNums(11)]}>{j.credito > 0 ? `Crédito ${formatARS(j.credito)}` : 'Sin crédito'}</Text>
+    </View>
+  );
+
+  const guardando = <ActivityIndicator color={colors.dim} accessibilityLabel="Guardando" />;
+
+  // Un "Bloquear" en cada fila llenaba la lista de botones rojos: la fila misma abre la confirmación.
+  const filaActiva = (j: JugadorDirectorio) => (
+    <TouchableOpacity
+      key={j.uid}
+      style={[styles.fila, { borderBottomColor: colors.line }]}
+      onPress={() => confirmarBloqueo(j)}
+      disabled={ocupado !== null}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={`${etiquetas.get(j.uid) ?? j.nombre}, ${j.credito > 0 ? `crédito ${formatARS(j.credito)}` : 'sin crédito'}, bloquear`}
+    >
+      {datos(j, false)}
+      {ocupado === j.uid ? guardando : <Ionicons name="ellipsis-horizontal" size={18} color={colors.dim} />}
+    </TouchableOpacity>
+  );
+
+  const filaBloqueada = (j: JugadorDirectorio) => (
     <View key={j.uid} style={[styles.fila, { borderBottomColor: colors.line }]}>
-      <View style={styles.textos}>
-        <Text style={[styles.nombre, { color: bloqueado ? colors.dim : colors.ink }]} numberOfLines={1}>
-          {etiquetas.get(j.uid) ?? j.nombre}
-        </Text>
-        <Text style={[styles.meta, { color: colors.dim }, tabularNums(11)]}>
-          {j.credito > 0 ? `Crédito ${formatARS(j.credito)}` : 'Sin crédito'}
-          {bloqueado ? ' · bloqueado' : ''}
-        </Text>
-      </View>
-      {ocupado === j.uid ? (
-        <ActivityIndicator color={colors.dim} accessibilityLabel="Guardando" />
-      ) : bloqueado ? (
-        <SmallButton label="Reactivar" onPress={() => void cambiarAcceso(j, false)} disabled={ocupado !== null} />
-      ) : (
-        <SmallButton label="Bloquear" tone="dg" onPress={() => confirmarBloqueo(j)} disabled={ocupado !== null} />
-      )}
+      {datos(j, true)}
+      {ocupado === j.uid ? guardando : <SmallButton label="Reactivar" onPress={() => void cambiarAcceso(j, false)} disabled={ocupado !== null} />}
     </View>
   );
 
@@ -117,13 +131,13 @@ export default function JugadoresEquipo() {
         ) : activos.length === 0 ? (
           <Text style={[styles.meta, { color: colors.dim }]}>{busqueda.trim() ? 'Nadie con ese nombre.' : 'Todavía no hay jugadores.'}</Text>
         ) : (
-          activos.map((j) => fila(j, false))
+          activos.map(filaActiva)
         )}
         {errorBloqueados ? <ErrorBanner mensaje={mensajeError(errorBloqueados, 'No se pudo cargar la lista de bloqueados.')} /> : null}
         {bloqueados.length > 0 ? (
           <View style={styles.bloqueados}>
             <Text style={[styles.subtitulo, { color: colors.dim }]}>BLOQUEADOS</Text>
-            {bloqueados.map((j) => fila(j, true))}
+            {bloqueados.map(filaBloqueada)}
           </View>
         ) : null}
       </Card>

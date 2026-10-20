@@ -114,7 +114,7 @@ function CajaAdmin() {
         </Text>
         {inscripciones.total > 0 ? (
           <Text style={[styles.totalSub, { color: colors.gold }, tabularNums(11.5)]}>
-            + {formatARS(inscripciones.total)} de inscripciones de torneo ({inscripciones.pagas} {inscripciones.pagas === 1 ? 'paga' : 'pagas'}), que cobra el juez y no están en las ventas
+            + {formatARS(inscripciones.total)} de inscripciones de torneo ({inscripciones.pagas} {inscripciones.pagas === 1 ? 'paga' : 'pagas'})
           </Text>
         ) : null}
       </View>

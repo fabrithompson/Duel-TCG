@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -47,6 +47,8 @@ interface ScreenProps {
   readonly footer?: React.ReactNode;
   /** Para mover el scroll desde la pantalla (por ejemplo, "Ver cuenta" en Pedido). */
   readonly scrollRef?: React.Ref<ScrollView>;
+  /** Qué parte del scroll se ve (desde dónde y cuánto), para mostrar algo solo cuando hace falta. */
+  readonly onVista?: (y: number, alto: number) => void;
 }
 
 // Con menos ancho que esto, los botones del encabezado se comen el título (360 dp: quedaban ~150 dp de texto).
@@ -71,11 +73,13 @@ export default function Screen({
   refreshControl,
   footer,
   scrollRef,
+  onVista,
 }: ScreenProps) {
   const router = useRouter();
   const { colors } = useTheme();
   const [altoFooter, setAltoFooter] = useState<number | null>(null);
   const enFoco = useEnFoco();
+  const vista = useRef({ y: 0, alto: 0 });
   // Solo la pantalla visible corre el aviso hacia arriba (las de atrás siguen montadas).
   useFooterParaToast(footer && enFoco ? altoFooter : null);
   const { width } = useWindowDimensions();
@@ -87,7 +91,8 @@ export default function Screen({
     <View style={[styles.headerWrap, divider && [styles.headerDivider, { borderBottomColor: colors.line }]]}>
       {back && (
         <TouchableOpacity
-          onPress={onBack ?? (() => router.back())}
+          // Entrando directo por un link (web) no hay a dónde volver: se va al inicio.
+          onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace('/')))}
           style={styles.back}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           accessibilityRole="button"
@@ -125,6 +130,23 @@ export default function Screen({
       contentContainerStyle={[styles.scroll, contentStyle]}
       keyboardShouldPersistTaps="handled"
       refreshControl={refreshControl}
+      onLayout={
+        onVista
+          ? (e) => {
+              vista.current.alto = e.nativeEvent.layout.height;
+              onVista(vista.current.y, vista.current.alto);
+            }
+          : undefined
+      }
+      onScroll={
+        onVista
+          ? (e) => {
+              vista.current.y = e.nativeEvent.contentOffset.y;
+              onVista(vista.current.y, vista.current.alto);
+            }
+          : undefined
+      }
+      scrollEventThrottle={onVista ? 64 : undefined}
     >
       {header}
       {children}
@@ -169,7 +191,7 @@ const styles = StyleSheet.create({
   fixedHeader: { paddingHorizontal: 20, paddingTop: 12 },
   headerWrap: { marginBottom: 18 },
   headerDivider: { borderBottomWidth: 1, paddingBottom: 14 },
-  back: { alignSelf: 'flex-start', marginBottom: 10, minHeight: 24, justifyContent: 'center' },
+  back: { alignSelf: 'flex-start', marginBottom: 6, minHeight: 32, justifyContent: 'center' },
   backText: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5 },
   headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   headerTexts: { flex: 1 },

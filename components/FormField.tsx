@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
   box: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, minHeight: 56 },
   deshabilitado: { opacity: 0.7 },
   texts: { flex: 1 },
-  label: { fontFamily: Typography.fontFamily.semibold, fontSize: 9.5, letterSpacing: 1.3, textTransform: 'uppercase' },
+  label: { fontFamily: Typography.fontFamily.semibold, fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase' },
   input: { fontFamily: Typography.fontFamily.regular, fontSize: 14, paddingVertical: 4, paddingHorizontal: 0 },
   toggle: { minHeight: 44, minWidth: 64, alignItems: 'flex-end', justifyContent: 'center', paddingLeft: 8 },
   toggleText: { fontFamily: Typography.fontFamily.semibold, fontSize: 12 },

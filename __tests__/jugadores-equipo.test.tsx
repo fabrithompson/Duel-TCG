@@ -99,11 +99,13 @@ describe('Jugadores en Equipo', () => {
     act(() => r.unmount());
   });
 
-  it('bloquear pide confirmación y quita el acceso sin borrar el crédito', async () => {
+  it('tocar un jugador pide confirmación y quita el acceso sin borrar el crédito', async () => {
     const alerta = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     const r = await montar();
+    // Sin un botón "Bloquear" repetido en cada fila: se toca la fila.
+    expect(r.root.findAll((n) => n.props.accessibilityLabel === 'Bloquear')).toHaveLength(0);
     await act(async () => {
-      (control(r, 'Bloquear').props.onPress as () => void)();
+      (control(r, 'Ana Ríos, crédito $3.000, bloquear').props.onPress as () => void)();
     });
     expect(mockLotes).toHaveLength(0);
     const botones = alerta.mock.calls[0][2] as AlertButton[];
