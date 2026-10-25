@@ -11,13 +11,11 @@ Cómo usarla:
 ## Sin sesión
 
 - [ ] La pantalla de inicio muestra el logo una sola vez, con "Iniciar sesión" y "Crear cuenta".
-- [ ] Crear cuenta de jugador: entra al instante y cae en Mi duelo.
-- [ ] Crear cuenta de mozo o juez: pide el código de invitación y avisa que queda pendiente. Con un código vencido o mal escrito, no deja.
-- [ ] Con la cuenta pendiente, iniciar sesión no deja entrar hasta que el admin la aprueba.
-- [ ] Iniciar sesión con cada perfil (mozo, juez, jugador) y con "Entrar con cuenta de administración".
-- [ ] Elegir un perfil que no es el de la cuenta da un aviso claro, no un error raro.
+- [ ] Crear cuenta: no pide elegir perfil. Entra al instante como jugador y cae en Mi duelo.
+- [ ] Iniciar sesión: solo email y contraseña. Con la cuenta de cada rol (admin, mozo, juez, jugador) entra directo a su pantalla de inicio.
+- [ ] Con una contraseña mal escrita da un aviso claro, no un error raro.
+- [ ] Una cuenta bloqueada por el admin no puede entrar.
 - [ ] "¿Olvidaste tu contraseña?" manda el mail (revisá también la carpeta de spam).
-- [ ] La app recuerda el último perfil al volver a abrirla.
 
 ## Admin
 
@@ -76,8 +74,12 @@ Cómo usarla:
 - [ ] Temporada: cambiar el nombre y empezar una nueva. La Tabla arranca de cero y el historial sigue.
 
 ### Equipo
-- [ ] Código de invitación: generar, compartir y ver hasta cuándo sirve.
-- [ ] Aprobar y rechazar solicitudes de mozo y juez.
+- [ ] "Sumar al equipo": crear una cuenta de mozo y otra de juez con nombre, email y contraseña. Aparecen en Activos y entran desde otro celular con esos datos.
+- [ ] Mientras el admin crea la cuenta, su propia sesión sigue abierta (no lo saca de la app).
+- [ ] Con datos incompletos (sin nombre, email mal escrito, contraseña de menos de 8) no crea nada y marca el campo.
+- [ ] Con el email de alguien que ya es jugador, ofrece pasarlo a mozo o juez. Entra con su contraseña de siempre y ve las pestañas nuevas.
+- [ ] Con el email de alguien que ya es del equipo, avisa en el campo.
+- [ ] Si quedaron solicitudes de la versión anterior, se pueden aprobar o rechazar.
 - [ ] Cambiar el rol de alguien del equipo. Si tiene la app abierta, le cambia la pantalla y le avisa.
 - [ ] Tocar un jugador lo bloquea (pide confirmación). "Reactivar" lo devuelve. El bloqueado no puede entrar.
 

@@ -18,7 +18,7 @@ import { createServer, type Server } from 'node:http';
 import { connect } from 'node:net';
 import { delimiter, extname, join, resolve, sep } from 'node:path';
 import puppeteer, { type Browser, type Page } from 'puppeteer-core';
-import { ROLE_LABEL, type Role } from '../../constants/roles';
+import type { Role } from '../../constants/roles';
 import { sembrarQA } from './datos';
 import { CLAVE_QA, CUENTAS_QA, PROYECTO_QA, PUERTOS_QA, PUERTO_WEB_QA } from './entorno';
 import { DISPOSITIVOS, NOMBRE_SECTOR, PANTALLAS, PRINCIPAL, RAPIDOS, type Dispositivo, type Pantalla, type Sector } from './pantallas';
@@ -265,8 +265,6 @@ async function nuevaPagina(browser: Browser, sector: Sector): Promise<{ page: Pa
   const page = await contexto.newPage();
   const eventos: Eventos = { errores: [], red: [], dialogos: [] };
   await page.evaluateOnNewDocument(SCRIPT_NAVEGADOR);
-  // El login arranca con el perfil elegido, como en un teléfono que ya entró antes.
-  if (sector !== 'sin-sesion') await page.evaluateOnNewDocument(`try { localStorage.setItem('duel.ultimoPerfil', ${JSON.stringify(sector)}); } catch (e) {}`);
   page.on('console', (m) => {
     if (m.type() === 'error') eventos.errores.push(m.text().slice(0, 300));
   });
@@ -291,7 +289,7 @@ async function entrar(page: Page, role: Role): Promise<void> {
   await esperarListo(page, 20_000);
   await page.type('input[aria-label="Email"]', cuenta.email);
   await page.type('input[aria-label="Contraseña"]', CLAVE_QA);
-  await page.click(`[aria-label="Entrar como ${ROLE_LABEL[role]}"]`);
+  await page.click('[aria-label="Entrar"]');
   const destino = role === 'jugador' ? '/duelo' : '/hoy';
   await page.waitForFunction((d: string) => location.pathname === d, { timeout: 20_000 }, destino).catch(() => {
     throw new Error(`${cuenta.email} no pudo entrar (quedó en ${page.url()})`);

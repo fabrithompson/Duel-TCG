@@ -13,10 +13,11 @@ Cada perfil ve solo lo suyo: el rol define las pestañas, la pantalla de inicio 
 | Jugador | Mi duelo | Mi duelo, Historial, Tabla | Ver su mesa y su rival, reportar su resultado, ver la tabla y su historial |
 | Admin | Hoy | Hoy, Salón, Torneo, Stock, Ajustes (la Caja se abre desde Hoy) | Todo lo anterior, más equipo, ingreso de mercadería, cierre de caja y ajustes del local |
 
-- El jugador se registra y entra al instante.
-- Mozo y juez se registran con el código de invitación del local y quedan pendientes hasta que el admin los aprueba en Ajustes > Equipo. Reciben un mail para verificar su dirección; el admin ve en la solicitud si ya la verificaron.
+- Hay un solo inicio de sesión (email y contraseña) para todos: el rol sale de la cuenta, no se elige al entrar.
+- Desde la app solo se registran jugadores, que entran al instante.
+- Las cuentas de mozo y juez las crea el admin en Ajustes > Equipo > Sumar al equipo (ver más abajo). Entran con el email y la contraseña que les pasa el admin, y la cambian en Mi cuenta.
 - El admin puede bloquear una cuenta de jugador (Ajustes > Equipo > Jugadores): pierde el acceso y deja de aparecer en las búsquedas del staff, pero conserva su historial y su crédito, y se puede reactivar.
-- La cuenta de admin no se registra desde la app: se crea desde la consola de Firebase (ver más abajo).
+- La cuenta de admin no se crea desde la app: se crea desde la consola de Firebase (ver más abajo).
 - El juez (o el admin) puede jugar el torneo que maneja: en Nuevo torneo, paso Inscriptos, "Juego yo también" lo anota con la misma cuenta.
 - Toda cuenta arranca con una silueta como avatar; en Mi cuenta cada uno pone, cambia o quita su foto.
 - Las pestañas ocultas para un rol también están protegidas en la pantalla: si alguien llega por un enlace (`duel://…`), ve un aviso y no los controles.
@@ -114,9 +115,9 @@ La app no deja crear administradores, así que el primero se da de alta a mano (
    | `estadoAprobacion` | string | `aprobado` |
    | `creadoEn` | timestamp | la fecha actual |
 
-3. Entrá a la app con ese email y contraseña.
+3. Entrá a la app con ese email y contraseña, desde el mismo "Iniciar sesión" que usan todos.
 
-Para sumar otro admin más adelante, que se registre como mozo o juez, aprobalo y cambiale el rol a Admin desde Ajustes > Equipo.
+Para sumar otro admin más adelante, repetí estos pasos, o creale una cuenta de mozo o juez desde Ajustes > Equipo y cambiale el rol a Admin.
 
 ## Configuración inicial del local
 
@@ -128,13 +129,17 @@ Nada del negocio está fijo en el código: todo sale de Firestore y se edita des
 - Salón: salas y mesas (de café o de duelo) con su posición en el plano.
 - Stock: productos de cada rubro e ingresos de mercadería. Los rubros de cafetería los define el local (por defecto Café y Pastelería); TCG y Servicios (alquiler, agua) son fijos de la app. Un producto de cafetería puede cambiar de rubro desde su ficha, y quitar un rubro de Ajustes no borra sus productos.
 
-### Código de invitación para el equipo
+### Sumar mozos y jueces
 
-1. Con la cuenta de admin, andá a Ajustes > Equipo y generá el código de invitación. Se guarda en `config/privado`, que solo el admin puede leer, y sirve por 7 días.
-2. Pasáselo a quien se vaya a sumar como mozo o juez. Al registrarse elige el rol y escribe el código; las reglas de Firestore lo validan contra `config/privado`.
-3. La cuenta queda pendiente y aparece en Ajustes > Equipo para aprobarla o rechazarla.
+1. Con la cuenta de admin, andá a Ajustes > Equipo > Sumar al equipo.
+2. Elegí Mozo o Juez y cargá nombre, email y una contraseña de al menos 8 caracteres. La cuenta queda creada y aprobada.
+3. Pasale a esa persona el email y la contraseña. Entra por "Iniciar sesión" como cualquiera y después la cambia en Mi cuenta.
 
-Si el código se filtra, generá otro: el anterior deja de servir para registros nuevos. Pasados los 7 días vence solo y Equipo avisa que hay que generar uno nuevo. Los códigos generados con versiones anteriores (sin vencimiento) ya no sirven: generá uno nuevo. Si nunca se generó, nadie puede registrarse como mozo o juez.
+Si el email ya tiene cuenta de jugador (alguien que juega en el local y empieza a trabajar), Equipo ofrece pasar esa misma cuenta a mozo o juez: entra con su contraseña de siempre y conserva su historial y su crédito.
+
+Sin backend propio, la cuenta de Authentication la crea el teléfono del admin en una sesión aparte (así no se le cierra la suya) y el perfil lo escribe el admin; las reglas de Firestore solo le permiten a él crear perfiles de mozo o juez. Si el perfil no se llega a guardar, la app borra la cuenta recién creada para que se pueda reintentar con el mismo email.
+
+Las solicitudes pendientes de cuando mozo y juez se registraban solos con un código de invitación siguen apareciendo en Equipo para aprobarlas o rechazarlas. El documento `config/privado`, donde se guardaba ese código, ya no se usa: se puede borrar desde la consola.
 
 ## Modelo de datos
 
@@ -143,8 +148,7 @@ Colecciones de Firestore (contrato completo en `lib/pedido.ts`, `lib/torneo.ts`,
 | Colección | Campos | Notas |
 | --- | --- | --- |
 | `config/publico` | `nombreLocal`, `logoUrl`, `turnos`, `alertaStock`, `torneo`, `temporada` (`nombre`, `inicio`, `inicioMs`), `reporteJugador`, `creditoPremio`, `descontarStock`, `juegos`, `mediosPago`, `rubrosCafeteria` | Lectura pública (el splash la usa antes del login). |
-| `config/privado` | `codigoInvitacion`, `codigoVenceEn` | Solo admin. |
-| `users/{uid}` | `uid`, `nombre`, `email`, `role` (`admin`, `mozo`, `juez`, `jugador`), `estadoAprobacion` (`pendiente`, `aprobado`, `rechazado`), `codigoInvitacion?`, `emailVerificado?`, `fotoUrl?`, `creadoEn` | Privado: el propio usuario y el admin. El ID es el UID de Authentication. |
+| `users/{uid}` | `uid`, `nombre`, `email` (en minúsculas), `role` (`admin`, `mozo`, `juez`, `jugador`), `estadoAprobacion` (`pendiente`, `aprobado`, `rechazado`), `creadoPor?` (el admin que creó la cuenta de mozo o juez), `emailVerificado?`, `fotoUrl?`, `creadoEn` | Privado: el propio usuario y el admin. El ID es el UID de Authentication. |
 | `jugadores/{uid}` | `uid`, `nombre`, `nombreBusqueda` (minúsculas, sin tildes), `creditoCafeteria`, `ultimaVenta?`, `ultimoPremio?`, `activo?`, `fotoUrl?`, `creadoEn` | Directorio público para el staff: buscar jugadores y mover crédito sin ver emails. Se crea con el alta del jugador (o solo, al abrir la app, si faltaba). |
 | `salas/{id}` | `nombre`, `orden`, `creadoEn` | |
 | `mesas/{id}` | `numero`, `x`, `y`, `salaId`, `tipo` (`cafe`, `duelo`), `estado` (`libre`, `consumo`), `pedido` (ítems), `creadoEn` | "Duelo en curso" no se guarda: se deriva del torneo en curso. |
@@ -171,8 +175,7 @@ Storage: `logos/` guarda el logo del local.
 | Recurso | Leer | Escribir |
 | --- | --- | --- |
 | `config/publico` | Todos, incluso sin sesión | Admin |
-| `config/privado` | Admin | Admin; el código siempre con vencimiento (hasta 31 días) |
-| `users` | Cada uno el suyo; admin todos | Alta: el propio usuario (jugador aprobado, o mozo/juez pendiente con código válido y vigente). Edición: el usuario solo su nombre, marcar su email verificado (si el token lo confirma) o pasar su cuenta vieja a jugador; admin rol, aprobación y nombre. Baja: admin |
+| `users` | Cada uno el suyo; admin todos | Alta: el propio usuario, solo como jugador aprobado; el admin, mozos y jueces aprobados con `creadoPor` igual a su uid (nunca otro admin). Edición: el usuario solo su nombre, marcar su email verificado (si el token lo confirma) o pasar su cuenta vieja a jugador; admin rol, aprobación y nombre. Baja: admin |
 | `jugadores` | Cada jugador el suyo; staff todos | Alta: el propio jugador aprobado, con crédito 0, en el mismo batch que su perfil; también el juez o el admin, para jugar los torneos que manejan. Foto: cada uno la suya, solo URLs de Firebase Storage. Edición: el jugador solo su nombre; el juez acredita solo al entregar un premio de un torneo cerrado, al ganador de ese puesto, por el monto del premio (hasta $1.000.000) y una sola vez (`ultimoPremio` + registro en `entregas`); el mozo descuenta solo junto con la venta que aplica ese crédito (`ultimaVenta`); el admin puede corregir a mano, con tope, y bloquear o reactivar (`activo`); nunca queda en negativo. Baja: admin |
 | `salas` | Staff | Admin |
 | `mesas` | Staff | Admin; el mozo solo cambia `pedido` y `estado` |
@@ -188,7 +191,7 @@ Storage: `logos/` guarda el logo del local.
 
 Las fechas de ventas, ingresos y torneos tienen que ser las de la jornada en curso: el día argentino (UTC-3) más 6 horas para la madrugada de un turno nocturno.
 
-Nadie puede crearse como admin, aprobarse solo, cambiarse el rol, inflar un crédito o vaciarlo sin un premio o una venta que lo respalde, acreditar dos veces el mismo premio, editar o borrar ventas, leer el código de invitación, leer los emails de otros, cargar un torneo retroactivo ni reportar resultados en nombre de otro jugador. Los tests de `firestore-tests/` cubren cada uno de esos casos.
+Nadie puede crearse como admin ni registrarse solo como mozo o juez, aprobarse solo, cambiarse el rol, inflar un crédito o vaciarlo sin un premio o una venta que lo respalde, acreditar dos veces el mismo premio, editar o borrar ventas, leer los emails de otros, cargar un torneo retroactivo ni reportar resultados en nombre de otro jugador. Los tests de `firestore-tests/` cubren cada uno de esos casos.
 
 ## Scripts
 

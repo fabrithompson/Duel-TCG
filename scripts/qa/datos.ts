@@ -5,7 +5,7 @@
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import { doc, Timestamp, writeBatch, type Firestore } from 'firebase/firestore';
 import { CONFIG_DEFAULT } from '../../lib/config';
-import { CLAVE_QA, CODIGO_QA, CUENTAS_QA, PROYECTO_QA, PUERTOS_QA, type CuentaQA } from './entorno';
+import { CLAVE_QA, CUENTAS_QA, PROYECTO_QA, PUERTOS_QA, type CuentaQA } from './entorno';
 import { fechaDeNegocio, fechaLocal, horaLocal, sumarDias } from '../../lib/fecha';
 import { normalizarBusqueda } from '../../lib/jugadores';
 import type { ItemPedido, MedioPago } from '../../lib/pedido';
@@ -25,7 +25,6 @@ import {
 
 const HOST = '127.0.0.1';
 const MIN = 60_000;
-const DIA = 24 * 60 * MIN;
 
 const uid = (role: CuentaQA['role']): string => CUENTAS_QA.find((c) => c.role === role)!.uid;
 const ADMIN = uid('admin');
@@ -333,15 +332,14 @@ function documentos(ahora: Date): Escritura[] {
       temporada: { nombre: 'Temporada de primavera', inicio: fechaLocal(inicioTemporada), inicioMs: inicioTemporada.getTime() },
     },
   ]);
-  w.push(['config/privado', { codigoInvitacion: CODIGO_QA, codigoVenceEn: Timestamp.fromMillis(ms + 7 * DIA) }]);
 
   for (const c of CUENTAS_QA) {
     w.push([`users/${c.uid}`, { uid: c.uid, nombre: c.nombre, email: c.email, role: c.role, estadoAprobacion: 'aprobado', emailVerificado: true, creadoEn: hace(30 * 24 * 60) }]);
   }
-  // Una solicitud esperando al admin, para ver Equipo con algo pendiente.
+  // Una solicitud de cuando mozo y juez se registraban solos, para ver Equipo con algo pendiente.
   w.push([
     'users/qa-pendiente',
-    { uid: 'qa-pendiente', nombre: 'Bruno Medina', email: 'bruno@duel.test', role: 'mozo', estadoAprobacion: 'pendiente', codigoInvitacion: CODIGO_QA, emailVerificado: true, creadoEn: hace(90) },
+    { uid: 'qa-pendiente', nombre: 'Bruno Medina', email: 'bruno@duel.test', role: 'mozo', estadoAprobacion: 'pendiente', emailVerificado: true, creadoEn: hace(90) },
   ]);
 
   for (const s of SALAS) w.push([`salas/${s.id}`, { nombre: s.nombre, orden: s.orden, creadoEn: hace(60 * 24 * 60) }]);

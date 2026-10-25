@@ -1,11 +1,8 @@
 import { minutosDelDia } from './fecha';
 import { RUBROS_CAFETERIA_POR_DEFECTO, normalizarRubrosCafeteria } from './rubros';
 
-// Configuración del local, editable desde Ajustes (solo admin).
-//  - `config/publico`: todo lo de abajo. Lectura pública (el inicio muestra
-//    el logo del local antes de iniciar sesión).
-//  - `config/privado`: `{ codigoInvitacion }`. Solo admin la lee; las reglas
-//    de Firestore la usan para validar el registro de mozo/juez.
+// Configuración del local, editable desde Ajustes (solo admin), en `config/publico`.
+// Lectura pública: el inicio muestra el logo del local antes de iniciar sesión.
 
 export interface Turno {
   nombre: string;
@@ -59,15 +56,6 @@ export interface ConfigLocal {
   mediosPago: MedioCobro[];
   /** Rubros de cafetería (TCG y servicios son fijos del sistema). */
   rubrosCafeteria: string[];
-}
-
-/** Un código filtrado deja de servir solo: el admin lo renueva cuando suma a alguien. */
-export const VIGENCIA_CODIGO_DIAS = 7;
-
-export interface ConfigPrivada {
-  codigoInvitacion: string | null;
-  /** Hasta cuándo sirve el código (ms); null = códigos viejos, sin vencimiento. */
-  codigoVenceMs: number | null;
 }
 
 export const LIMITES = {
@@ -194,12 +182,4 @@ export function turnoActual(turnos: readonly Turno[], ahora: Date = new Date()):
     if (dentro) return t;
   }
   return null;
-}
-
-/** Código de invitación legible (sin 0/O/1/I para dictarlo sin errores). */
-export function generarCodigoInvitacion(bytes: Uint8Array): string {
-  const alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let codigo = '';
-  for (let i = 0; i < 8; i++) codigo += alfabeto[bytes[i % bytes.length] % alfabeto.length];
-  return codigo;
 }

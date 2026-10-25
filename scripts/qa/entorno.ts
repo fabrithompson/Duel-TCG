@@ -12,8 +12,6 @@ export const PUERTO_WEB_QA = 8390;
 
 export const CLAVE_QA = 'duel1234';
 
-export const CODIGO_QA = 'DUEL2345';
-
 export interface CuentaQA {
   uid: string;
   role: Role;

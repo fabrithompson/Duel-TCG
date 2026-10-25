@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDocs, limit, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { ROLE_LABEL, Role } from '../constants/roles';
 import { TonoToast, useToast } from '../contexts/ToastContext';
@@ -41,6 +41,7 @@ interface UseEquipoResult {
   cambiarRol: (m: MiembroEquipo, rol: RolStaff) => Promise<boolean>;
   quitarAcceso: (m: MiembroEquipo) => Promise<boolean>;
   reactivar: (m: MiembroEquipo) => Promise<boolean>;
+  buscarPorEmail: (email: string) => Promise<MiembroEquipo | null>;
 }
 
 const ROLES_VALIDOS: readonly Role[] = ['admin', 'mozo', 'juez', 'jugador'];
@@ -76,8 +77,9 @@ function masNuevoPrimero(a: MiembroEquipo, b: MiembroEquipo): number {
 }
 
 /**
- * Solicitudes y staff del local (solo admin). Con `soloPendientes` escucha únicamente
- * las solicitudes, para el contador de Ajustes sin bajar todo el equipo.
+ * Staff del local (solo admin). Las solicitudes pendientes son de cuando mozo y juez se
+ * registraban solos: ya no se crean, pero las que quedaron se pueden aprobar o rechazar.
+ * Con `soloPendientes` escucha únicamente esas, para el contador de Ajustes.
  */
 export function useEquipo(opciones: { readonly soloPendientes?: boolean } = {}): UseEquipoResult {
   const soloPendientes = opciones.soloPendientes ?? false;
@@ -214,6 +216,13 @@ export function useEquipo(opciones: { readonly soloPendientes?: boolean } = {}):
     [ejecutar]
   );
 
+  // Al sumar a alguien cuyo email ya tiene cuenta (casi siempre, la de jugador): se busca para ofrecer pasarla al equipo.
+  const buscarPorEmail = useCallback(async (email: string): Promise<MiembroEquipo | null> => {
+    const snap = await getDocs(query(collection(db, 'users'), where('email', '==', email.toLowerCase()), limit(1)));
+    const d = snap.docs[0];
+    return d ? normalizarMiembro(d.id, d.data()) : null;
+  }, []);
+
   const activos = useMemo(() => staff.filter((m) => m.estadoAprobacion === 'aprobado'), [staff]);
   const rechazados = useMemo(
     () => staff.filter((m) => m.estadoAprobacion !== 'aprobado' && m.estadoAprobacion !== 'pendiente'),
@@ -234,5 +243,6 @@ export function useEquipo(opciones: { readonly soloPendientes?: boolean } = {}):
     cambiarRol,
     quitarAcceso,
     reactivar,
+    buscarPorEmail,
   };
 }

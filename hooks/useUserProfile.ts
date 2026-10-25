@@ -44,7 +44,7 @@ export function normalizarPerfil(uid: string, data: Record<string, unknown> | un
     email,
     role,
     estadoAprobacion,
-    codigoInvitacion: typeof data.codigoInvitacion === 'string' ? data.codigoInvitacion : undefined,
+    creadoPor: typeof data.creadoPor === 'string' ? data.creadoPor : undefined,
     emailVerificado: data.emailVerificado === true,
     fotoUrl: esUrlFoto(data.fotoUrl) ? data.fotoUrl : null,
     creadoEn: data.creadoEn,

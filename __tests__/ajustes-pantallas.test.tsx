@@ -36,10 +36,11 @@ const mockMostrar = jest.fn();
 const mockPush = jest.fn();
 const mockUpdateDoc = jest.fn((_ref: RefFalsa, _datos: Record<string, unknown>) => Promise.resolve());
 const mockSetDoc = jest.fn((_ref: RefFalsa, _datos: Record<string, unknown>, _op?: unknown) => Promise.resolve());
+const mockCrearCuenta = jest.fn((_alta: Record<string, unknown>, _adminUid: string) => Promise.resolve('nuevo'));
 
 let mockConfig: ConfigLocal = CONFIG_DEFAULT;
 let mockPerfil = { uid: 'yo', nombre: 'Fabri', email: 'fabri@duel.com', role: 'admin', estadoAprobacion: 'aprobado' };
-let mockCodigo: string | null = 'ABCD2345';
+let mockPorEmail: DocFalso[] = [];
 
 const mockPendientes: DocFalso[] = [
   { id: 'p1', nombre: 'Martina Gómez', email: 'martina@mail.com', role: 'mozo', estadoAprobacion: 'pendiente', creadoEn: Date.now() - 2 * 3600_000 - 60_000 },
@@ -61,13 +62,15 @@ jest.mock('firebase/firestore', () => ({
   query: (_col: unknown, ...filtros: Filtro[]) => ({ tipo: 'query', filtros }),
   onSnapshot: (ref: RefFalsa, next: (snap: unknown) => void) => {
     if (ref.tipo === 'doc') {
-      next({ exists: () => mockCodigo !== null, data: () => (mockCodigo ? { codigoInvitacion: mockCodigo } : undefined) });
+      next({ exists: () => false, data: () => undefined });
     } else if (ref.tipo === 'query') {
       const lista = ref.filtros[0]?.campo === 'estadoAprobacion' ? mockPendientes : mockStaff;
       next({ docs: lista.map(({ id, ...datos }) => ({ id, data: () => datos })) });
     }
     return () => undefined;
   },
+  getDocs: () => Promise.resolve({ docs: mockPorEmail.map(({ id, ...datos }) => ({ id, data: () => datos })) }),
+  limit: (n: number) => ({ campo: 'limit', op: 'limit', valor: n }),
   setDoc: (ref: RefFalsa, datos: Record<string, unknown>, op?: unknown) => mockSetDoc(ref, datos, op),
   updateDoc: (ref: RefFalsa, datos: Record<string, unknown>) => mockUpdateDoc(ref, datos),
   Timestamp: { fromMillis: (ms: number) => ({ toMillis: () => ms }) },
@@ -92,8 +95,8 @@ jest.mock('expo-image-picker', () => ({
   launchImageLibraryAsync: jest.fn(),
 }));
 
-jest.mock('expo-crypto', () => ({
-  getRandomBytes: (n: number) => Uint8Array.from({ length: n }, (_, i) => (i * 53 + 7) % 256),
+jest.mock('../lib/altaEquipo', () => ({
+  crearCuentaEquipo: (alta: Record<string, unknown>, adminUid: string) => mockCrearCuenta(alta, adminUid),
 }));
 
 jest.mock('expo-haptics', () => ({
@@ -164,7 +167,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockConfig = CONFIG_DEFAULT;
   mockPerfil = { uid: 'yo', nombre: 'Fabri', email: 'fabri@duel.com', role: 'admin', estadoAprobacion: 'aprobado' };
-  mockCodigo = 'ABCD2345';
+  mockPorEmail = [];
 });
 
 describe('Ajustes', () => {
@@ -291,10 +294,10 @@ describe('Equipo', () => {
     await desmontar(r);
   });
 
-  it('muestra código, solicitudes, activos y sin acceso', async () => {
+  it('muestra solicitudes que quedaron, activos y sin acceso', async () => {
     const r = await montar(<EquipoScreen />);
     const texto = textoDe(r);
-    expect(texto).toContain('ABCD2345');
+    expect(texto).not.toContain('Código');
     expect(texto).toContain('ESPERANDO APROBACIÓN');
     expect(texto).toContain('Pide entrar como mozo · hace 2 h');
     expect(texto).toContain('Sos vos');
@@ -344,32 +347,72 @@ describe('Equipo', () => {
     await desmontar(r);
   });
 
-  it('genera un código nuevo pidiendo confirmación si ya había uno', async () => {
-    const alerta = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+  async function completarAlta(r: RenderPrueba, datos: { nombre: string; email: string; password: string }): Promise<void> {
+    await tocar(r, 'Sumar al equipo');
+    const campos: [string, string][] = [
+      ['Nombre y apellido', datos.nombre],
+      ['Email', datos.email],
+      ['Contraseña', datos.password],
+    ];
+    for (const [etiqueta, valor] of campos) {
+      const campo = r.root.findAll((n) => n.props.accessibilityLabel === etiqueta && typeof n.props.onChangeText === 'function')[0];
+      if (!campo) throw new Error(`No hay un campo "${etiqueta}"`);
+      await act(async () => {
+        (campo.props.onChangeText as (t: string) => void)(valor);
+      });
+    }
+  }
+
+  it('crea la cuenta de un juez con nombre, email y contraseña', async () => {
     const r = await montar(<EquipoScreen />);
-    await tocar(r, 'Generar código nuevo');
-    expect(mockSetDoc).not.toHaveBeenCalled();
+    await completarAlta(r, { nombre: '  Ana   Pérez ', email: ' Ana@Mail.com ', password: 'clave1234' });
+    await tocar(r, 'Juez');
+    await tocar(r, 'Crear cuenta de Juez');
+    expect(mockCrearCuenta).toHaveBeenCalledWith({ nombre: 'Ana Pérez', email: 'ana@mail.com', password: 'clave1234', role: 'juez' }, 'yo');
+    expect(mockMostrar).toHaveBeenCalledWith('Ana Pérez ya puede entrar como juez', 'ok');
+    // El formulario se cierra y vuelve el botón para sumar a otra persona.
+    expect(textoDe(r)).not.toContain('Crear cuenta de Juez');
+    expect(tocable(r, 'Sumar al equipo')).toBeTruthy();
+    await desmontar(r);
+  });
+
+  it('no crea la cuenta con datos incompletos', async () => {
+    const r = await montar(<EquipoScreen />);
+    await completarAlta(r, { nombre: 'A', email: 'no-es-email', password: 'corta' });
+    await tocar(r, 'Crear cuenta de Mozo');
+    expect(mockCrearCuenta).not.toHaveBeenCalled();
+    const texto = textoDe(r);
+    expect(texto).toContain('Escribí el nombre');
+    expect(texto).toContain('Revisá el email');
+    expect(texto).toContain('Usá al menos 8 caracteres.');
+    await desmontar(r);
+  });
+
+  it('si el email ya es de un jugador, ofrece pasarlo al equipo', async () => {
+    const alerta = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockCrearCuenta.mockRejectedValueOnce(Object.assign(new Error('en uso'), { code: 'auth/email-already-in-use' }));
+    mockPorEmail = [{ id: 'jx', nombre: 'Tomás H.', email: 'tomas@mail.com', role: 'jugador', estadoAprobacion: 'aprobado' }];
+    const r = await montar(<EquipoScreen />);
+    await completarAlta(r, { nombre: 'Tomás H.', email: 'tomas@mail.com', password: 'clave1234' });
+    await tocar(r, 'Crear cuenta de Mozo');
+    expect(alerta.mock.calls[0][0]).toBe('Tomás H. ya tiene cuenta de jugador');
     const botones = alerta.mock.calls[0][2] as AlertButton[];
     await act(async () => {
-      botones.find((b) => b.text === 'Generar')?.onPress?.();
+      botones.find((b) => b.text === 'Pasar a Mozo')?.onPress?.();
     });
-    expect(mockSetDoc).toHaveBeenCalledTimes(1);
-    const [ref, datos, op] = mockSetDoc.mock.calls[0];
-    expect(ref).toEqual({ tipo: 'doc', path: 'config/privado' });
-    expect(String(datos.codigoInvitacion)).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);
-    // Vence en una semana: un código filtrado no sirve para siempre.
-    const vence = (datos.codigoVenceEn as { toMillis: () => number }).toMillis() - Date.now();
-    expect(vence).toBeGreaterThan(6.9 * 86_400_000);
-    expect(vence).toBeLessThanOrEqual(7 * 86_400_000 + 1000);
-    expect(op).toEqual({ merge: true });
+    expect(mockUpdateDoc).toHaveBeenCalledWith({ tipo: 'doc', path: 'users/jx' }, { role: 'mozo' });
     alerta.mockRestore();
     await desmontar(r);
   });
 
-  it('sin código avisa que mozo y juez no pueden registrarse', async () => {
-    mockCodigo = null;
+  it('si el email ya es del equipo, lo dice en el campo', async () => {
+    mockCrearCuenta.mockRejectedValueOnce(Object.assign(new Error('en uso'), { code: 'auth/email-already-in-use' }));
+    mockPorEmail = [{ id: 'l1', nombre: 'Lucía P.', email: 'lucia@mail.com', role: 'mozo', estadoAprobacion: 'aprobado' }];
     const r = await montar(<EquipoScreen />);
-    expect(textoDe(r)).toContain('Sin código: mozo y juez no pueden registrarse todavía.');
+    await completarAlta(r, { nombre: 'Lucía P.', email: 'lucia@mail.com', password: 'clave1234' });
+    await tocar(r, 'Crear cuenta de Mozo');
+    expect(textoDe(r)).toContain('Ya está en el equipo como mozo.');
+    expect(mockUpdateDoc).not.toHaveBeenCalled();
     await desmontar(r);
   });
 });

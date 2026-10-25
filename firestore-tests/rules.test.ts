@@ -30,7 +30,6 @@ import {
 import { getMetadata, ref, uploadBytes, type FirebaseStorage } from 'firebase/storage';
 
 const PROJECT_ID = 'demo-duel';
-const CODIGO = 'ABCD2345';
 // Día local de Argentina (UTC-3): las reglas exigen que un torneo nuevo tenga la fecha de hoy.
 const HOY = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
 
@@ -201,8 +200,8 @@ async function sembrar(): Promise<void> {
     b.set(doc(db, 'users', U.j1), perfil(U.j1, 'jugador', 'aprobado'));
     b.set(doc(db, 'users', U.j2), perfil(U.j2, 'jugador', 'aprobado'));
     b.set(doc(db, 'users', U.j3), perfil(U.j3, 'jugador', 'aprobado'));
-    b.set(doc(db, 'users', U.mozoPendiente), perfil(U.mozoPendiente, 'mozo', 'pendiente', { codigoInvitacion: CODIGO }));
-    b.set(doc(db, 'users', U.juezRechazado), perfil(U.juezRechazado, 'juez', 'rechazado', { codigoInvitacion: CODIGO }));
+    b.set(doc(db, 'users', U.mozoPendiente), perfil(U.mozoPendiente, 'mozo', 'pendiente'));
+    b.set(doc(db, 'users', U.juezRechazado), perfil(U.juezRechazado, 'juez', 'rechazado'));
     b.set(doc(db, 'users', U.legado), { uid: U.legado, name: 'Viejo Prototipo', email: email(U.legado), role: 'user', createdAt: ahora });
     b.set(doc(db, 'jugadores', U.j1), directorio(U.j1, 5000));
     b.set(doc(db, 'jugadores', U.j2), directorio(U.j2));
@@ -218,7 +217,8 @@ async function sembrar(): Promise<void> {
       creditoPremio: true,
       descontarStock: true,
     });
-    b.set(doc(db, 'config', 'privado'), { codigoInvitacion: CODIGO, codigoVenceEn: Timestamp.fromMillis(Date.now() + 7 * 86400000) });
+    // Lo que quedó del código de invitación de versiones anteriores.
+    b.set(doc(db, 'config', 'privado'), { codigoInvitacion: 'ABCD2345', codigoVenceEn: Timestamp.fromMillis(Date.now() + 7 * 86400000) });
     b.set(doc(db, 'salas', 's1'), { nombre: 'Planta baja', orden: 0, creadoEn: ahora });
     b.set(doc(db, 'mesas', 'm1'), { numero: 1, x: 18, y: 16, salaId: 's1', tipo: 'cafe', estado: 'libre', pedido: [], creadoEn: ahora });
     b.set(doc(db, 'mesas', 'm2'), { numero: 2, x: 118, y: 16, salaId: 's1', tipo: 'duelo', estado: 'libre', pedido: [], creadoEn: ahora });
@@ -336,19 +336,12 @@ describe('config', () => {
     await assertSucceeds(setDoc(doc(como(U.admin), 'config', 'publico'), { nombreLocal: 'Mi café' }, { merge: true }));
   });
 
-  test('el código de invitación solo lo lee y escribe el admin', async () => {
-    await assertSucceeds(getDoc(doc(como(U.admin), 'config', 'privado')));
-    for (const uid of [U.mozo, U.juez, U.j1, U.mozoPendiente, U.adminPendiente]) {
+  test('config/privado (el viejo código de invitación) ya no lo lee ni lo escribe nadie', async () => {
+    for (const uid of [U.admin, U.mozo, U.juez, U.j1, U.mozoPendiente]) {
       await assertFails(getDoc(doc(como(uid), 'config', 'privado')));
-      await assertFails(setDoc(doc(como(uid), 'config', 'privado'), { codigoInvitacion: 'MIO12345' }));
+      await assertFails(setDoc(doc(como(uid), 'config', 'privado'), { codigoInvitacion: 'MIO12345', codigoVenceEn: Timestamp.fromMillis(Date.now() + 86400000) }));
     }
     await assertFails(getDoc(doc(anonimo(), 'config', 'privado')));
-    const vence = Timestamp.fromMillis(Date.now() + 7 * 86400000);
-    await assertSucceeds(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'ZXCV7890', codigoVenceEn: vence }));
-    // Un código sin vencimiento ya no se acepta.
-    await assertFails(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'ZXCV7890' }));
-    await assertFails(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'abc' }));
-    await assertFails(setDoc(doc(como(U.admin), 'config', 'privado'), { codigoInvitacion: 'ZXCV7890', extra: true }));
   });
 
   test('no se puede leer ni escribir otros documentos de config', async () => {
@@ -367,33 +360,19 @@ describe('users: alta', () => {
     await assertSucceeds(setDoc(doc(como(U.nuevo), 'users', U.nuevo), doc0));
   });
 
-  test('mozo y juez se registran pendientes con el código correcto', async () => {
-    await assertSucceeds(
-      setDoc(doc(como(U.nuevo), 'users', U.nuevo), altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: CODIGO }))
-    );
-    await assertSucceeds(
-      setDoc(doc(como('nuevo2'), 'users', 'nuevo2'), altaUsuario('nuevo2', 'juez', 'pendiente', { codigoInvitacion: CODIGO }))
-    );
-  });
-
-  test('código incorrecto, ausente o sin config/privado: rechazado', async () => {
-    const db = como(U.nuevo);
-    const ref0 = doc(db, 'users', U.nuevo);
-    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: 'ZZZZ9999' })));
-    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'mozo', 'pendiente')));
-    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: null })));
-    await sinReglas((a) => setDoc(doc(a, 'config', 'privado'), { codigoInvitacion: null }));
-    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: CODIGO })));
-    await sinReglas((a) => deleteDoc(doc(a, 'config', 'privado')));
-    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'juez', 'pendiente', { codigoInvitacion: CODIGO })));
-  });
-
-  test('nadie se auto-aprueba como staff ni se crea admin', async () => {
+  test('nadie se registra solo como mozo o juez, ni con el viejo código', async () => {
     const ref0 = doc(como(U.nuevo), 'users', U.nuevo);
-    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'mozo', 'aprobado', { codigoInvitacion: CODIGO })));
-    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'juez', 'aprobado', { codigoInvitacion: CODIGO })));
+    for (const role of ['mozo', 'juez']) {
+      await assertFails(setDoc(ref0, altaUsuario(U.nuevo, role, 'pendiente')));
+      await assertFails(setDoc(ref0, altaUsuario(U.nuevo, role, 'pendiente', { codigoInvitacion: 'ABCD2345' })));
+      await assertFails(setDoc(ref0, altaUsuario(U.nuevo, role, 'aprobado')));
+    }
+  });
+
+  test('nadie se crea admin ni se registra pendiente', async () => {
+    const ref0 = doc(como(U.nuevo), 'users', U.nuevo);
     await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'admin', 'aprobado')));
-    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'admin', 'pendiente', { codigoInvitacion: CODIGO })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'admin', 'pendiente')));
     await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'pendiente')));
     await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'superadmin', 'aprobado')));
   });
@@ -404,7 +383,7 @@ describe('users: alta', () => {
     await assertFails(setDoc(doc(db, 'users', 'otro'), altaUsuario('otro', 'jugador', 'aprobado')));
     await assertFails(setDoc(ref0, { ...altaUsuario(U.nuevo, 'jugador', 'aprobado'), uid: 'otro' }));
     await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { creditoCafeteria: 999999 })));
-    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { codigoInvitacion: CODIGO })));
+    await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { creadoPor: U.admin })));
     await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { email: 'otro@duel.test' })));
     await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { creadoEn: Timestamp.fromMillis(0) })));
     await assertFails(setDoc(ref0, altaUsuario(U.nuevo, 'jugador', 'aprobado', { nombre: 'A' })));
@@ -414,30 +393,50 @@ describe('users: alta', () => {
   });
 
   test('un usuario existente no puede re-crearse con otro rol', async () => {
-    await assertFails(
-      setDoc(doc(como(U.j1), 'users', U.j1), altaUsuario(U.j1, 'mozo', 'pendiente', { codigoInvitacion: CODIGO }))
-    );
+    await assertFails(setDoc(doc(como(U.j1), 'users', U.j1), altaUsuario(U.j1, 'mozo', 'pendiente')));
   });
 });
 
-describe('código de invitación con vencimiento', () => {
-  test('el admin lo genera con vencimiento de hasta un mes', async () => {
-    const r = doc(como(U.admin), 'config', 'privado');
-    await assertSucceeds(setDoc(r, { codigoInvitacion: 'NUEVO2345', codigoVenceEn: Timestamp.fromMillis(Date.now() + 7 * 86400000) }));
-    await assertFails(setDoc(r, { codigoInvitacion: 'NUEVO2345', codigoVenceEn: Timestamp.fromMillis(Date.now() - 60_000) }));
-    await assertFails(setDoc(r, { codigoInvitacion: 'NUEVO2345', codigoVenceEn: Timestamp.fromMillis(Date.now() + 60 * 86400000) }));
+describe('users: alta de mozos y jueces por el admin', () => {
+  function altaEquipo(uid: string, role: string, extra: Record<string, unknown> = {}) {
+    return {
+      uid, nombre: 'Martina Gómez', email: email(uid).toLowerCase(), role, estadoAprobacion: 'aprobado',
+      creadoPor: U.admin, creadoEn: serverTimestamp(), ...extra,
+    };
+  }
+
+  test('el admin crea mozos y jueces ya aprobados', async () => {
+    const db = como(U.admin);
+    await assertSucceeds(setDoc(doc(db, 'users', 'mozonuevo'), altaEquipo('mozonuevo', 'mozo')));
+    await assertSucceeds(setDoc(doc(db, 'users', 'jueznuevo'), altaEquipo('jueznuevo', 'juez')));
   });
 
-  test('un código viejo sin vencimiento ya no sirve para registrarse', async () => {
-    await sinReglas((a) => setDoc(doc(a, 'config', 'privado'), { codigoInvitacion: CODIGO }));
-    await assertFails(setDoc(doc(como(U.nuevo), 'users', U.nuevo), altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: CODIGO })));
+  test('solo mozo o juez, aprobado y firmado por el admin que lo crea', async () => {
+    const ref0 = doc(como(U.admin), 'users', 'mozonuevo');
+    await assertFails(setDoc(ref0, altaEquipo('mozonuevo', 'admin')));
+    await assertFails(setDoc(ref0, altaEquipo('mozonuevo', 'jugador')));
+    await assertFails(setDoc(ref0, altaEquipo('mozonuevo', 'mozo', { estadoAprobacion: 'pendiente' })));
+    await assertFails(setDoc(ref0, altaEquipo('mozonuevo', 'mozo', { creadoPor: U.mozo })));
+    await assertFails(setDoc(ref0, altaEquipo('mozonuevo', 'mozo', { uid: 'otro' })));
+    await assertFails(setDoc(ref0, altaEquipo('mozonuevo', 'mozo', { nombre: 'A' })));
+    await assertFails(setDoc(ref0, altaEquipo('mozonuevo', 'mozo', { email: 'sin-arroba' })));
+    await assertFails(setDoc(ref0, altaEquipo('mozonuevo', 'mozo', { email: 'Martina@Duel.test' })));
+    await assertFails(setDoc(ref0, altaEquipo('mozonuevo', 'mozo', { creadoEn: Timestamp.fromMillis(0) })));
+    await assertFails(setDoc(ref0, altaEquipo('mozonuevo', 'mozo', { creditoCafeteria: 5000 })));
+    const sinFirma: Record<string, unknown> = altaEquipo('mozonuevo', 'mozo');
+    delete sinFirma.creadoPor;
+    await assertFails(setDoc(ref0, sinFirma));
   });
 
-  test('un código vencido ya no sirve para registrarse', async () => {
-    await sinReglas((a) => setDoc(doc(a, 'config', 'privado'), { codigoInvitacion: CODIGO, codigoVenceEn: Timestamp.fromMillis(Date.now() - 60_000) }));
-    await assertFails(setDoc(doc(como(U.nuevo), 'users', U.nuevo), altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: CODIGO })));
-    await sinReglas((a) => setDoc(doc(a, 'config', 'privado'), { codigoInvitacion: CODIGO, codigoVenceEn: Timestamp.fromMillis(Date.now() + 86400000) }));
-    await assertSucceeds(setDoc(doc(como(U.nuevo), 'users', U.nuevo), altaUsuario(U.nuevo, 'mozo', 'pendiente', { codigoInvitacion: CODIGO })));
+  test('nadie más da de alta cuentas del equipo', async () => {
+    for (const uid of [U.mozo, U.juez, U.j1, U.adminPendiente, U.mozoPendiente]) {
+      await assertFails(setDoc(doc(como(uid), 'users', 'mozonuevo'), altaEquipo('mozonuevo', 'mozo', { creadoPor: uid })));
+    }
+    await assertFails(setDoc(doc(anonimo(), 'users', 'mozonuevo'), altaEquipo('mozonuevo', 'mozo')));
+  });
+
+  test('no pisa una cuenta que ya existe', async () => {
+    await assertFails(setDoc(doc(como(U.admin), 'users', U.j1), altaEquipo(U.j1, 'mozo')));
   });
 });
 
@@ -546,6 +545,7 @@ describe('users: edición', () => {
     await assertFails(updateDoc(doc(db, 'users', U.mozo), { estadoAprobacion: 'suspendido' }));
     await assertFails(updateDoc(doc(db, 'users', U.mozo), { email: 'x@duel.test' }));
     await assertFails(updateDoc(doc(db, 'users', U.mozo), { codigoInvitacion: 'OTRO1234' }));
+    await assertFails(updateDoc(doc(db, 'users', U.mozo), { creadoPor: U.admin }));
   });
 
   test('el admin no puede tocarse su propio rol ni su aprobación', async () => {

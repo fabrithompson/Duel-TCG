@@ -1,24 +1,24 @@
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Screen, { LoadingScreen } from '../../../components/Screen';
 import Button from '../../../components/Button';
 import Avatar from '../../../components/Avatar';
+import FormField from '../../../components/FormField';
+import RoleSelector from '../../../components/RoleSelector';
 import { Badge, Card, EmptyState, ErrorBanner, SectionLabel, SmallButton } from '../../../components/ui';
-import { ROLE_LABEL, Role } from '../../../constants/roles';
-import { Typography, tabularNums } from '../../../constants/theme';
-import { useConfig } from '../../../contexts/ConfigContext';
+import { ROLE_LABEL, RolEquipo, Role } from '../../../constants/roles';
+import { Typography } from '../../../constants/theme';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useUserProfileContext } from '../../../contexts/UserProfileContext';
-import { useConfigPrivada } from '../../../hooks/useConfigPrivada';
 import { MiembroEquipo, ROLES_STAFF, RolStaff, rolEnTexto, useEquipo } from '../../../hooks/useEquipo';
 import { useVolverA } from '../../../hooks/useVolverA';
 import JugadoresEquipo from '../../../components/JugadoresEquipo';
-import { fechaConAnio, haceCuanto } from '../../../lib/ajustes';
-import { fechaLocal } from '../../../lib/fecha';
-import { mensajeError } from '../../../lib/errores';
-import { tocar } from '../../../lib/haptics';
+import { haceCuanto } from '../../../lib/ajustes';
+import { crearCuentaEquipo } from '../../../lib/altaEquipo';
+import { codigoError, mensajeError } from '../../../lib/errores';
+import { advertencia, exito, fallo, tocar } from '../../../lib/haptics';
 import { preguntar } from '../../../lib/dialogo';
 
 type TonoRol = 'br' | 'gold';
@@ -39,7 +39,7 @@ export default function EquipoScreen() {
       <Screen back="Ajustes" onBack={volver} title="Equipo">
         <EmptyState
           title="Solo el admin entra acá"
-          body="Las aprobaciones de cuentas y los cambios de rol los hace la cuenta de administración."
+          body="Las cuentas del equipo y los cambios de rol los maneja la cuenta de administración."
         />
       </Screen>
     );
@@ -72,7 +72,7 @@ function EquipoAdmin() {
   const confirmarAdmin = (m: MiembroEquipo) => {
     preguntar(
       `¿Hacer admin a ${m.nombre}?`,
-      'Va a poder cambiar los ajustes del local, ver la caja, cargar mercadería y aprobar o quitar gente del equipo.',
+      'Va a poder cambiar los ajustes del local, ver la caja, cargar mercadería y sumar o quitar gente del equipo.',
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Hacer admin', style: 'destructive', onPress: () => void equipo.cambiarRol(m, 'admin') },
@@ -106,9 +106,9 @@ function EquipoAdmin() {
   const sinNadieMas = !equipo.cargando && pendientes.length === 0 && rechazados.length === 0 && activos.every((m) => m.uid === miUid);
 
   return (
-    <Screen back="Ajustes" onBack={volver} title="Equipo">
+    <Screen back="Ajustes" onBack={volver} title="Equipo" keyboard>
       <View style={styles.contenido}>
-        <CodigoInvitacion />
+        {miUid ? <SumarAlEquipo adminUid={miUid} buscarPorEmail={equipo.buscarPorEmail} cambiarRol={equipo.cambiarRol} /> : null}
 
         {equipo.error ? (
           <ErrorBanner mensaje={mensajeError(equipo.error, 'No se pudo cargar el equipo.')} onRetry={equipo.reintentar} />
@@ -138,10 +138,7 @@ function EquipoAdmin() {
             ) : null}
 
             {sinNadieMas && !equipo.error ? (
-              <EmptyState
-                title="Todavía no hay mozos ni jueces"
-                body="Generá un código de invitación y compartilo."
-              />
+              <EmptyState title="Todavía no hay mozos ni jueces" />
             ) : null}
 
             {activos.length > 0 ? (
@@ -191,99 +188,197 @@ function EquipoAdmin() {
   );
 }
 
-// ─── Código de invitación ──────────────────────────────────────────────────
+// ─── Sumar al equipo ───────────────────────────────────────────────────────
 
-function CodigoInvitacion() {
-  const { colors } = useTheme();
-  const { config } = useConfig();
+const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const NOMBRE = { min: 2, max: 60 };
+const PASSWORD_MIN = 8;
+
+interface ErroresAlta {
+  nombre?: string;
+  email?: string;
+  password?: string;
+}
+
+interface SumarAlEquipoProps {
+  readonly adminUid: string;
+  readonly buscarPorEmail: (email: string) => Promise<MiembroEquipo | null>;
+  readonly cambiarRol: (m: MiembroEquipo, rol: RolStaff) => Promise<boolean>;
+}
+
+// El admin crea la cuenta de cada mozo o juez y le pasa el email y la contraseña (la cambia en Mi cuenta).
+function SumarAlEquipo({ adminUid, buscarPorEmail, cambiarRol }: SumarAlEquipoProps) {
   const { mostrar } = useToast();
-  const privada = useConfigPrivada(true);
-  const compartiendo = useRef(false);
-  const codigo = privada.config.codigoInvitacion;
-  const venceMs = privada.config.codigoVenceMs;
-  // Los códigos viejos no tienen vencimiento: las reglas ya no los aceptan, hay que generar uno nuevo.
-  const vencido = !!codigo && (venceMs === null || venceMs <= Date.now());
+  const [abierto, setAbierto] = useState(false);
+  const [role, setRole] = useState<RolEquipo>('mozo');
+  const [nombre, setNombre] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [errores, setErrores] = useState<ErroresAlta>({});
+  const [creando, setCreando] = useState(false);
+  const enCurso = useRef(false);
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
 
-  const generar = () => {
-    if (!codigo) {
-      void privada.generarCodigo();
+  const limpiarError = (campo: keyof ErroresAlta) => {
+    setErrores((prev) => (prev[campo] ? { ...prev, [campo]: undefined } : prev));
+  };
+
+  const cerrar = () => {
+    setAbierto(false);
+    setNombre('');
+    setEmail('');
+    setPassword('');
+    setErrores({});
+  };
+
+  // El email ya tiene cuenta: si es de un jugador, se ofrece pasarlo al equipo con esa misma cuenta.
+  const emailEnUso = async (mail: string) => {
+    const existente = await buscarPorEmail(mail).catch(() => null);
+    if (existente?.role !== 'jugador') {
+      setErrores({ email: existente ? `Ya está en el equipo como ${rolEnTexto(existente.role)}.` : 'Ya existe una cuenta con ese email.' });
+      fallo();
       return;
     }
-    preguntar('¿Generar un código nuevo?', 'El código actual deja de servir. Quien todavía no se registró va a necesitar el nuevo.', [
+    preguntar(`${existente.nombre} ya tiene cuenta de jugador`, `¿Pasarlo a ${rolEnTexto(role)}? Entra con su contraseña de siempre.`, [
       { text: 'Cancelar', style: 'cancel' },
-      { text: 'Generar', style: 'destructive', onPress: () => void privada.generarCodigo() },
+      {
+        text: `Pasar a ${ROLE_LABEL[role]}`,
+        onPress: () =>
+          void cambiarRol(existente, role).then((ok) => {
+            if (ok) cerrar();
+          }),
+      },
     ]);
   };
 
-  const compartir = async () => {
-    if (!codigo || compartiendo.current) return;
-    compartiendo.current = true;
-    const mensaje = `Código para registrarte en ${config.nombreLocal}: ${codigo}`;
+  const crear = async () => {
+    if (enCurso.current) return;
+    const nombreLimpio = nombre.trim().replace(/\s+/g, ' ');
+    const mail = email.trim().toLowerCase();
+    const nuevos: ErroresAlta = {};
+    if (nombreLimpio.length < NOMBRE.min || nombreLimpio.length > NOMBRE.max) {
+      nuevos.nombre = `Escribí el nombre (entre ${NOMBRE.min} y ${NOMBRE.max} caracteres).`;
+    }
+    if (!mail) nuevos.email = 'Escribí el email.';
+    else if (!EMAIL_VALIDO.test(mail)) nuevos.email = 'Revisá el email: no parece válido.';
+    if (password.length < PASSWORD_MIN) nuevos.password = `Usá al menos ${PASSWORD_MIN} caracteres.`;
+    setErrores(nuevos);
+    if (Object.keys(nuevos).length > 0) {
+      advertencia();
+      return;
+    }
+
+    enCurso.current = true;
+    setCreando(true);
     try {
-      await Share.share({ message: mensaje });
-    } catch {
-      // La mayoría de los navegadores de escritorio no tienen menú para compartir: se copia.
-      const copiado =
-        Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard
-          ? await navigator.clipboard.writeText(mensaje).then(
-              () => true,
-              () => false
-            )
-          : false;
-      if (copiado) mostrar('Código copiado', 'ok');
-      else mostrar('No se pudo abrir el menú para compartir.', 'error');
+      await crearCuentaEquipo({ nombre: nombreLimpio, email: mail, password, role }, adminUid);
+      exito();
+      mostrar(`${nombreLimpio} ya puede entrar como ${rolEnTexto(role)}`, 'ok');
+      cerrar();
+    } catch (e) {
+      const c = codigoError(e);
+      if (c === 'auth/email-already-in-use') {
+        await emailEnUso(mail);
+      } else if (c === 'auth/invalid-email') {
+        setErrores({ email: mensajeError(e) });
+        fallo();
+      } else if (c === 'auth/weak-password') {
+        setErrores({ password: mensajeError(e) });
+        fallo();
+      } else {
+        mostrar(mensajeError(e, 'No se pudo crear la cuenta. Probá de nuevo.'), 'error');
+        fallo();
+      }
     } finally {
-      compartiendo.current = false;
+      enCurso.current = false;
+      setCreando(false);
     }
   };
 
-  let cuerpo: React.ReactNode;
-  if (privada.cargando) {
-    // Con el alto del código y sus dos botones: al llegar no empuja hacia abajo el resto de la pantalla.
-    cuerpo = (
-      <View style={styles.codigoCargando}>
-        <ActivityIndicator color={colors.br} accessibilityLabel="Cargando el código" />
-      </View>
-    );
-  } else if (privada.error) {
-    cuerpo = <ErrorBanner mensaje={mensajeError(privada.error, 'No se pudo leer el código de invitación.')} onRetry={privada.reintentar} />;
-  } else {
-    cuerpo = (
-      <>
-        {codigo ? (
-          <View style={styles.codigoBloque}>
-            <Text
-              style={[styles.codigo, { color: colors.ink }, tabularNums(30), styles.codigoEspaciado]}
-              selectable
-              accessibilityLabel={`Código ${codigo.split('').join(' ')}`}
-            >
-              {codigo}
-            </Text>
-            <Text style={[styles.codigoSub, { color: vencido ? colors.dg : colors.dim }]}>
-              {venceMs === null || vencido ? 'Venció: generá uno nuevo.' : `Sirve hasta el ${fechaConAnio(fechaLocal(new Date(venceMs)))}.`}
-            </Text>
-          </View>
-        ) : (
-          <Text style={[styles.sinCodigo, { color: colors.dim }]}>Sin código: mozo y juez no pueden registrarse todavía.</Text>
-        )}
-        <View style={styles.codigoAcciones}>
-          {codigo && !vencido ? <Button label="Compartir" onPress={() => void compartir()} /> : null}
-          <Button
-            label="Generar código nuevo"
-            variant={codigo && !vencido ? 'secondary' : 'primary'}
-            onPress={generar}
-            loading={privada.generando}
-          />
-        </View>
-      </>
-    );
-  }
+  if (!abierto) return <Button label="Sumar al equipo" onPress={() => setAbierto(true)} />;
 
   return (
-    <View>
-      <SectionLabel>Código de invitación</SectionLabel>
-      <Card>{cuerpo}</Card>
-    </View>
+    <Card>
+      <View style={styles.alta}>
+        <RoleSelector value={role} onChange={setRole} disabled={creando} />
+        <FormField
+          label="Nombre y apellido"
+          autoFocus
+          value={nombre}
+          onChangeText={(t) => {
+            setNombre(t);
+            limpiarError('nombre');
+          }}
+          error={errores.nombre}
+          autoCapitalize="words"
+          autoCorrect={false}
+          autoComplete="off"
+          returnKeyType="next"
+          maxLength={NOMBRE.max}
+          editable={!creando}
+          onSubmitEditing={() => emailRef.current?.focus()}
+          submitBehavior="submit"
+        />
+        {/* Sin autocompletar: el teléfono es del admin y sugeriría su propio email y contraseña. */}
+        <FormField
+          ref={emailRef}
+          label="Email"
+          value={email}
+          onChangeText={(t) => {
+            setEmail(t);
+            limpiarError('email');
+          }}
+          error={errores.email}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          textContentType="none"
+          returnKeyType="next"
+          maxLength={254}
+          editable={!creando}
+          onSubmitEditing={() => passwordRef.current?.focus()}
+          submitBehavior="submit"
+        />
+        <FormField
+          ref={passwordRef}
+          label="Contraseña"
+          value={password}
+          onChangeText={(t) => {
+            setPassword(t);
+            limpiarError('password');
+          }}
+          error={errores.password}
+          placeholder={`Mínimo ${PASSWORD_MIN} caracteres`}
+          secureToggle
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          textContentType="none"
+          returnKeyType="go"
+          maxLength={128}
+          editable={!creando}
+          onSubmitEditing={() => {
+            void crear();
+          }}
+        />
+        <View style={styles.botones}>
+          <View style={styles.botonChico}>
+            <Button label="Cancelar" variant="secondary" onPress={cerrar} disabled={creando} />
+          </View>
+          <View style={styles.botonGrande}>
+            <Button
+              label={`Crear cuenta de ${ROLE_LABEL[role]}`}
+              onPress={() => {
+                void crear();
+              }}
+              loading={creando}
+            />
+          </View>
+        </View>
+      </View>
+    </Card>
   );
 }
 
@@ -403,13 +498,7 @@ const styles = StyleSheet.create({
   cargando: { paddingVertical: 24, alignItems: 'center' },
   lista: { gap: 9 },
 
-  codigoBloque: { gap: 6 },
-  codigoCargando: { minHeight: 180, alignItems: 'center', justifyContent: 'center' },
-  codigo: { fontFamily: Typography.display.semibold, fontSize: 30 },
-  codigoEspaciado: { letterSpacing: 3 },
-  codigoSub: { fontFamily: Typography.fontFamily.regular, fontSize: 11.5, lineHeight: 17 },
-  sinCodigo: { fontFamily: Typography.fontFamily.medium, fontSize: 13, lineHeight: 19 },
-  codigoAcciones: { gap: 8, marginTop: 14 },
+  alta: { gap: 12 },
 
   solicitud: { borderWidth: 1.5, borderRadius: 14, padding: 14, gap: 12 },
   solicitudFila: { flexDirection: 'row', alignItems: 'center', gap: 11 },

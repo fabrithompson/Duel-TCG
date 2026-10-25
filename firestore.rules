@@ -162,18 +162,6 @@ service cloud.firestore {
             || (d.rubrosCafeteria is list && d.rubrosCafeteria.size() >= 1 && d.rubrosCafeteria.size() <= 10));
     }
 
-    function configPrivadaValida(d) {
-      return d.keys().hasOnly(['codigoInvitacion', 'codigoVenceEn'])
-        && (!('codigoInvitacion' in d) || d.codigoInvitacion == null
-            || (d.codigoInvitacion is string && d.codigoInvitacion.matches('^[A-Z0-9]{6,32}$')))
-        // Vence entre ahora y un mes: un código filtrado no sirve para siempre.
-        && (!('codigoVenceEn' in d) || d.codigoVenceEn == null
-            || (d.codigoVenceEn is timestamp && d.codigoVenceEn > request.time
-                && d.codigoVenceEn <= request.time + duration.value(31, 'd')))
-        // Un código nuevo siempre trae su vencimiento.
-        && (!('codigoInvitacion' in d) || !(d.codigoInvitacion is string) || d.get('codigoVenceEn', null) is timestamp);
-    }
-
     match /config/publico {
       allow read: if true;
       allow create: if esAdmin() && configPublicaValida(request.resource.data, request.resource.data.keys());
@@ -181,40 +169,44 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
-    match /config/privado {
-      allow read: if esAdmin();
-      allow create, update: if esAdmin() && configPrivadaValida(request.resource.data);
-      allow delete: if esAdmin();
-    }
-
     // ---------- Usuarios ----------
 
-    function codigoInvitacionCorrecto(codigo) {
-      let ruta = /databases/$(database)/documents/config/privado;
-      return codigo is string
-        && exists(ruta)
-        && get(ruta).data.get('codigoInvitacion', null) is string
-        && codigo == get(ruta).data.codigoInvitacion
-        && get(ruta).data.get('codigoVenceEn', null) is timestamp
-        && request.time < get(ruta).data.codigoVenceEn;
-    }
-
+    // Desde la app solo se registran jugadores. Mozo y juez los crea el admin (altaPorAdmin)
+    // y la cuenta de admin se crea desde la consola de Firebase, que no pasa por las reglas.
     function altaUsuarioValida(userId) {
       let d = request.resource.data;
       return autenticado()
         && request.auth.uid == userId
-        && d.keys().hasOnly(['uid', 'nombre', 'email', 'role', 'estadoAprobacion', 'codigoInvitacion', 'creadoEn'])
+        && d.keys().hasOnly(['uid', 'nombre', 'email', 'role', 'estadoAprobacion', 'creadoEn'])
         && d.keys().hasAll(['uid', 'nombre', 'email', 'role', 'estadoAprobacion', 'creadoEn'])
         && d.uid == userId
         && texto(d.nombre, 2, 60)
         && d.email is string
         && d.email.lower() == request.auth.token.email.lower()
         && d.creadoEn == request.time
-        && (
-          (d.role == 'jugador' && d.estadoAprobacion == 'aprobado' && !('codigoInvitacion' in d))
-          || (d.role in ['mozo', 'juez'] && d.estadoAprobacion == 'pendiente'
-              && codigoInvitacionCorrecto(d.codigoInvitacion))
-        );
+        && d.role == 'jugador'
+        && d.estadoAprobacion == 'aprobado';
+    }
+
+    // Equipo: la app del admin crea la cuenta de Authentication de un mozo o juez y enseguida
+    // escribe su perfil, ya aprobado y firmado con el uid del admin. Nunca otro admin.
+    function altaPorAdmin(userId) {
+      let d = request.resource.data;
+      return esAdmin()
+        && request.auth.uid != userId
+        && d.keys().hasOnly(['uid', 'nombre', 'email', 'role', 'estadoAprobacion', 'creadoPor', 'creadoEn'])
+        && d.keys().hasAll(['uid', 'nombre', 'email', 'role', 'estadoAprobacion', 'creadoPor', 'creadoEn'])
+        && d.uid == userId
+        && texto(d.nombre, 2, 60)
+        && d.email is string
+        && d.email.size() <= 254
+        && d.email.matches('^[^@ ]+@[^@ ]+$')
+        // En minúsculas, como Authentication: Equipo busca las cuentas por email.
+        && d.email == d.email.lower()
+        && d.role in ['mozo', 'juez']
+        && d.estadoAprobacion == 'aprobado'
+        && d.creadoPor == request.auth.uid
+        && d.creadoEn == request.time;
     }
 
     // Foto de perfil: una URL de descarga de Firebase Storage, o null para volver a la silueta.
@@ -265,7 +257,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if (autenticado() && request.auth.uid == userId) || esAdmin();
       allow list: if esAdmin();
-      allow create: if altaUsuarioValida(userId);
+      allow create: if altaUsuarioValida(userId) || altaPorAdmin(userId);
       allow update: if edicionPropia(userId) || edicionAdmin(userId) || migracionLegado(userId);
       allow delete: if esAdmin();
     }

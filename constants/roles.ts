@@ -1,18 +1,20 @@
 // Roles y permisos — ver DESIGN.md §2 del handoff de diseño.
+// Desde la app solo se registran jugadores. Las cuentas de mozo y juez las crea el admin
+// en Ajustes > Equipo, y la de admin se crea desde la consola de Firebase.
 
-export type SelectableRole = 'mozo' | 'juez' | 'jugador';
-export type Role = SelectableRole | 'admin';
+/** Las cuentas que el admin crea desde Equipo. */
+export type RolEquipo = 'mozo' | 'juez';
+export type Role = RolEquipo | 'jugador' | 'admin';
 
 export interface RoleInfo {
-  readonly id: SelectableRole;
+  readonly id: RolEquipo;
   readonly nombre: string;
   readonly descripcion: string;
 }
 
-export const ROLES: readonly RoleInfo[] = [
+export const ROLES_EQUIPO: readonly RoleInfo[] = [
   { id: 'mozo', nombre: 'Mozo', descripcion: 'Pedidos, cobro y stock de cafetería' },
   { id: 'juez', nombre: 'Juez', descripcion: 'Torneos, resultados y stock TCG' },
-  { id: 'jugador', nombre: 'Jugador', descripcion: 'Mis duelos, historial y ranking' },
 ];
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -21,8 +23,3 @@ export const ROLE_LABEL: Record<Role, string> = {
   jugador: 'Jugador',
   admin: 'Admin',
 };
-
-/** Mozo y juez quedan pendientes de aprobación del admin; el jugador entra al instante. */
-export function requiereAprobacion(role: Role): boolean {
-  return role === 'mozo' || role === 'juez';
-}

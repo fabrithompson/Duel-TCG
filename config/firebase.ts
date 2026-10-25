@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getApp, getApps, initializeApp } from 'firebase/app';
-import { Auth, getAuth, getReactNativePersistence, initializeAuth } from 'firebase/auth';
+import { deleteApp, getApp, getApps, initializeApp } from 'firebase/app';
+import { Auth, getAuth, getReactNativePersistence, inMemoryPersistence, initializeAuth, signOut } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
@@ -38,4 +38,21 @@ function crearAuth(): Auth {
 export const auth = crearAuth();
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+
+/**
+ * Sesión de Auth aparte, solo en memoria: crear una cuenta deja adentro a la cuenta nueva, y así
+ * el admin da de alta a alguien del equipo sin que se le cierre la suya. Hay que cerrarla al terminar.
+ */
+export function abrirAuthAparte(): { auth: Auth; cerrar: () => Promise<void> } {
+  const aparte = initializeApp(firebaseConfig, `aparte-${Date.now()}`);
+  const authAparte = initializeAuth(aparte, { persistence: inMemoryPersistence });
+  return {
+    auth: authAparte,
+    cerrar: () =>
+      signOut(authAparte)
+        .catch(() => undefined)
+        .then(() => deleteApp(aparte)),
+  };
+}
+
 export default app;

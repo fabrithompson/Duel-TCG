@@ -1,49 +1,38 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { KeyboardAvoidingView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../config/firebase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { Typography } from '../../constants/theme';
-import { ROLE_LABEL, Role, SelectableRole } from '../../constants/roles';
+import { ROLE_LABEL } from '../../constants/roles';
 import { normalizarPerfil } from '../../hooks/useUserProfile';
 import { codigoError, mensajeError } from '../../lib/errores';
-import { advertencia, exito, fallo, tocar } from '../../lib/haptics';
+import { advertencia, exito, fallo } from '../../lib/haptics';
 import type { UserProfile } from '../../lib/users';
-import RoleSelector from '../../components/RoleSelector';
 import FormField from '../../components/FormField';
 import Button from '../../components/Button';
 import { ErrorBanner } from '../../components/ui';
 import { useReiniciarNavegacion } from '../../hooks/useReiniciarNavegacion';
 
-const CLAVE_ULTIMO_PERFIL = 'duel.ultimoPerfil';
 const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const AVISO_RESET = 'Si hay una cuenta con ese email, te llega un link para cambiar la contraseña.';
 
 interface Errores {
-  role?: string;
   email?: string;
   password?: string;
 }
 
-function esPerfilGuardado(valor: string | null): valor is Role {
-  return valor === 'mozo' || valor === 'juez' || valor === 'jugador' || valor === 'admin';
-}
-
-function problemaDeAcceso(perfil: UserProfile | null, pedido: Role): string | null {
-  if (!perfil) return 'No encontramos tu perfil. Si te registraste recién, volvé a crear la cuenta o hablá con el admin.';
+// Un solo login para todos: el rol sale de la cuenta (jugador, o mozo, juez y admin creados por el local).
+function problemaDeAcceso(perfil: UserProfile): string | null {
   if (perfil.estadoAprobacion === 'rechazado') return 'El admin no habilitó esta cuenta.';
   if (perfil.estadoAprobacion !== 'aprobado') {
     return `Tu cuenta de ${ROLE_LABEL[perfil.role]} todavía espera la aprobación del admin. Probá de nuevo cuando te avise que la habilitó.`;
   }
-  if (perfil.role === pedido) return null;
-  if (perfil.role === 'admin') return 'Es una cuenta de administración: tocá "Entrar con cuenta de administración".';
-  if (pedido === 'admin') return `Esta cuenta no es de administración. Elegí el perfil ${ROLE_LABEL[perfil.role]} para entrar.`;
-  return `Esta cuenta es de ${ROLE_LABEL[perfil.role]}. Elegí ese perfil para entrar.`;
+  return null;
 }
 
 export default function LoginScreen() {
@@ -51,8 +40,6 @@ export default function LoginScreen() {
   const reiniciar = useReiniciarNavegacion();
   const { colors } = useTheme();
   const { mostrar } = useToast();
-  const [adminMode, setAdminMode] = useState(false);
-  const [role, setRole] = useState<SelectableRole | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errores, setErrores] = useState<Errores>({});
@@ -61,22 +48,7 @@ export default function LoginScreen() {
   const [enviandoReset, setEnviandoReset] = useState(false);
   const enCurso = useRef(false);
   const resetEnCurso = useRef(false);
-  const eligioPerfil = useRef(false);
   const passwordRef = useRef<TextInput>(null);
-
-  useEffect(() => {
-    let activo = true;
-    AsyncStorage.getItem(CLAVE_ULTIMO_PERFIL)
-      .then((valor) => {
-        if (!activo || eligioPerfil.current || !esPerfilGuardado(valor)) return;
-        if (valor === 'admin') setAdminMode(true);
-        else setRole(valor);
-      })
-      .catch(() => undefined);
-    return () => {
-      activo = false;
-    };
-  }, []);
 
   const limpiarError = (campo: keyof Errores) => {
     setErrorGeneral(null);
@@ -90,16 +62,14 @@ export default function LoginScreen() {
 
   const entrar = async () => {
     if (enCurso.current) return;
-    const pedido: Role | null = adminMode ? 'admin' : role;
     const mail = email.trim();
     const nuevos: Errores = {};
-    if (!pedido) nuevos.role = 'Elegí tu perfil para seguir.';
     if (!mail) nuevos.email = 'Escribí tu email.';
     else if (!EMAIL_VALIDO.test(mail)) nuevos.email = 'Revisá el email: no parece válido.';
     if (!password) nuevos.password = 'Escribí tu contraseña.';
     setErrores(nuevos);
     setErrorGeneral(null);
-    if (!pedido || Object.keys(nuevos).length > 0) {
+    if (Object.keys(nuevos).length > 0) {
       advertencia();
       return;
     }
@@ -128,14 +98,13 @@ export default function LoginScreen() {
       if (cred.user.emailVerified && !perfil.emailVerificado) {
         await updateDoc(doc(db, 'users', cred.user.uid), { emailVerificado: true }).catch(() => undefined);
       }
-      const problema = problemaDeAcceso(perfil, pedido);
+      const problema = problemaDeAcceso(perfil);
       if (problema) {
         await signOut(auth).catch(() => undefined);
         setErrorGeneral(problema);
         fallo();
         return;
       }
-      AsyncStorage.setItem(CLAVE_ULTIMO_PERFIL, pedido).catch(() => undefined);
       exito();
       reiniciar('(tabs)');
     } catch (e) {
@@ -173,16 +142,6 @@ export default function LoginScreen() {
     }
   };
 
-  const cambiarModo = (admin: boolean) => {
-    tocar();
-    eligioPerfil.current = true;
-    setAdminMode(admin);
-    setErrores({});
-    setErrorGeneral(null);
-  };
-
-  const botonLabel = adminMode ? 'Entrar como Admin' : role ? `Entrar como ${ROLE_LABEL[role]}` : 'Entrar';
-
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.bg }]} edges={['top', 'bottom']}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
@@ -198,41 +157,8 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           <Text style={[styles.title, { color: colors.ink }]} accessibilityRole="header">
-            Entrar
+            Iniciar sesión
           </Text>
-          <Text style={[styles.subtitle, { color: colors.dim }]}>
-            {adminMode ? 'Cuenta de administración del local.' : 'Elegí tu perfil.'}
-          </Text>
-
-          {adminMode ? (
-            <TouchableOpacity
-              onPress={() => cambiarModo(false)}
-              style={styles.linkBox}
-              disabled={enviando}
-              accessibilityRole="button"
-              accessibilityLabel="Elegir mi perfil de mozo, juez o jugador"
-            >
-              <Text style={[styles.linkFuerte, { color: colors.br }]}>← Elegir mi perfil</Text>
-            </TouchableOpacity>
-          ) : (
-            <View>
-              <RoleSelector
-                value={role}
-                onChange={(r) => {
-                  eligioPerfil.current = true;
-                  setRole(r);
-                  limpiarError('role');
-                }}
-                variant="list"
-                disabled={enviando}
-              />
-              {errores.role ? (
-                <Text style={[styles.errorTexto, { color: colors.dg }]} accessibilityLiveRegion="polite">
-                  {errores.role}
-                </Text>
-              ) : null}
-            </View>
-          )}
 
           <View style={styles.campos}>
             <FormField
@@ -298,40 +224,26 @@ export default function LoginScreen() {
           {errorGeneral ? <ErrorBanner mensaje={errorGeneral} /> : null}
 
           <Button
-            label={botonLabel}
+            label="Entrar"
             onPress={() => {
               void entrar();
             }}
             loading={enviando}
           />
 
-          {!adminMode ? (
-            <TouchableOpacity
-              onPress={() => cambiarModo(true)}
-              disabled={enviando}
-              style={styles.linkBox}
-              accessibilityRole="button"
-              accessibilityLabel="Entrar con cuenta de administración"
-            >
-              <Text style={[styles.link, { color: colors.dim }]}>Entrar con cuenta de administración</Text>
-            </TouchableOpacity>
-          ) : null}
-
           <View style={styles.spacer} />
 
-          {!adminMode ? (
-            <TouchableOpacity
-              onPress={() => router.replace('/(auth)/register')}
-              disabled={enviando}
-              style={styles.notaBox}
-              accessibilityRole="link"
-              accessibilityLabel="¿No tenés cuenta? Registrate"
-            >
-              <Text style={[styles.nota, { color: colors.dim }]}>
-                ¿No tenés cuenta? <Text style={[styles.notaLink, { color: colors.br }]}>Registrate</Text>
-              </Text>
-            </TouchableOpacity>
-          ) : null}
+          <TouchableOpacity
+            onPress={() => router.replace('/(auth)/register')}
+            disabled={enviando}
+            style={styles.notaBox}
+            accessibilityRole="link"
+            accessibilityLabel="¿No tenés cuenta? Registrate"
+          >
+            <Text style={[styles.nota, { color: colors.dim }]}>
+              ¿No tenés cuenta? <Text style={[styles.notaLink, { color: colors.br }]}>Registrate</Text>
+            </Text>
+          </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -344,14 +256,10 @@ const styles = StyleSheet.create({
   back: { alignSelf: 'flex-start', marginBottom: 12, minHeight: 32, justifyContent: 'center' },
   backText: { fontFamily: Typography.fontFamily.semibold, fontSize: 12 },
   title: { fontFamily: Typography.display.bold, fontSize: 27, letterSpacing: -0.8 },
-  subtitle: { fontFamily: Typography.fontFamily.regular, fontSize: 12.5, lineHeight: 19, marginTop: 6, marginBottom: 20 },
-  campos: { gap: 12, marginTop: 20 },
-  errorTexto: { fontFamily: Typography.fontFamily.medium, fontSize: 11.5, marginTop: 8, marginLeft: 4 },
+  campos: { gap: 12, marginTop: 24 },
   olvido: { alignSelf: 'flex-end', minHeight: 44, justifyContent: 'center', marginBottom: 6 },
   link: { fontFamily: Typography.fontFamily.medium, fontSize: 11.5, textAlign: 'center', textDecorationLine: 'underline' },
-  linkFuerte: { fontFamily: Typography.fontFamily.semibold, fontSize: 12.5 },
   apagado: { opacity: 0.6 },
-  linkBox: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 8, marginTop: 6 },
   spacer: { flexGrow: 1, minHeight: 20 },
   notaBox: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
   nota: { fontFamily: Typography.fontFamily.regular, fontSize: 11, lineHeight: 17.6, textAlign: 'center' },

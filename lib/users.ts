@@ -1,10 +1,10 @@
 import type { Role } from '../constants/roles';
 
 // Colección `users/{uid}`.
-// Alta: el propio usuario, solo como mozo/juez (pendiente, con código de
-// invitación válido) o jugador (aprobado). La cuenta admin se crea desde la
-// consola de Firebase. Rol, aprobación y crédito solo los cambia el staff
-// autorizado (ver firestore.rules).
+// Alta: el jugador se registra solo (aprobado); las cuentas de mozo y juez las
+// crea el admin desde Equipo (aprobadas, con `creadoPor`), y la de admin se crea
+// desde la consola de Firebase. Rol, aprobación y crédito solo los cambia el
+// staff autorizado (ver firestore.rules).
 
 export type EstadoAprobacion = 'pendiente' | 'aprobado' | 'rechazado';
 
@@ -14,8 +14,8 @@ export interface UserProfile {
   email: string;
   role: Role;
   estadoAprobacion: EstadoAprobacion;
-  /** Código con el que se registró (mozo/juez); las reglas lo validan al crear. */
-  codigoInvitacion?: string;
+  /** Admin que creó la cuenta (mozo y juez). */
+  creadoPor?: string;
   /** Confirmó su email (lo marca su app al iniciar sesión, validado por las reglas con el token). */
   emailVerificado?: boolean;
   /** Foto de perfil (URL de Storage); null = silueta. */

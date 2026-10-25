@@ -1,4 +1,4 @@
-import { CONFIG_DEFAULT, LIMITES, generarCodigoInvitacion, normalizarConfig, turnoActual } from '../lib/config';
+import { CONFIG_DEFAULT, LIMITES, normalizarConfig, turnoActual } from '../lib/config';
 
 describe('normalizarConfig', () => {
   it('sin documento devuelve los defaults', () => {
@@ -75,14 +75,5 @@ describe('turnoActual', () => {
 
   it('fuera de horario devuelve null', () => {
     expect(turnoActual(turnos, new Date(2026, 0, 1, 3, 0))).toBeNull();
-  });
-});
-
-describe('generarCodigoInvitacion', () => {
-  it('genera 8 caracteres sin ambiguos (0 O 1 I)', () => {
-    const bytes = new Uint8Array([0, 31, 64, 200, 255, 17, 90, 128]);
-    const codigo = generarCodigoInvitacion(bytes);
-    expect(codigo).toHaveLength(8);
-    expect(codigo).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);
   });
 });
