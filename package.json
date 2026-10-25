@@ -23,7 +23,8 @@
     "preset": "jest-expo",
     "testPathIgnorePatterns": [
       "/node_modules/",
-      "/firestore-tests/"
+      "/firestore-tests/",
+      "/\\.claude/"
     ],
     "testTimeout": 15000
   },
