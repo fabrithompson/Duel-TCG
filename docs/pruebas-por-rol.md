@@ -89,6 +89,7 @@ Cómo usarla:
 - [ ] Cambiar contraseña: los campos aparecen al tocar el botón. Con la actual mal escrita da un error claro.
 - [ ] Tema: automático (sigue al teléfono), día y noche.
 - [ ] Cerrar sesión pide confirmación y vuelve al inicio.
+- [ ] El admin no ve "Borrar mi cuenta" (su cuenta se borra desde la consola de Firebase).
 
 ## Mozo
 
@@ -97,7 +98,7 @@ Cómo usarla:
 - [ ] Salón: abrir mesas y tomar pedidos. No puede crear, mover ni borrar mesas.
 - [ ] Pedido: cargar, guardar y cobrar con cada medio de pago y con crédito de jugador.
 - [ ] Stock cafetería: solo consulta, sin "+ Ingreso".
-- [ ] Mi cuenta: foto, nombre, contraseña, tema y cerrar sesión.
+- [ ] Mi cuenta: foto, nombre, contraseña, tema, cerrar sesión y borrar la cuenta (como el jugador).
 
 ## Juez
 
@@ -119,6 +120,9 @@ Cómo usarla:
 - [ ] Crédito en la barra: muestra el monto ganado y en Mi cuenta los usos.
 - [ ] Historial: torneos jugados, puesto y premio.
 - [ ] Tabla: ranking de la temporada con su fila resaltada.
+- [ ] Mi cuenta > Borrar mi cuenta: pide la contraseña (con la contraseña mal da un error claro y no borra nada) y una confirmación que avisa el crédito que se pierde. Al confirmar vuelve al inicio, y con ese email y contraseña ya no se puede entrar.
+- [ ] Después de la baja, el staff ya no lo encuentra al buscar jugadores, y su nombre sigue en los torneos que jugó.
+- [ ] `https://<proyecto>.web.app/baja` abre sin iniciar sesión y dice cómo borrar la cuenta y a qué email escribir.
 
 ## Entre roles
 

@@ -35,6 +35,7 @@ import UsosCredito from '../components/UsosCredito';
 import { normalizarBusqueda } from '../lib/jugadores';
 import { preguntar } from '../lib/dialogo';
 import { borrarFoto, mensajeErrorFoto, subirFoto } from '../lib/avatar';
+import { BajaIncompleta, borrarMiCuenta } from '../lib/bajaCuenta';
 
 const NOMBRE = { min: 2, max: 60 };
 const PASSWORD_MIN = 8;
@@ -83,6 +84,10 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
   const [cambiandoPass, setCambiandoPass] = useState(false);
 
   const [cerrandoSesion, setCerrandoSesion] = useState(false);
+  const [bajaAbierta, setBajaAbierta] = useState(false);
+  const [passBaja, setPassBaja] = useState('');
+  const [errorBaja, setErrorBaja] = useState<string | undefined>();
+  const [borrandoCuenta, setBorrandoCuenta] = useState(false);
   const [subiendoFoto, setSubiendoFoto] = useState(false);
   const fotoOcupada = useRef(false);
 
@@ -98,6 +103,8 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
   const tonoRol = profile.role === 'juez' || esJugador ? 'gold' : 'br';
   const nombreLimpio = nombre.trim().replace(/\s+/g, ' ');
   const nombreCambiado = nombreLimpio !== profile.nombre;
+  // La cuenta de admin se crea y se borra desde la consola de Firebase: así el local no queda sin admin.
+  const puedeBorrarse = profile.role !== 'admin';
   const version = Constants.expoConfig?.version;
 
   // Nombre y foto se copian al directorio de jugadores: el jugador siempre está, y el staff si se anotó a jugar.
@@ -275,6 +282,56 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
     ]);
   };
 
+  const borrarCuenta = async () => {
+    setBorrandoCuenta(true);
+    onSaliendo(true);
+    try {
+      await borrarMiCuenta(user, passBaja, profile.fotoUrl);
+      mostrar('Tu cuenta se borró.', 'ok');
+      reiniciar('index');
+    } catch (e) {
+      if (e instanceof BajaIncompleta) {
+        await signOut(auth).catch(() => undefined);
+        reiniciar('index');
+        mostrar('Se borraron tus datos, pero no la cuenta. Iniciá sesión y volvé a borrarla.', 'error');
+        return;
+      }
+      onSaliendo(false);
+      setBorrandoCuenta(false);
+      const c = codigoError(e);
+      if (c === 'auth/invalid-credential' || c === 'auth/wrong-password') {
+        setErrorBaja('La contraseña no es correcta.');
+        fallo();
+      } else {
+        mostrar(mensajeError(e, 'No se pudo borrar la cuenta. Probá de nuevo.'), 'error');
+      }
+    }
+  };
+
+  const confirmarBaja = () => {
+    if (borrandoCuenta) return;
+    if (!passBaja) {
+      setErrorBaja('Escribí tu contraseña actual.');
+      advertencia();
+      return;
+    }
+    if (!user.email) {
+      mostrar('Tu cuenta no tiene email para verificar la contraseña. Hablá con el admin.', 'error');
+      return;
+    }
+    const pierde = (credito ?? 0) > 0 ? ` y perdés ${formatARS(credito ?? 0)} de crédito` : '';
+    preguntar('Borrar tu cuenta', `Se borran tu perfil y tu foto${pierde}. Tu nombre queda en los torneos que jugaste. No se puede deshacer.`, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Borrar', style: 'destructive', onPress: () => void borrarCuenta() },
+    ]);
+  };
+
+  const cerrarBaja = () => {
+    setPassBaja('');
+    setErrorBaja(undefined);
+    setBajaAbierta(false);
+  };
+
   const cerrarPassword = () => {
     setActual('');
     setNueva('');
@@ -436,8 +493,55 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
       </View>
 
       <View style={styles.seccion}>
-        <Button label="Cerrar sesión" variant="danger" onPress={confirmarSalida} loading={cerrandoSesion} />
+        <Button label="Cerrar sesión" variant="danger" onPress={confirmarSalida} loading={cerrandoSesion} disabled={borrandoCuenta} />
       </View>
+
+      {puedeBorrarse && bajaAbierta ? (
+        <View style={styles.seccion}>
+          <SectionLabel tone="dg">Borrar cuenta</SectionLabel>
+          <FormField
+            label="Contraseña actual"
+            autoFocus
+            value={passBaja}
+            onChangeText={(t) => {
+              setPassBaja(t);
+              setErrorBaja(undefined);
+            }}
+            error={errorBaja}
+            secureToggle
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="current-password"
+            textContentType="password"
+            maxLength={128}
+            editable={!borrandoCuenta}
+            returnKeyType="done"
+            onSubmitEditing={confirmarBaja}
+          />
+          <View style={styles.botones}>
+            <View style={styles.flex1}>
+              <Button label="Cancelar" variant="secondary" onPress={cerrarBaja} disabled={borrandoCuenta} />
+            </View>
+            <View style={styles.flex16}>
+              <Button label="Borrar cuenta" variant="danger" onPress={confirmarBaja} loading={borrandoCuenta} />
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {puedeBorrarse && !bajaAbierta ? (
+        <TouchableOpacity
+          onPress={() => {
+            tocar();
+            setBajaAbierta(true);
+          }}
+          style={styles.borrarLink}
+          hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.borrarLinkTexto, { color: colors.dg }]}>Borrar mi cuenta</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {version ? <Text style={[styles.version, { color: colors.dim }]}>Versión {version}</Text> : null}
     </Screen>
@@ -459,5 +563,7 @@ const styles = StyleSheet.create({
   flex1: { flex: 1 },
   flex16: { flex: 1.6 },
   chips: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  borrarLink: { alignSelf: 'center', marginTop: 18, minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
+  borrarLinkTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 13 },
   version: { fontFamily: Typography.fontFamily.regular, fontSize: 11, textAlign: 'center', marginTop: 28 },
 });

@@ -20,6 +20,7 @@ Cada perfil ve solo lo suyo: el rol define las pestañas, la pantalla de inicio 
 - La cuenta de admin no se crea desde la app: se crea desde la consola de Firebase (ver más abajo).
 - El juez (o el admin) puede jugar el torneo que maneja: en Nuevo torneo, paso Inscriptos, "Juego yo también" lo anota con la misma cuenta.
 - Toda cuenta arranca con una silueta como avatar; en Mi cuenta cada uno pone, cambia o quita su foto.
+- Jugadores, mozos y jueces pueden borrar su cuenta en Mi cuenta > Borrar mi cuenta, con su contraseña (ver [Baja de cuenta](#baja-de-cuenta)).
 - Las pestañas ocultas para un rol también están protegidas en la pantalla: si alguien llega por un enlace (`duel://…`), ve un aviso y no los controles.
 - Las cuentas de la versión anterior (con `role: 'user'`) se pasan solas a jugador la primera vez que entran. Si un registro se cortó sin guardar el perfil, al iniciar sesión la app pide completarlo.
 
@@ -119,6 +120,16 @@ La app no deja crear administradores, así que el primero se da de alta a mano (
 
 Para sumar otro admin más adelante, repetí estos pasos, o creale una cuenta de mozo o juez desde Ajustes > Equipo y cambiale el rol a Admin.
 
+## Baja de cuenta
+
+Google Play pide que quien crea una cuenta desde la app la pueda borrar desde la app y pedir la baja desde la web.
+
+- En la app: Mi cuenta > Borrar mi cuenta. Pide la contraseña actual (Authentication exige un inicio de sesión reciente para borrar la cuenta) y una confirmación que avisa cuánto crédito se pierde. Lo hace `lib/bajaCuenta.ts`, en este orden: verifica la contraseña, borra las fotos de `avatares/{uid}/` en Storage, borra `users/{uid}`, `jugadores/{uid}` y `relojes/{uid}` en una transacción (sin señal falla en el acto, no queda en cola) y al final la cuenta de Authentication. Si solo falla ese último paso, cierra la sesión y avisa: al volver a entrar, la app pide completar el registro y se puede borrar de nuevo.
+- En la web: `https://<proyecto>.web.app/baja` (`public/baja.html`, sale con `pnpm desplegar hosting`). Explica cómo borrarla desde la app y a qué email escribir si no se puede entrar. Esa URL va en Play Console > Contenido de la app > Seguridad de los datos > Eliminación de cuentas.
+- La cuenta de admin no se borra desde la app (el local quedaría sin admin) y tampoco una cuenta con el acceso quitado (borrar el perfil y volver a completarlo sería aprobarse sola). Esas, y los pedidos que llegan por email, se borran a mano desde la consola de Firebase: Authentication > el usuario > Borrar cuenta; Firestore > `users/{uid}`, `jugadores/{uid}` y `relojes/{uid}`; Storage > `avatares/{uid}/`.
+
+Qué queda: el historial del local, sin datos de contacto. Los torneos guardan el nombre y el uid de quienes jugaron (en `jugadores`, `rondas`, `posiciones`, `premios`, `entregas` y `reportes`) y no se tocan, porque las tablas, el ranking y el historial de los demás jugadores dependen de esos resultados. Las ventas guardan en `creditoUid` el uid de quien usó crédito, sin nombre ni email, y son inmutables (es la caja del local). Con la cuenta borrada, ese uid ya no lleva a ningún perfil ni email. Bloquear o desactivar una cuenta no cuenta como baja para Google: la baja borra.
+
 ## Configuración inicial del local
 
 Nada del negocio está fijo en el código: todo sale de Firestore y se edita desde la app con la cuenta de admin.
@@ -175,8 +186,8 @@ Storage: `logos/` guarda el logo del local.
 | Recurso | Leer | Escribir |
 | --- | --- | --- |
 | `config/publico` | Todos, incluso sin sesión | Admin |
-| `users` | Cada uno el suyo; admin todos | Alta: el propio usuario, solo como jugador aprobado; el admin, mozos y jueces aprobados con `creadoPor` igual a su uid (nunca otro admin). Edición: el usuario solo su nombre, marcar su email verificado (si el token lo confirma) o pasar su cuenta vieja a jugador; admin rol, aprobación y nombre. Baja: admin |
-| `jugadores` | Cada jugador el suyo; staff todos | Alta: el propio jugador aprobado, con crédito 0, en el mismo batch que su perfil; también el juez o el admin, para jugar los torneos que manejan. Foto: cada uno la suya, solo URLs de Firebase Storage. Edición: el jugador solo su nombre; el juez acredita solo al entregar un premio de un torneo cerrado, al ganador de ese puesto, por el monto del premio (hasta $1.000.000) y una sola vez (`ultimoPremio` + registro en `entregas`); el mozo descuenta solo junto con la venta que aplica ese crédito (`ultimaVenta`); el admin puede corregir a mano, con tope, y bloquear o reactivar (`activo`); nunca queda en negativo. Baja: admin |
+| `users` | Cada uno el suyo; admin todos | Alta: el propio usuario, solo como jugador aprobado; el admin, mozos y jueces aprobados con `creadoPor` igual a su uid (nunca otro admin). Edición: el usuario solo su nombre, marcar su email verificado (si el token lo confirma) o pasar su cuenta vieja a jugador; admin rol, aprobación y nombre. Baja: el propio usuario (salvo el admin y una cuenta con el acceso quitado); el admin, la de los demás |
+| `jugadores` | Cada jugador el suyo; staff todos | Alta: el propio jugador aprobado, con crédito 0, en el mismo batch que su perfil; también el juez o el admin, para jugar los torneos que manejan. Foto: cada uno la suya, solo URLs de Firebase Storage. Edición: el jugador solo su nombre; el juez acredita solo al entregar un premio de un torneo cerrado, al ganador de ese puesto, por el monto del premio (hasta $1.000.000) y una sola vez (`ultimoPremio` + registro en `entregas`); el mozo descuenta solo junto con la venta que aplica ese crédito (`ultimaVenta`); el admin puede corregir a mano, con tope, y bloquear o reactivar (`activo`); nunca queda en negativo. Baja: el propio jugador, solo junto con su perfil (en la misma escritura); admin |
 | `salas` | Staff | Admin |
 | `mesas` | Staff | Admin; el mozo solo cambia `pedido` y `estado` |
 | `productos`, `tcg_productos` | Staff | Admin; mozo y juez solo bajan `stock`, hasta 1.000 por vez y sin pasar de -1.000 |
@@ -186,12 +197,13 @@ Storage: `logos/` guarda el logo del local.
 | `torneos/{id}/entregas` | Staff | Admin y juez, una por puesto, cuando el premio pasa a entregado. Nunca se editan; borra solo el admin |
 | `reportes` | Cualquier usuario aprobado | El jugador sentado en esa mesa de la ronda actual del torneo en curso, si el local permite que los jugadores reporten; borrar admin y juez |
 | `bloqueos/torneo` | Admin y juez | Admin y juez, con la hora del servidor: se toma solo si el torneo anterior terminó (o ya no existe) y se libera al cerrarlo. El admin puede destrabarlo |
-| `relojes/{uid}` | El propio usuario | El propio usuario, solo con la hora del servidor |
+| `relojes/{uid}` | El propio usuario | El propio usuario, solo con la hora del servidor; borrarlo, el propio usuario |
 | Storage `logos/` | Todos | Admin, imágenes de menos de 2 MB |
+| Storage `avatares/{uid}/` | Cualquiera con sesión (también listar la carpeta) | El propio usuario, imágenes de menos de 2 MB; borrar, él o el admin |
 
 Las fechas de ventas, ingresos y torneos tienen que ser las de la jornada en curso: el día argentino (UTC-3) más 6 horas para la madrugada de un turno nocturno.
 
-Nadie puede crearse como admin ni registrarse solo como mozo o juez, aprobarse solo, cambiarse el rol, inflar un crédito o vaciarlo sin un premio o una venta que lo respalde, acreditar dos veces el mismo premio, editar o borrar ventas, leer los emails de otros, cargar un torneo retroactivo ni reportar resultados en nombre de otro jugador. Los tests de `firestore-tests/` cubren cada uno de esos casos.
+Nadie puede crearse como admin ni registrarse solo como mozo o juez, aprobarse solo, cambiarse el rol, inflar un crédito o vaciarlo sin un premio o una venta que lo respalde, acreditar dos veces el mismo premio, editar o borrar ventas, leer los emails de otros, cargar un torneo retroactivo, reportar resultados en nombre de otro jugador ni borrar la cuenta de otro (o la propia para salir de un bloqueo). Los tests de `firestore-tests/` cubren cada uno de esos casos.
 
 ## Scripts
 

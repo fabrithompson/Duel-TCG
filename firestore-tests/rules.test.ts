@@ -27,7 +27,7 @@ import {
   writeBatch,
   type Firestore,
 } from 'firebase/firestore';
-import { getMetadata, ref, uploadBytes, type FirebaseStorage } from 'firebase/storage';
+import { deleteObject, getMetadata, listAll, ref, uploadBytes, type FirebaseStorage } from 'firebase/storage';
 
 const PROJECT_ID = 'demo-duel';
 // Día local de Argentina (UTC-3): las reglas exigen que un torneo nuevo tenga la fecha de hoy.
@@ -555,11 +555,77 @@ describe('users: edición', () => {
     await assertSucceeds(updateDoc(doc(db, 'users', U.admin), { nombre: 'Dueña' }));
   });
 
-  test('solo el admin borra usuarios', async () => {
-    await assertFails(deleteDoc(doc(como(U.j1), 'users', U.j1)));
+  test('el perfil de otro solo lo borra el admin', async () => {
+    await assertFails(deleteDoc(doc(como(U.j2), 'users', U.j1)));
     await assertFails(deleteDoc(doc(como(U.mozo), 'users', U.j1)));
     await assertFails(deleteDoc(doc(como(U.juez), 'users', U.j1)));
+    await assertFails(deleteDoc(doc(anonimo(), 'users', U.j1)));
     await assertSucceeds(deleteDoc(doc(como(U.admin), 'users', U.juezRechazado)));
+  });
+});
+
+describe('baja de la propia cuenta', () => {
+  /** Como Mi cuenta > Borrar mi cuenta: perfil, ficha del directorio y reloj en la misma escritura. */
+  function baja(uid: string, de = uid) {
+    const db = como(uid);
+    const b = writeBatch(db);
+    b.delete(doc(db, 'users', de));
+    b.delete(doc(db, 'jugadores', de));
+    b.delete(doc(db, 'relojes', de));
+    return b.commit();
+  }
+
+  test('el jugador borra su perfil, su ficha y su reloj', async () => {
+    await assertSucceeds(setDoc(doc(como(U.j1), 'relojes', U.j1), { t: serverTimestamp() }));
+    await assertSucceeds(baja(U.j1));
+    await sinReglas(async (a) => {
+      expect((await getDoc(doc(a, 'users', U.j1))).exists()).toBe(false);
+      expect((await getDoc(doc(a, 'jugadores', U.j1))).exists()).toBe(false);
+      expect((await getDoc(doc(a, 'relojes', U.j1))).exists()).toBe(false);
+      // El historial del local queda: ventas y torneos no se tocan.
+      expect((await getDoc(doc(a, 'torneos', 'tf'))).exists()).toBe(true);
+    });
+  });
+
+  test('mozo, juez (también con ficha para jugar) y una cuenta pendiente se dan de baja', async () => {
+    await sinReglas((a) => setDoc(doc(a, 'jugadores', U.juez), directorio(U.juez)));
+    await assertSucceeds(baja(U.mozo));
+    await assertSucceeds(baja(U.juez));
+    await assertSucceeds(baja(U.mozoPendiente));
+  });
+
+  test('la ficha sola no: solo junto con el perfil', async () => {
+    await assertFails(deleteDoc(doc(como(U.j1), 'jugadores', U.j1)));
+    await assertSucceeds(deleteDoc(doc(como(U.j1), 'users', U.j1)));
+    // Sin perfil (alta a medias o perfil ya borrado), la ficha que quedó se puede borrar.
+    await assertSucceeds(deleteDoc(doc(como(U.j1), 'jugadores', U.j1)));
+  });
+
+  test('nadie da de baja la cuenta de otro', async () => {
+    await assertFails(baja(U.j1, U.j2));
+    await assertFails(baja(U.mozo, U.j2));
+    await assertFails(baja(U.juez, U.j2));
+    const db = como(U.j1);
+    const b = writeBatch(db);
+    b.delete(doc(db, 'users', U.j1));
+    b.delete(doc(db, 'jugadores', U.j2));
+    await assertFails(b.commit());
+    await assertFails(deleteDoc(doc(como(U.j2), 'relojes', U.j1)));
+  });
+
+  test('con el acceso quitado no se borra (volver a completarlo sería aprobarse solo)', async () => {
+    await sinReglas(async (a) => {
+      await updateDoc(doc(a, 'users', U.j3), { estadoAprobacion: 'rechazado' });
+      await updateDoc(doc(a, 'jugadores', U.j3), { activo: false });
+    });
+    await assertFails(baja(U.j3));
+    await assertFails(deleteDoc(doc(como(U.j3), 'jugadores', U.j3)));
+    await assertFails(deleteDoc(doc(como(U.juezRechazado), 'users', U.juezRechazado)));
+  });
+
+  test('el admin no se borra desde la app', async () => {
+    await assertFails(baja(U.admin));
+    await assertFails(deleteDoc(doc(como(U.admin), 'users', U.admin)));
   });
 });
 
@@ -711,7 +777,7 @@ describe('jugadores: directorio público', () => {
     await assertSucceeds(updateDoc(doc(como(U.admin), 'jugadores', U.j1), { creditoCafeteria: increment(-1000) }));
   });
 
-  test('staff pendiente o rechazado no toca crédito; solo el admin borra', async () => {
+  test('staff pendiente o rechazado no toca crédito; la ficha de otro solo la borra el admin', async () => {
     await assertFails(updateDoc(doc(como(U.mozoPendiente), 'jugadores', U.j1), { creditoCafeteria: increment(-1000) }));
     await assertFails(updateDoc(doc(como(U.juezRechazado), 'jugadores', U.j1), { creditoCafeteria: increment(1000) }));
     await assertFails(deleteDoc(doc(como(U.mozo), 'jugadores', U.j3)));
@@ -1185,6 +1251,8 @@ describe('relojes', () => {
     await assertFails(setDoc(doc(como(U.j1), 'relojes', U.j2), { t: serverTimestamp() }));
     await assertFails(getDoc(doc(como(U.j2), 'relojes', U.j1)));
     await assertFails(setDoc(doc(anonimo(), 'relojes', 'x'), { t: serverTimestamp() }));
+    await assertFails(deleteDoc(doc(como(U.j2), 'relojes', U.j1)));
+    await assertSucceeds(deleteDoc(doc(como(U.j1), 'relojes', U.j1)));
   });
 });
 
@@ -1306,6 +1374,17 @@ describe('storage: logos', () => {
       uploadBytes(ref(almacenamiento(ctx(U.j1)), `avatares/${U.j1}/grande.jpg`), new Uint8Array(2 * 1024 * 1024), { contentType: 'image/jpeg' })
     );
     await assertFails(uploadBytes(ref(almacenamiento(ctx(U.j1)), `avatares/${U.j1}/script.js`), png, { contentType: 'text/javascript' }));
+  });
+
+  test('al borrar la cuenta, cada uno lista y borra sus fotos', async () => {
+    const mias = almacenamiento(ctx(U.j1));
+    await assertSucceeds(uploadBytes(ref(mias, `avatares/${U.j1}/foto-1.jpg`), png, { contentType: 'image/jpeg' }));
+    await assertSucceeds(uploadBytes(ref(mias, `avatares/${U.j1}/foto-2.jpg`), png, { contentType: 'image/jpeg' }));
+    await assertFails(deleteObject(ref(almacenamiento(ctx(U.j2)), `avatares/${U.j1}/foto-1.jpg`)));
+    const lista = await assertSucceeds(listAll(ref(mias, `avatares/${U.j1}`)));
+    expect(lista.items.map((i) => i.name).sort()).toEqual(['foto-1.jpg', 'foto-2.jpg']);
+    for (const item of lista.items) await assertSucceeds(deleteObject(item));
+    expect((await listAll(ref(mias, `avatares/${U.j1}`))).items).toHaveLength(0);
   });
 
   test('fuera de logos/ y avatares/ no se lee ni se escribe', async () => {

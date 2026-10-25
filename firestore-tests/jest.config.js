@@ -2,7 +2,8 @@
 module.exports = {
   rootDir: __dirname,
   testEnvironment: 'node',
-  testMatch: ['<rootDir>/**/*.test.ts'],
+  // Sin <rootDir> en el patrón: en Windows queda con "\" y no encuentra nada si la ruta tiene una carpeta con punto (.claude/worktrees).
+  testMatch: ['**/*.test.ts'],
   transform: {
     '^.+\\.ts$': [
       'babel-jest',

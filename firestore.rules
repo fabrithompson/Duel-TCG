@@ -253,13 +253,22 @@ service cloud.firestore {
         && texto(d.nombre, 2, 60);
     }
 
+    // Mi cuenta > Borrar mi cuenta. Con el acceso quitado no: borrar el perfil y volver a completarlo
+    // sería aprobarse solo. El admin tampoco (el local quedaría sin admin): se borra desde la consola.
+    function bajaPropia(userId) {
+      return autenticado()
+        && request.auth.uid == userId
+        && resource.data.get('role', '') != 'admin'
+        && resource.data.get('estadoAprobacion', '') != 'rechazado';
+    }
+
     // users es privado (email, rol): solo el dueño y el admin. El staff ve a los jugadores por /jugadores.
     match /users/{userId} {
       allow get: if (autenticado() && request.auth.uid == userId) || esAdmin();
       allow list: if esAdmin();
       allow create: if altaUsuarioValida(userId) || altaPorAdmin(userId);
       allow update: if edicionPropia(userId) || edicionAdmin(userId) || migracionLegado(userId);
-      allow delete: if esAdmin();
+      allow delete: if (esAdmin() && request.auth.uid != userId) || bajaPropia(userId);
     }
 
     // ---------- Directorio público de jugadores (nombre y crédito, sin email) ----------
@@ -370,6 +379,14 @@ service cloud.firestore {
         && nombreBusquedaValido(d.nombreBusqueda);
     }
 
+    // La ficha propia se borra solo junto con el perfil, en la misma escritura: así vale lo mismo que
+    // en bajaPropia (una ficha bloqueada, activo: false, no se borra por separado).
+    function bajaJugadorPropia(jugadorId) {
+      return autenticado()
+        && request.auth.uid == jugadorId
+        && !existsAfter(/databases/$(database)/documents/users/$(jugadorId));
+    }
+
     match /jugadores/{jugadorId} {
       allow get: if (autenticado() && request.auth.uid == jugadorId) || staff();
       allow list: if staff();
@@ -377,7 +394,7 @@ service cloud.firestore {
       allow update: if renombreJugador(jugadorId) || subeCredito(jugadorId) || bajaCredito(jugadorId)
         || (autenticado() && request.auth.uid == jugadorId && cambiaSoloFoto())
         || (esAdmin() && cambios().hasOnly(['activo']) && request.resource.data.activo is bool);
-      allow delete: if esAdmin();
+      allow delete: if esAdmin() || bajaJugadorPropia(jugadorId);
     }
 
     // ---------- Salón ----------
@@ -685,6 +702,7 @@ service cloud.firestore {
       allow create, update: if autenticado() && request.auth.uid == userId
         && request.resource.data.keys().hasOnly(['t'])
         && request.resource.data.t == request.time;
+      allow delete: if autenticado() && request.auth.uid == userId;
     }
 
     match /torneos/{torneoId} {
