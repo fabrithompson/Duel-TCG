@@ -89,10 +89,13 @@ Mientras la app no esté en las tiendas, se instala desde links:
 | Android | APK que se descarga desde un link de expo.dev (o su QR). La primera vez el celular pide permitir instalar apps de origen desconocido. | `pnpm apk` |
 | Cualquier celular o compu | Versión web en `https://<proyecto>.web.app`. En el iPhone: Safari → Compartir → Agregar a inicio; en Android: Chrome → Instalar app. Se abre sin la barra del navegador. | `pnpm desplegar hosting` |
 | iPhone (app) | TestFlight, con link público para hasta 10.000 personas. Hace falta la cuenta de Apple Developer (USD 99 por año). | `pnpm testflight` |
+| Google Play | AAB (el formato que pide Play) para subir a Play Console: primero a una prueba cerrada y después a producción. Qué cargar en cada pantalla: [docs/google-play.md](docs/google-play.md). | `pnpm play` |
 
 - Los builds corren en la nube de Expo (EAS), así que no hace falta Mac ni Android Studio. El proyecto es `@fabrithompson/duel` en expo.dev.
 - Las credenciales de Firebase de los builds están en las variables de EAS (el `.env` no se sube). Si cambian: `pnpm eas env:push --environment preview --environment production --path .env --force`.
 - La clave que firma el APK y los certificados de Apple los guarda EAS: cada APK nuevo se instala encima del anterior sin perder la sesión.
+- `pnpm play` arma el AAB con el perfil `production` de EAS (variables de Firebase de `production`, número de versión automático) y deja el link para descargarlo. La clave de firma es la misma de los APK; Play agrega la suya al publicar (firma de apps de Google Play).
+- La política de privacidad está en `https://<proyecto>.web.app/privacidad` (`public/privacidad.html`, sale con `pnpm desplegar hosting`) y se abre desde Crear cuenta y Mi cuenta: Play la pide en la ficha y dentro de la app.
 - `pnpm testflight` arma la versión de iPhone y la sube a App Store Connect. La primera vez pide iniciar sesión con el Apple ID (con el código de verificación) para crear los certificados. Después, en App Store Connect → TestFlight: grupo externo, link público y revisión de Apple de la primera versión. Cada build de TestFlight dura 90 días.
 
 ## Primera cuenta de admin
@@ -204,7 +207,7 @@ Nadie puede crearse como admin ni registrarse solo como mozo o juez, aprobarse s
 | --- | --- |
 | `pnpm start` | Levanta Expo (`expo start`). |
 | `pnpm desplegar [partes]` | Sube reglas e índices al proyecto del `.env`; `pnpm desplegar hosting` publica la versión web. |
-| `pnpm apk` / `pnpm testflight` | APK para Android con link de descarga / versión de iPhone a TestFlight. Ver [Distribución](#distribución). |
+| `pnpm apk` / `pnpm play` / `pnpm testflight` | APK para Android con link de descarga / AAB para Google Play / versión de iPhone a TestFlight. Ver [Distribución](#distribución). |
 | `pnpm firebase <comando>` | Firebase CLI 15 sin instalarla global (login, deploy). |
 | `pnpm typecheck` | Chequeo de tipos con `tsc --noEmit`. |
 | `pnpm test` | Tests unitarios con Jest (preset `jest-expo`). |
@@ -252,5 +255,5 @@ firestore.rules      Reglas de Firestore
 firestore.indexes.json
 firestore-tests/     Tests de reglas contra los emuladores
 scripts/qa/          QA de interfaz (pnpm qa:ui): datos de prueba, recorrido y reporte
-docs/                Lista de pruebas por rol
+docs/                Lista de pruebas por rol y guía de Google Play (textos, formularios e imágenes)
 ```

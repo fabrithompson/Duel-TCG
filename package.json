@@ -17,6 +17,7 @@
     "desplegar": "tsx scripts/desplegar.ts",
     "eas": "pnpm dlx eas-cli@24.11.0",
     "apk": "pnpm dlx eas-cli@24.11.0 build --platform android --profile preview",
+    "play": "pnpm dlx eas-cli@24.11.0 build --platform android --profile production",
     "testflight": "pnpm dlx eas-cli@24.11.0 build --platform ios --profile production --auto-submit"
   },
   "jest": {

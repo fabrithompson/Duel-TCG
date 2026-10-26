@@ -18,6 +18,7 @@ import FormField from '../components/FormField';
 import Button from '../components/Button';
 import Chip from '../components/Chip';
 import Avatar from '../components/Avatar';
+import LinkPrivacidad from '../components/LinkPrivacidad';
 import { Badge, Card, SectionLabel } from '../components/ui';
 import { PreferenciaTema, useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
@@ -533,6 +534,8 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
         </TouchableOpacity>
       ) : null}
 
+      <LinkPrivacidad style={puedeBorrarse && !bajaAbierta ? undefined : styles.privacidad} />
+
       {version ? <Text style={[styles.version, { color: colors.dim }]}>Versión {version}</Text> : null}
     </Screen>
   );
@@ -555,5 +558,6 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   borrarLink: { alignSelf: 'center', marginTop: 18, minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
   borrarLinkTexto: { fontFamily: Typography.fontFamily.semibold, fontSize: 13 },
-  version: { fontFamily: Typography.fontFamily.regular, fontSize: 11, textAlign: 'center', marginTop: 28 },
+  privacidad: { marginTop: 18 },
+  version: { fontFamily: Typography.fontFamily.regular, fontSize: 11, textAlign: 'center', marginTop: 12 },
 });

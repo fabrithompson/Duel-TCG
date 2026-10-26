@@ -13,6 +13,7 @@ import { advertencia, exito, fallo } from '../../lib/haptics';
 import FormField from '../../components/FormField';
 import Button from '../../components/Button';
 import { ErrorBanner } from '../../components/ui';
+import LinkPrivacidad from '../../components/LinkPrivacidad';
 import { altaDirectorio } from '../../lib/jugadores';
 import { useReiniciarNavegacion } from '../../hooks/useReiniciarNavegacion';
 
@@ -270,6 +271,7 @@ export default function RegisterScreen() {
               ¿Ya tenés cuenta? <Text style={[styles.loginLink, { color: colors.br }]}>Iniciá sesión</Text>
             </Text>
           </TouchableOpacity>
+          <LinkPrivacidad />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

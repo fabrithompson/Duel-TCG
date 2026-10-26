@@ -27,13 +27,8 @@ export default function TablaScreen() {
 
   const estoyEnLaTabla = !!miUid && filas.some((f) => f.uid === miUid);
 
-  const resumen = (
-    <View style={styles.resumen}>
-      <Text style={[styles.resumenTexto, { color: colors.dim }, tabularNums(11)]} numberOfLines={2}>
-        {`${temporada} · ${fechas} ${fechas === 1 ? 'fecha' : 'fechas'}`}
-      </Text>
-    </View>
-  );
+  // Abajo del título y no al costado: en 360 px de ancho "Clasificación" se partía en dos.
+  const resumen = `${temporada} · ${fechas} ${fechas === 1 ? 'fecha' : 'fechas'}`;
 
   const pie =
     filas.length > 0 ? (
@@ -50,7 +45,7 @@ export default function TablaScreen() {
     ) : null;
 
   return (
-    <Screen title="Clasificación" right={error && filas.length === 0 ? undefined : resumen} scroll={false} divider>
+    <Screen title="Clasificación" subtitle={error && filas.length === 0 ? undefined : resumen} scroll={false} divider>
       <FlatList
         data={filas}
         keyExtractor={(f) => f.uid}
@@ -117,8 +112,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   lista: { paddingHorizontal: 20, paddingBottom: 32 },
   separador: { height: 6 },
-  resumen: { paddingTop: 10, maxWidth: 170 },
-  resumenTexto: { fontFamily: Typography.fontFamily.regular, fontSize: 11, textAlign: 'right' },
   fila: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -42,8 +42,9 @@ const BASE = `http://127.0.0.1:${PUERTO_WEB_QA}`;
 const SCRIPT_NAVEGADOR = readFileSync(join(__dirname, 'navegador.js'), 'utf8');
 const esWindows = process.platform === 'win32';
 
-// Botones que no se tocan: sacarían de la sesión y el resto de las pantallas quedaría sin probar.
-const NO_TOCAR = /cerrar sesi[oó]n|^salir$/i;
+// Botones que no se tocan: cerrar sesión dejaría sin probar el resto de las pantallas, y la política
+// de privacidad abre otra pestaña.
+const NO_TOCAR = /cerrar sesi[oó]n|^salir$|pol[ií]tica de privacidad/i;
 
 const SECTORES: readonly Sector[] = ['sin-sesion', 'admin', 'juez', 'mozo', 'jugador'];
 
