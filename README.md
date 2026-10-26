@@ -27,9 +27,10 @@ Cada perfil ve solo lo suyo: el rol define las pestañas, la pantalla de inicio 
 ## Stack
 
 - Expo SDK 57 con expo-router, React Native 0.86, React 19.2 y TypeScript 6 estricto.
-- Firebase JS SDK 12 (Authentication, Cloud Firestore y Storage), inicializado en `config/firebase.ts`.
+- Firebase JS SDK 12 (Authentication y Cloud Firestore), inicializado en `config/firebase.ts`.
 - Tipografía (Google Fonts, licencia libre): Space Grotesk para títulos y cifras (`Typography.display`) y Plus Jakarta Sans para el resto (`Typography.fontFamily`), en `constants/theme.ts`.
-- No hay backend propio: toda la lógica corre en el cliente y la seguridad la hacen cumplir las reglas de Firestore y Storage (`firestore.rules`, `storage.rules`).
+- No hay backend propio: toda la lógica corre en el cliente y la seguridad la hacen cumplir las reglas de Firestore (`firestore.rules`).
+- No usa Storage: el plan gratis de Firebase ya no lo incluye. Las fotos de perfil y el logo se guardan como imágenes chicas dentro de Firestore (ver Modelo de datos).
 
 ## Puesta en marcha
 
@@ -40,7 +41,6 @@ El proyecto usa pnpm con `node_modules` plano (`nodeLinker: hoisted` en `pnpm-wo
 1. Creá el proyecto en la [consola de Firebase](https://console.firebase.google.com/) y habilitá:
    - Authentication con el proveedor Correo electrónico/contraseña.
    - Cloud Firestore (modo producción).
-   - Storage.
 2. Registrá una app web en Configuración del proyecto > General > Tus apps y copiá sus credenciales a un archivo `.env` en la raíz (ya está en `.gitignore`):
 
    ```
@@ -73,15 +73,10 @@ pnpm firebase login
 pnpm desplegar
 ```
 
-`pnpm desplegar` sube reglas, índices y reglas de Storage al proyecto del `.env` (el mismo que usa la app), sin escribir el ID. Para una sola parte: `pnpm desplegar firestore:rules`. `pnpm firebase` es un atajo a Firebase CLI 15 (`pnpm dlx firebase-tools@15`), sin instalarla global.
-
-Si Storage no está habilitado en el proyecto, el despliegue de sus reglas falla: desplegá `pnpm desplegar firestore:rules,firestore:indexes` y habilitalo cuando quieras cargar el logo.
+`pnpm desplegar` sube las reglas y los índices de Firestore al proyecto del `.env` (el mismo que usa la app), sin escribir el ID. Para una sola parte: `pnpm desplegar firestore:rules`. `pnpm firebase` es un atajo a Firebase CLI 15 (`pnpm dlx firebase-tools@15`), sin instalarla global.
 
 - `firestore.rules`: permisos de Firestore (ver Seguridad).
-- `firestore.indexes.json`: índices compuestos que necesitan las consultas de torneos. Tardan unos minutos en construirse después del primer despliegue. Mientras tanto, Historial, Tabla y Mi duelo muestran "esta pantalla todavía se está preparando"; si sigue así, falta `pnpm firebase deploy --only firestore:indexes`.
-- `storage.rules`: `logos/` (lectura pública, escritura del admin) y `avatares/{uid}/` (fotos de perfil: cada uno sube la suya, las ve cualquiera con sesión). Imágenes de menos de 2 MB.
-
-Las reglas de Storage leen el perfil del usuario en Firestore para saber si es admin. La primera vez que las despliegues, la CLI pide permiso para que Storage consulte Firestore: aceptalo, si no, subir el logo falla con permiso denegado.
+- `firestore.indexes.json`: índices compuestos que necesitan las consultas de torneos. Tardan unos minutos en construirse después del primer despliegue. Mientras tanto, Historial, Tabla y Mi duelo muestran "esta pantalla todavía se está preparando"; si sigue así, falta `pnpm firebase deploy --only firestore:indexes`. También saca del índice las imágenes (`fotoUrl`, `logoUrl`), que nunca se consultan.
 
 Para usar `pnpm firebase deploy` directo, pasale `--project <id-del-proyecto>` o creá un `.firebaserc` con `{ "projects": { "default": "<id-del-proyecto>" } }`.
 
@@ -124,9 +119,9 @@ Para sumar otro admin más adelante, repetí estos pasos, o creale una cuenta de
 
 Google Play pide que quien crea una cuenta desde la app la pueda borrar desde la app y pedir la baja desde la web.
 
-- En la app: Mi cuenta > Borrar mi cuenta. Pide la contraseña actual (Authentication exige un inicio de sesión reciente para borrar la cuenta) y una confirmación que avisa cuánto crédito se pierde. Lo hace `lib/bajaCuenta.ts`, en este orden: verifica la contraseña, borra las fotos de `avatares/{uid}/` en Storage, borra `users/{uid}`, `jugadores/{uid}` y `relojes/{uid}` en una transacción (sin señal falla en el acto, no queda en cola) y al final la cuenta de Authentication. Si solo falla ese último paso, cierra la sesión y avisa: al volver a entrar, la app pide completar el registro y se puede borrar de nuevo.
+- En la app: Mi cuenta > Borrar mi cuenta. Pide la contraseña actual (Authentication exige un inicio de sesión reciente para borrar la cuenta) y una confirmación que avisa cuánto crédito se pierde. Lo hace `lib/bajaCuenta.ts`, en este orden: verifica la contraseña, borra `users/{uid}` (con la foto adentro), `jugadores/{uid}` y `relojes/{uid}` en una transacción (sin señal falla en el acto, no queda en cola) y al final la cuenta de Authentication. Si solo falla ese último paso, cierra la sesión y avisa: al volver a entrar, la app pide completar el registro y se puede borrar de nuevo.
 - En la web: `https://<proyecto>.web.app/baja` (`public/baja.html`, sale con `pnpm desplegar hosting`). Explica cómo borrarla desde la app y a qué email escribir si no se puede entrar. Esa URL va en Play Console > Contenido de la app > Seguridad de los datos > Eliminación de cuentas.
-- La cuenta de admin no se borra desde la app (el local quedaría sin admin) y tampoco una cuenta con el acceso quitado (borrar el perfil y volver a completarlo sería aprobarse sola). Esas, y los pedidos que llegan por email, se borran a mano desde la consola de Firebase: Authentication > el usuario > Borrar cuenta; Firestore > `users/{uid}`, `jugadores/{uid}` y `relojes/{uid}`; Storage > `avatares/{uid}/`.
+- La cuenta de admin no se borra desde la app (el local quedaría sin admin) y tampoco una cuenta con el acceso quitado (borrar el perfil y volver a completarlo sería aprobarse sola). Esas, y los pedidos que llegan por email, se borran a mano desde la consola de Firebase: Authentication > el usuario > Borrar cuenta; Firestore > `users/{uid}`, `jugadores/{uid}` y `relojes/{uid}`.
 
 Qué queda: el historial del local, sin datos de contacto. Los torneos guardan el nombre y el uid de quienes jugaron (en `jugadores`, `rondas`, `posiciones`, `premios`, `entregas` y `reportes`) y no se tocan, porque las tablas, el ranking y el historial de los demás jugadores dependen de esos resultados. Las ventas guardan en `creditoUid` el uid de quien usó crédito, sin nombre ni email, y son inmutables (es la caja del local). Con la cuenta borrada, ese uid ya no lleva a ningún perfil ni email. Bloquear o desactivar una cuenta no cuenta como baja para Google: la baja borra.
 
@@ -177,7 +172,7 @@ Los contadores (stock y crédito) se modifican siempre con `increment()`. El cob
 
 Los documentos de la versión anterior se leen sin romper: ventas sin medio de pago (fecha y hora se recalculan de su marca de tiempo), renglones con `productoId`, torneos con `valorEntrada`, `tiempoPorRonda` o premios en `sobres`, y productos con `controlStock` sin número de stock.
 
-Storage: `logos/` guarda el logo del local.
+Fotos de perfil y logo: una JPEG chica guardada como data URL (`data:image/jpeg;base64,…`) en `users/{uid}.fotoUrl` y `jugadores/{uid}.fotoUrl` (200 px de ancho, hasta 100.000 caracteres) y en `config/publico.logoUrl` (480 px, hasta 250.000). La app las achica antes de guardarlas (`lib/avatar.ts`, `lib/logo.ts`) y las reglas controlan formato y tamaño con los mismos topes que `lib/imagenEnLinea.ts`. No usan Storage porque el plan gratis de Firebase ya no lo incluye. Las URLs de Storage de versiones anteriores se siguen aceptando.
 
 ## Seguridad
 
@@ -185,9 +180,9 @@ Storage: `logos/` guarda el logo del local.
 
 | Recurso | Leer | Escribir |
 | --- | --- | --- |
-| `config/publico` | Todos, incluso sin sesión | Admin |
-| `users` | Cada uno el suyo; admin todos | Alta: el propio usuario, solo como jugador aprobado; el admin, mozos y jueces aprobados con `creadoPor` igual a su uid (nunca otro admin). Edición: el usuario solo su nombre, marcar su email verificado (si el token lo confirma) o pasar su cuenta vieja a jugador; admin rol, aprobación y nombre. Baja: el propio usuario (salvo el admin y una cuenta con el acceso quitado); el admin, la de los demás |
-| `jugadores` | Cada jugador el suyo; staff todos | Alta: el propio jugador aprobado, con crédito 0, en el mismo batch que su perfil; también el juez o el admin, para jugar los torneos que manejan. Foto: cada uno la suya, solo URLs de Firebase Storage. Edición: el jugador solo su nombre; el juez acredita solo al entregar un premio de un torneo cerrado, al ganador de ese puesto, por el monto del premio (hasta $1.000.000) y una sola vez (`ultimoPremio` + registro en `entregas`); el mozo descuenta solo junto con la venta que aplica ese crédito (`ultimaVenta`); el admin puede corregir a mano, con tope, y bloquear o reactivar (`activo`); nunca queda en negativo. Baja: el propio jugador, solo junto con su perfil (en la misma escritura); admin |
+| `config/publico` | Todos, incluso sin sesión | Admin; el logo, solo la JPEG chica (o una URL `https://`) |
+| `users` | Cada uno el suyo; admin todos | Alta: el propio usuario, solo como jugador aprobado; el admin, mozos y jueces aprobados con `creadoPor` igual a su uid (nunca otro admin). Edición: el usuario solo su nombre, su foto, marcar su email verificado (si el token lo confirma) o pasar su cuenta vieja a jugador; admin rol, aprobación y nombre. Baja: el propio usuario (salvo el admin y una cuenta con el acceso quitado); el admin, la de los demás |
+| `jugadores` | Cada jugador el suyo; staff todos | Alta: el propio jugador aprobado, con crédito 0, en el mismo batch que su perfil; también el juez o el admin, para jugar los torneos que manejan. Foto: cada uno la suya, solo la JPEG chica (o una URL de Storage de versiones anteriores). Edición: el jugador solo su nombre; el juez acredita solo al entregar un premio de un torneo cerrado, al ganador de ese puesto, por el monto del premio (hasta $1.000.000) y una sola vez (`ultimoPremio` + registro en `entregas`); el mozo descuenta solo junto con la venta que aplica ese crédito (`ultimaVenta`); el admin puede corregir a mano, con tope, y bloquear o reactivar (`activo`); nunca queda en negativo. Baja: el propio jugador, solo junto con su perfil (en la misma escritura); admin |
 | `salas` | Staff | Admin |
 | `mesas` | Staff | Admin; el mozo solo cambia `pedido` y `estado` |
 | `productos`, `tcg_productos` | Staff | Admin; mozo y juez solo bajan `stock`, hasta 1.000 por vez y sin pasar de -1.000 |
@@ -198,8 +193,6 @@ Storage: `logos/` guarda el logo del local.
 | `reportes` | Cualquier usuario aprobado | El jugador sentado en esa mesa de la ronda actual del torneo en curso, si el local permite que los jugadores reporten; borrar admin y juez |
 | `bloqueos/torneo` | Admin y juez | Admin y juez, con la hora del servidor: se toma solo si el torneo anterior terminó (o ya no existe) y se libera al cerrarlo. El admin puede destrabarlo |
 | `relojes/{uid}` | El propio usuario | El propio usuario, solo con la hora del servidor; borrarlo, el propio usuario |
-| Storage `logos/` | Todos | Admin, imágenes de menos de 2 MB |
-| Storage `avatares/{uid}/` | Cualquiera con sesión (también listar la carpeta) | El propio usuario, imágenes de menos de 2 MB; borrar, él o el admin |
 
 Las fechas de ventas, ingresos y torneos tienen que ser las de la jornada en curso: el día argentino (UTC-3) más 6 horas para la madrugada de un turno nocturno.
 
@@ -216,7 +209,7 @@ Nadie puede crearse como admin ni registrarse solo como mozo o juez, aprobarse s
 | `pnpm typecheck` | Chequeo de tipos con `tsc --noEmit`. |
 | `pnpm test` | Tests unitarios con Jest (preset `jest-expo`). |
 | `pnpm qa` | Tipos y tests unitarios, lo mismo que debería pasar antes de cada commit. |
-| `pnpm test:rules` | Levanta los emuladores de Firestore y Storage y corre `firestore-tests/` contra `firestore.rules` y `storage.rules`. Necesita Java 21 o superior en el `PATH`. |
+| `pnpm test:rules` | Levanta el emulador de Firestore y corre `firestore-tests/` contra `firestore.rules`. Necesita Java 21 o superior en el `PATH`. |
 | `pnpm qa:ui` | Prueba la app entera en un navegador, rol por rol: botones, diseño en 8 tamaños de pantalla, modo noche, velocidad y fluidez. Ver [QA de interfaz](#qa-de-interfaz). |
 
 Los tests de reglas usan el proyecto ficticio `demo-duel` (el prefijo `demo-` es el que los emuladores reservan para eso), así que no tocan ningún proyecto real ni necesitan credenciales.
@@ -256,7 +249,6 @@ contexts/            Tema, configuración del local, perfil del usuario, avisos
 hooks/               Suscripciones a Firestore (catálogo, mesas, salas, torneo, caja, directorio de jugadores, reloj)
 lib/                 Tipos del contrato de datos y lógica pura (pedidos, torneos, jugadores, fechas y jornada, reloj, errores)
 firestore.rules      Reglas de Firestore
-storage.rules        Reglas de Storage
 firestore.indexes.json
 firestore-tests/     Tests de reglas contra los emuladores
 scripts/qa/          QA de interfaz (pnpm qa:ui): datos de prueba, recorrido y reporte

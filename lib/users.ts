@@ -1,4 +1,5 @@
 import type { Role } from '../constants/roles';
+import { esImagenEnLinea, TOPE_FOTO } from './imagenEnLinea';
 
 // Colección `users/{uid}`.
 // Alta: el jugador se registra solo (aprobado); las cuentas de mozo y juez las
@@ -18,14 +19,14 @@ export interface UserProfile {
   creadoPor?: string;
   /** Confirmó su email (lo marca su app al iniciar sesión, validado por las reglas con el token). */
   emailVerificado?: boolean;
-  /** Foto de perfil (URL de Storage); null = silueta. */
+  /** Foto de perfil (JPEG chica como data URL, o URL de Storage de versiones anteriores); null = silueta. */
   fotoUrl?: string | null;
   creadoEn?: unknown;
 }
 
-// Tiene que coincidir con firestore.rules (fotoValida): solo URLs de descarga de Firebase Storage.
+// Tiene que coincidir con firestore.rules (fotoValida).
 const URL_FOTO = /^https:\/\/firebasestorage\.googleapis\.com\//;
 
 export function esUrlFoto(valor: unknown): valor is string {
-  return typeof valor === 'string' && valor.length <= 1024 && URL_FOTO.test(valor);
+  return esImagenEnLinea(valor, TOPE_FOTO) || (typeof valor === 'string' && valor.length <= 1024 && URL_FOTO.test(valor));
 }

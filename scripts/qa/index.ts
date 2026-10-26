@@ -566,7 +566,7 @@ async function main(): Promise<void> {
   console.log('Levantando los emuladores de Firebase…');
   const emuladores = lanzar(
     'pnpm',
-    ['dlx', 'firebase-tools@15', 'emulators:start', '--config', 'firebase.qa.json', '--only', 'auth,firestore,storage', '--project', PROYECTO_QA],
+    ['dlx', 'firebase-tools@15', 'emulators:start', '--config', 'firebase.qa.json', '--only', 'auth,firestore', '--project', PROYECTO_QA],
     binJava ? { ...process.env, PATH: `${binJava}${delimiter}${process.env.PATH ?? ''}` } : process.env
   );
   const logEmuladores = ultimasLineas(emuladores);

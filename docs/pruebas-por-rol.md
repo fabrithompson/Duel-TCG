@@ -66,7 +66,7 @@ Cómo usarla:
 
 ### Ajustes
 - [ ] Solo quedan nombre y logo como personalización. No hay color de marca ni modo noche del local.
-- [ ] "Editar": cambiar el nombre del local, cargar un logo propio y volver al de Duel.
+- [ ] "Editar": cambiar el nombre del local, cargar un logo propio y volver al de Duel. El logo nuevo se ve en el inicio sin sesión, en otro celular y en Modo TV, nítido.
 - [ ] Turnos: agregar, quitar y cambiar horarios. Turnos superpuestos no se guardan.
 - [ ] Stock: aviso de stock bajo y rubros de cafetería (agregar y quitar).
 - [ ] Torneos: rondas, minutos, tiempo extra, inscripción, cupo, reportes de jugadores, premios con crédito y juegos. Un torneo nuevo arranca con esos valores.
@@ -84,7 +84,7 @@ Cómo usarla:
 - [ ] Tocar un jugador lo bloquea (pide confirmación). "Reactivar" lo devuelve. El bloqueado no puede entrar.
 
 ### Mi cuenta
-- [ ] Foto de perfil: agregar, cambiar y quitar.
+- [ ] Foto de perfil: agregar, cambiar y quitar. Con una foto grande del celular (cámara) también anda, y se ve nítida en Mi cuenta y en Equipo.
 - [ ] Cambiar el nombre: "Guardar nombre" aparece solo si lo cambiaste.
 - [ ] Cambiar contraseña: los campos aparecen al tocar el botón. Con la actual mal escrita da un error claro.
 - [ ] Tema: automático (sigue al teléfono), día y noche.

@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { deleteApp, getApp, getApps, initializeApp } from 'firebase/app';
 import { Auth, getAuth, getReactNativePersistence, inMemoryPersistence, initializeAuth, signOut } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -37,7 +36,6 @@ function crearAuth(): Auth {
 
 export const auth = crearAuth();
 export const db = getFirestore(app);
-export const storage = getStorage(app);
 
 /**
  * Sesión de Auth aparte, solo en memoria: crear una cuenta deja adentro a la cuenta nueva, y así

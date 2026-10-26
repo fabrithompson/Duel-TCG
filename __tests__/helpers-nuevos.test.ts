@@ -132,7 +132,16 @@ describe('conNombresUnicos', () => {
 });
 
 describe('esUrlFoto', () => {
-  it('solo acepta URLs de descarga de Firebase Storage', () => {
+  it('acepta la JPEG chica en línea, con el mismo tope que las reglas', () => {
+    const jpeg = (n: number) => `data:image/jpeg;base64,/9j/${'A'.repeat(n)}`;
+    expect(esUrlFoto(jpeg(20_000))).toBe(true);
+    expect(esUrlFoto(jpeg(100_000))).toBe(false);
+    expect(esUrlFoto('data:image/png;base64,iVBORw0KGgo=')).toBe(false);
+    expect(esUrlFoto('data:text/html;base64,PHNjcmlwdD4=')).toBe(false);
+    expect(esUrlFoto(`${jpeg(10)}"><script>`)).toBe(false);
+  });
+
+  it('de las URLs, solo las de descarga de Firebase Storage (versiones anteriores)', () => {
     expect(esUrlFoto('https://firebasestorage.googleapis.com/v0/b/duel.appspot.com/o/avatares%2Fa%2Ffoto.jpg?alt=media')).toBe(true);
     expect(esUrlFoto('https://otro-sitio.com/foto.jpg')).toBe(false);
     expect(esUrlFoto('javascript:alert(1)')).toBe(false);

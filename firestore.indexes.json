@@ -43,5 +43,21 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "users",
+      "fieldPath": "fotoUrl",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "jugadores",
+      "fieldPath": "fotoUrl",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "config",
+      "fieldPath": "logoUrl",
+      "indexes": []
+    }
+  ]
 }

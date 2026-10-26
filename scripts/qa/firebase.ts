@@ -4,7 +4,6 @@
 import { deleteApp, getApp, getApps, initializeApp } from 'firebase/app';
 import { type Auth, connectAuthEmulator, getAuth, inMemoryPersistence, initializeAuth, signOut } from 'firebase/auth';
 import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore';
-import { connectStorageEmulator, getStorage } from 'firebase/storage';
 import { PROYECTO_QA, PUERTOS_QA } from './entorno';
 
 const HOST = '127.0.0.1';
@@ -23,11 +22,9 @@ const app =
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const storage = getStorage(app);
 
 connectAuthEmulator(auth, `http://${HOST}:${PUERTOS_QA.auth}`, { disableWarnings: true });
 connectFirestoreEmulator(db, HOST, PUERTOS_QA.firestore);
-connectStorageEmulator(storage, HOST, PUERTOS_QA.storage);
 
 /** Como en config/firebase.ts, pero contra el emulador de Auth. */
 export function abrirAuthAparte(): { auth: Auth; cerrar: () => Promise<void> } {

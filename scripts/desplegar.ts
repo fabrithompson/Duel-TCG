@@ -1,5 +1,5 @@
 // `pnpm desplegar`: sube reglas e índices al proyecto de Firebase del .env (el mismo que usa la app).
-// Sin argumentos despliega reglas, índices y Storage; `pnpm desplegar firestore:rules` despliega solo eso.
+// Sin argumentos despliega reglas e índices de Firestore; `pnpm desplegar firestore:rules` despliega solo eso.
 // `pnpm desplegar hosting` arma la versión web (dist/) y la publica en <proyecto>.web.app.
 // Antes, una vez: `pnpm firebase login`.
 
@@ -32,7 +32,7 @@ function pnpm(args: string[], env: NodeJS.ProcessEnv = process.env): number {
 }
 
 try {
-  const solo = process.argv.slice(2).join(',') || 'firestore:rules,firestore:indexes,storage';
+  const solo = process.argv.slice(2).join(',') || 'firestore:rules,firestore:indexes';
   const proyecto = proyectoDelEnv();
   if (solo.split(',').includes('hosting')) {
     console.log('Armando la versión web en dist/…');

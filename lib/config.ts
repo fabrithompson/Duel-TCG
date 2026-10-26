@@ -1,4 +1,5 @@
 import { minutosDelDia } from './fecha';
+import { esImagenEnLinea, TOPE_LOGO } from './imagenEnLinea';
 import { RUBROS_CAFETERIA_POR_DEFECTO, normalizarRubrosCafeteria } from './rubros';
 
 // Configuración del local, editable desde Ajustes (solo admin), en `config/publico`.
@@ -147,7 +148,7 @@ export function normalizarConfig(raw: unknown): ConfigLocal {
   const d = CONFIG_DEFAULT;
   return {
     nombreLocal: texto(r.nombreLocal, d.nombreLocal),
-    logoUrl: typeof r.logoUrl === 'string' && r.logoUrl.startsWith('https://') ? r.logoUrl : null,
+    logoUrl: (esImagenEnLinea(r.logoUrl, TOPE_LOGO) || (typeof r.logoUrl === 'string' && r.logoUrl.startsWith('https://'))) ? r.logoUrl : null,
     turnos: turnosValidos(r.turnos),
     alertaStock: numeroEn(r.alertaStock, d.alertaStock, LIMITES.alertaStock),
     torneo: {

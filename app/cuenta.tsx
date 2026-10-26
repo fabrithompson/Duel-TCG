@@ -34,7 +34,7 @@ import { useMiCredito } from '../hooks/useDirectorioJugadores';
 import UsosCredito from '../components/UsosCredito';
 import { normalizarBusqueda } from '../lib/jugadores';
 import { preguntar } from '../lib/dialogo';
-import { borrarFoto, mensajeErrorFoto, subirFoto } from '../lib/avatar';
+import { mensajeErrorFoto, prepararFoto } from '../lib/avatar';
 import { BajaIncompleta, borrarMiCuenta } from '../lib/bajaCuenta';
 
 const NOMBRE = { min: 2, max: 60 };
@@ -147,24 +147,14 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
     if (resultado.canceled || resultado.assets.length === 0) return;
     const uri = resultado.assets[0].uri;
     await conFoto(async () => {
-      const anterior = profile.fotoUrl;
-      const url = await subirFoto(profile.uid, uri);
-      try {
-        const r = await guardarFoto(url);
-        mostrar(r === 'pendiente' ? `Foto actualizada. ${AVISO_SIN_SENAL}` : 'Foto actualizada.', r === 'pendiente' ? 'info' : 'ok');
-      } catch (e) {
-        void borrarFoto(url);
-        throw e;
-      }
-      if (anterior) void borrarFoto(anterior);
+      const r = await guardarFoto(await prepararFoto(uri));
+      mostrar(r === 'pendiente' ? `Foto actualizada. ${AVISO_SIN_SENAL}` : 'Foto actualizada.', r === 'pendiente' ? 'info' : 'ok');
     });
   };
 
   const quitarFoto = () =>
     conFoto(async () => {
-      const anterior = profile.fotoUrl;
       await guardarFoto(null);
-      if (anterior) void borrarFoto(anterior);
       mostrar('Foto quitada.', 'ok');
     });
 
@@ -286,7 +276,7 @@ function Cuenta({ user, profile, onSaliendo }: CuentaProps) {
     setBorrandoCuenta(true);
     onSaliendo(true);
     try {
-      await borrarMiCuenta(user, passBaja, profile.fotoUrl);
+      await borrarMiCuenta(user, passBaja);
       mostrar('Tu cuenta se borró.', 'ok');
       reiniciar('index');
     } catch (e) {

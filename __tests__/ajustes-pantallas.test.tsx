@@ -53,7 +53,7 @@ const mockStaff: DocFalso[] = [
   { id: 'p1', nombre: 'Martina Gómez', email: 'martina@mail.com', role: 'mozo', estadoAprobacion: 'pendiente' },
 ];
 
-jest.mock('../config/firebase', () => ({ db: {}, auth: {}, storage: {} }));
+jest.mock('../config/firebase', () => ({ db: {}, auth: {} }));
 
 jest.mock('firebase/firestore', () => ({
   doc: (_db: unknown, ...partes: string[]) => ({ tipo: 'doc', path: partes.join('/') }),
@@ -76,12 +76,7 @@ jest.mock('firebase/firestore', () => ({
   Timestamp: { fromMillis: (ms: number) => ({ toMillis: () => ms }) },
 }));
 
-jest.mock('firebase/storage', () => ({
-  ref: jest.fn(),
-  uploadBytes: jest.fn(),
-  getDownloadURL: jest.fn(),
-  deleteObject: jest.fn(),
-}));
+jest.mock('expo-image-manipulator', () => ({ ImageManipulator: { manipulate: jest.fn() }, SaveFormat: { JPEG: 'jpeg' } }));
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: jest.fn() }) }));
 

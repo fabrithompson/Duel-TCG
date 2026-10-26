@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "qa": "tsc --noEmit && jest",
-    "test:rules": "pnpm dlx firebase-tools@15 emulators:exec --only firestore,storage --project demo-duel \"jest -c firestore-tests/jest.config.js --runInBand\"",
+    "test:rules": "pnpm dlx firebase-tools@15 emulators:exec --only firestore --project demo-duel \"jest -c firestore-tests/jest.config.js --runInBand\"",
     "qa:ui": "tsx scripts/qa/index.ts",
     "firebase": "pnpm dlx firebase-tools@15",
     "desplegar": "tsx scripts/desplegar.ts",
@@ -24,7 +24,7 @@
     "testPathIgnorePatterns": [
       "/node_modules/",
       "/firestore-tests/",
-      "/\\.claude/"
+      "<rootDir>/.claude/"
     ],
     "testTimeout": 15000
   },

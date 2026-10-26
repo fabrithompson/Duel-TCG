@@ -37,7 +37,7 @@ import { AVISO_SIN_SENAL, ESPERA_ESCRITURA_MS, esperarConfirmacion } from '../..
 import { fechaDeNegocio, horaLocal } from '../../../lib/fecha';
 import { ahoraServidor } from '../../../lib/reloj';
 import { advertencia, tocar } from '../../../lib/haptics';
-import { borrarLogo, mensajeErrorLogo, subirLogo } from '../../../lib/logo';
+import { mensajeErrorLogo, prepararLogo } from '../../../lib/logo';
 import { MEDIOS_PAGO, formatARS } from '../../../lib/pedido';
 import { preguntar } from '../../../lib/dialogo';
 
@@ -343,16 +343,8 @@ function Identidad() {
       });
       if (resultado.canceled || resultado.assets.length === 0) return;
       setLogoOcupado(true);
-      const anterior = config.logoUrl;
-      const url = await subirLogo(resultado.assets[0].uri);
-      try {
-        await guardarConfig({ logoUrl: url });
-      } catch (e) {
-        void borrarLogo(url);
-        throw e;
-      }
+      await guardarConfig({ logoUrl: await prepararLogo(resultado.assets[0].uri) });
       mostrar('Logo actualizado', 'ok');
-      if (anterior) void borrarLogo(anterior);
     } catch (e) {
       mostrar(mensajeErrorLogo(e), 'error');
     } finally {
@@ -362,15 +354,13 @@ function Identidad() {
 
   const volverAlLogoDeDuel = async () => {
     if (logoOcupadoRef.current) return;
-    const anterior = config.logoUrl;
     logoOcupadoRef.current = true;
     setLogoOcupado(true);
-    const ok = await guardar({ logoUrl: null }, 'Volviste al logo de Duel');
+    await guardar({ logoUrl: null }, 'Volviste al logo de Duel');
     liberarLogo();
-    if (ok && anterior) void borrarLogo(anterior);
   };
 
-  // El logo propio se borra de Storage: un toque de más no lo tiene que perder.
+  // El logo propio se borra: un toque de más no lo tiene que perder.
   const confirmarLogoDeDuel = () => {
     preguntar('¿Volver al logo de Duel?', undefined, [
       { text: 'Cancelar', style: 'cancel' },

@@ -6,7 +6,7 @@ import type { Role } from '../../constants/roles';
 export const PROYECTO_QA = 'demo-duel-qa';
 
 // Distintos de los de firebase.json: los tests de reglas pueden correr a la vez.
-export const PUERTOS_QA = { auth: 9399, firestore: 8380, storage: 9499 } as const;
+export const PUERTOS_QA = { auth: 9399, firestore: 8380 } as const;
 
 export const PUERTO_WEB_QA = 8390;
 

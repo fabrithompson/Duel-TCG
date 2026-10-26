@@ -21,6 +21,13 @@ describe('normalizarConfig', () => {
     expect(c.reporteJugador).toBe(false);
   });
 
+  it('el logo puede ser la JPEG chica guardada en el documento', () => {
+    const logo = `data:image/jpeg;base64,/9j/${'A'.repeat(50_000)}`;
+    expect(normalizarConfig({ logoUrl: logo }).logoUrl).toBe(logo);
+    expect(normalizarConfig({ logoUrl: `data:image/jpeg;base64,${'A'.repeat(250_000)}` }).logoUrl).toBeNull();
+    expect(normalizarConfig({ logoUrl: 'data:image/svg+xml;base64,PHN2Zz4=' }).logoUrl).toBeNull();
+  });
+
   it('descarta valores inválidos o maliciosos', () => {
     const c = normalizarConfig({
       nombreLocal: '',
