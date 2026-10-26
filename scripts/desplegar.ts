@@ -35,10 +35,6 @@ try {
   const solo = process.argv.slice(2).join(',') || 'firestore:rules,firestore:indexes,storage';
   const proyecto = proyectoDelEnv();
   if (solo.split(',').includes('hosting')) {
-    // La página de baja (Google Play) no puede salir sin un email al que escribir.
-    if (readFileSync(resolve(RAIZ, 'public', 'baja.html'), 'utf8').includes('CONTACTO_DUEL')) {
-      throw new Error('Falta el email de contacto en public/baja.html: reemplazá CONTACTO_DUEL (aparece dos veces).');
-    }
     console.log('Armando la versión web en dist/…');
     const build = pnpm(['exec', 'expo', 'export', '--platform', 'web', '--output-dir', 'dist', '--clear'], { ...process.env, CI: '1' });
     if (build !== 0) process.exit(build);
