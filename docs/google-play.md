@@ -2,11 +2,11 @@
 
 Paso a paso para publicar Duel con la cuenta personal de desarrollador. Los textos están listos para copiar. Las imágenes están en [`docs/google-play/`](google-play/).
 
-## Antes que nada: el logo
+## El logo
 
-El logo de Duel tiene una carta de Pokémon, con la marca y la Poké Ball a la vista, y es también el ícono de la app. Play rechaza o suspende las apps que usan marcas de otros en el ícono o en las imágenes de la ficha, así que hay que cambiarlo antes de subir la primera versión. Alcanza con las mismas cartas con dorsos genéricos, sin nombres ni logos de juegos.
+Play rechaza o suspende las apps que usan marcas de otros en el ícono o en las imágenes de la ficha. El logo de Duel (`assets/brand/duel-logo.svg`) tiene cartas con dorsos propios, sin nombres ni logos de juegos. Ojo si se cambia: el anterior tenía una carta de Pokémon y no se podía publicar con él.
 
-Con el logo nuevo se reemplazan `assets/icon.png`, `assets/adaptive-icon.png`, `assets/favicon.png`, `assets/brand/duel-logo.png` y los íconos de `public/` (`icono-192.png`, `icono-512.png`, `apple-touch-icon.png`). El ícono de 512 × 512 de la ficha es `public/icono-512.png`. El gráfico de funciones y las capturas de esta carpeta no usan el logo.
+Del SVG salen `assets/icon.png`, `assets/adaptive-icon.png`, `assets/favicon.png`, `assets/brand/duel-logo.png` y los íconos de `public/`. El ícono de 512 × 512 de la ficha es `public/icono-512.png`.
 
 ## 0. Antes de empezar
 
@@ -145,7 +145,7 @@ Sin publicidad. Podés borrar tu cuenta cuando quieras desde Mi cuenta.
 
 | Qué | Archivo |
 | --- | --- |
-| Ícono de la app (512 × 512) | `public/icono-512.png`, con el logo nuevo (ver arriba) |
+| Ícono de la app (512 × 512) | `public/icono-512.png` |
 | Gráfico de funciones (1024 × 500) | `grafico-destacado.png` |
 | Capturas de teléfono (de 2 a 8) | `captura-1-mi-duelo.png` … `captura-5-salon.png` |
 

@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-140 -112 280 290" width="280" height="290">
+  <!-- Logo de Duel (2a): escudo, platillo, taza y tres cartas con dorsos propios, sin marcas de terceros.
+       Es el último cuadro de la animación del diseño, sin el vapor: quieto, tapaba la carta del medio.
+       Los PNG de assets/ y public/ salen de acá. -->
+  <defs>
+    <filter id="duel-sombra" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#241A13" flood-opacity="0.22"/></filter>
+    <filter id="duel-sombra-taza" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#241A13" flood-opacity="0.28"/></filter>
+    <clipPath id="duel-carta"><rect x="-24" y="-47" width="48" height="94" rx="3.5"/></clipPath>
+    <clipPath id="duel-carta-centro"><rect x="-25" y="-49" width="50" height="98" rx="3.5"/></clipPath>
+    <radialGradient id="duel-orbe" cx="38%" cy="32%" r="70%"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#BFC9DD"/></radialGradient>
+    <linearGradient id="duel-escudo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8A4A22"/><stop offset="1" stop-color="#5E2E13"/></linearGradient>
+  </defs>
+
+  <path d="M-100 30 Q-100 12 -82 12 L82 12 Q100 12 100 30 L100 62 Q100 122 0 154 Q-100 122 -100 62 Z" fill="#3A1C0D" stroke="#C59542" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M-91 32 Q-91 21 -80 21 L80 21 Q91 21 91 32 L91 60 Q91 114 0 142 Q-91 114 -91 60 Z" fill="url(#duel-escudo)" stroke="#C59542" stroke-width="1.5" opacity=".95"/>
+
+  <g transform="translate(-62,0)">
+    <g filter="url(#duel-sombra)" transform="rotate(-15)">
+      <g transform="scale(1.3)">
+        <rect x="-29" y="-52" width="58" height="104" rx="6" fill="#FFFFFF" stroke="#D5C5B2" stroke-width="2"/>
+        <g clip-path="url(#duel-carta)">
+          <rect x="-24" y="-47" width="48" height="94" fill="#1E2B66"/>
+          <path d="M-30 -30 L30 28 M-30 0 L30 -40 M-30 -52 L30 8 M-30 32 L30 -18 M-30 16 L30 50" stroke="#C59542" stroke-width=".7" opacity=".5" fill="none"/>
+          <circle cx="0" cy="-12" r="15" fill="none" stroke="#C59542" stroke-width="1.6"/>
+          <circle cx="0" cy="-12" r="10.5" fill="none" stroke="#C59542" stroke-width=".8" opacity=".8"/>
+          <path d="M0 -22 L2 -14 L10 -12 L2 -10 L0 -2 L-2 -10 L-10 -12 L-2 -14 Z" fill="#C59542"/>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <g transform="translate(62,0)">
+    <g filter="url(#duel-sombra)" transform="rotate(15)">
+      <g transform="scale(1.3)">
+        <rect x="-29" y="-52" width="58" height="104" rx="6" fill="#FFFFFF" stroke="#D5C5B2" stroke-width="2"/>
+        <g clip-path="url(#duel-carta)">
+          <rect x="-24" y="-47" width="48" height="94" fill="#482A9A"/>
+          <path d="M-24 -30 H24 M-24 -14 H24 M-24 2 H24 M-24 18 H24 M-24 34 H24 M-13 -47 V47 M13 -47 V47" stroke="#8FE3FF" stroke-width=".6" opacity=".35" fill="none"/>
+          <path d="M-21 -41 h7 M15 -41 h7 M-21 40 h5 M17 40 h5" stroke="#8FE3FF" stroke-width="1.3" opacity=".75" fill="none"/>
+          <circle cx="0" cy="-12" r="14" fill="none" stroke="#8FE3FF" stroke-width="1.5"/>
+          <circle cx="0" cy="-12" r="9" fill="#8FE3FF" opacity=".22"/>
+          <path d="M0 -19 L6 -15.5 V-8.5 L0 -5 L-6 -8.5 V-15.5 Z" fill="none" stroke="#D8F6FF" stroke-width="1.3"/>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <g transform="translate(0,-14)">
+    <g filter="url(#duel-sombra)">
+      <g transform="scale(1.3)">
+        <rect x="-30" y="-54" width="60" height="108" rx="6.5" fill="#FFFFFF" stroke="#241A13" stroke-width="2.5"/>
+        <g clip-path="url(#duel-carta-centro)">
+          <rect x="-25" y="-49" width="50" height="98" fill="#2A58BD"/>
+          <path d="M-40 4 C-28 -44 28 -44 40 4" stroke="#FFFFFF" stroke-width="8" opacity=".14" fill="none"/>
+          <path d="M-36 -36 C-12 -14 14 -48 32 -18" stroke="#FFFFFF" stroke-width="5" opacity=".16" fill="none"/>
+          <path d="M-32 16 C-8 -4 14 32 36 6" stroke="#FFFFFF" stroke-width="5" opacity=".12" fill="none"/>
+          <circle cx="0" cy="-12" r="13" fill="url(#duel-orbe)"/>
+          <circle cx="0" cy="-12" r="13" fill="none" stroke="#FFFFFF" stroke-width="1" opacity=".6"/>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <path d="M-100 30 Q-100 12 -82 12 L82 12 Q100 12 100 30 L100 62 Q100 122 0 154 Q-100 122 -100 62 Z" fill="none" stroke="#C59542" stroke-width="5" stroke-linejoin="round"/>
+
+  <g filter="url(#duel-sombra-taza)">
+    <ellipse cx="0" cy="87" rx="88" ry="23" fill="#8A4A22" stroke="#C59542" stroke-width="3"/>
+    <ellipse cx="0" cy="86" rx="79" ry="19" fill="none" stroke="#C59542" stroke-width="1.2" opacity=".6"/>
+    <ellipse cx="0" cy="84" rx="58" ry="12.5" fill="#5C2F14" stroke="#C59542" stroke-width="1.5"/>
+  </g>
+  <g filter="url(#duel-sombra-taza)">
+    <path d="M50 34 C98 26 100 78 36 68" fill="none" stroke="#2B160C" stroke-width="12" stroke-linecap="round"/>
+    <path d="M50 34 C98 26 100 78 36 68" fill="none" stroke="#C59542" stroke-width="2.2" stroke-linecap="round" opacity=".9"/>
+    <path d="M-54 28 Q-54 85 0 85 Q54 85 54 28 Z" fill="#2B160C"/>
+    <path d="M-46 42 Q-50 66 -30 78" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" opacity=".08"/>
+    <ellipse cx="0" cy="28" rx="54" ry="16" fill="#3D2B20" stroke="#C59542" stroke-width="3"/>
+    <ellipse cx="0" cy="29" rx="48" ry="12.5" fill="#4A2C1A"/>
+    <ellipse cx="8" cy="27" rx="26" ry="4.5" fill="#7A5236" opacity=".85"/>
+    <circle cx="-30" cy="24" r="1.6" fill="#F2D59A"/>
+    <circle cx="36" cy="33" r="1.2" fill="#F2D59A"/>
+  </g>
+  <path d="M-36 134 Q-26 116 -12 126 Q-4 132 0 126 Q4 132 12 126 Q26 116 36 134" fill="none" stroke="#C59542" stroke-width="2.6" stroke-linecap="round"/>
+</svg>
