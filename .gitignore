@@ -54,3 +54,6 @@ storage-debug.log
 # QA de interfaz (pnpm qa:ui)
 .qa/
 qa-reporte/
+
+# Grafo de conocimiento (graphify)
+graphify-out/
